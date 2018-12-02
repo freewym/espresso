@@ -58,6 +58,9 @@ from .multilingual.sampled_multi_dataset import SampledMultiDataset
 from .multilingual.sampled_multi_epoch_dataset import SampledMultiEpochDataset
 from .fasta_dataset import FastaDataset, EncodedFastaDataset
 from .transform_eos_concat_langpair_dataset import TransformEosConcatLangPairDataset
+from .token_dictionary import TokenDictionary
+from .scp_dataset import ScpDataset, ScpCachedDataset, ScpInMemoryDataset, TokenTextDataset
+from .speech_dataset import SpeechDataset
 
 from .iterators import (
     CountingIterator,
@@ -127,4 +130,10 @@ __all__ = [
     "TransformEosConcatLangPairDataset",
     "TruncateDataset",
     "TruncatedDictionary",
+    'TokenDictionary',
+    'ScpDataset',
+    'ScpCachedDataset',
+    'ScpInMemoryDataset',
+    'TokenTextDataset',
+    'SpeechDataset',
 ]

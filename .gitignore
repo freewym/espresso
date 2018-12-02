@@ -134,3 +134,6 @@ experimental/*
 
 # Weights and Biases logs
 wandb/
+
+# emacs saves
+*~
