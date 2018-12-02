@@ -1,0 +1,233 @@
+# Copyright (c) 2018-present, Yiming Wang
+# All rights reserved.
+#
+# This source code is licensed under the license found in the LICENSE file in
+# the root directory of this source tree. An additional grant of patent rights
+# can be found in the PATENTS file in the same directory.
+
+import os
+
+import numpy as np
+import torch
+
+import speech_tools.kaldi_io as kaldi_io
+from speech_tools.utils import Tokenizer
+
+class ScpDataset(torch.utils.data.Dataset):
+    """Loader for TorchNet IndexedDataset"""
+
+    def __init__(self, path):
+        super().__init__()
+        self.dtype = np.float
+        self.read_scp(path)
+
+    def read_scp(self, path):
+        with open(path, 'r', encoding='utf-8') as f:
+            scp_entries = [line.strip().split(None, 1) for line in f]
+        self.utt_ids = [entry[0] for entry in scp_entries]
+        self.extended_filenames = [entry[1] for entry in scp_entries]
+        self.size = len(scp_entries) # number of utterances
+        self.sizes=[] # length of each utterance
+        for filename in self.extended_filenames:
+            try:
+                feat = kaldi_io.read_mat(filename)
+            except:
+                print('Failed to read feature matrix {}.'.format(filename))
+                raise
+            assert feat is not None and isinstance(feat, np.ndarray)
+            self.sizes.append(feat.shape[0])
+        self.sizes = np.array(self.sizes, dtype=np.int32)
+        self.feat_dim = feat.shape[1] # feature dimension
+
+        assert len(self.utt_ids) == len(self.extended_filenames) and \
+            len(self.utt_ids) == len(self.sizes)
+
+
+    def check_index(self, i):
+        if i < 0 or i >= self.size:
+            raise IndexError('index out of range')
+
+    def filter_and_reorder(self, indices):
+        assert isinstance(indices, (list, np.ndarray))
+        indices = np.array(indices)
+        assert all(indices < len(self.utt_ids)) and all(indices >= 0)
+        assert len(np.unique(indices)) == len(indices), \
+            'Duplicate elements in indices.'
+        self.utt_ids = [self.utt_ids[i] for i in indices]
+        self.extended_filenames = [self.extended_filenames[i] for i in indices]
+        self.sizes = self.sizes[indices]
+        self.size = len(self.utt_ids)
+        self.ordered_indices = list(range(self.size))
+
+    def __getitem__(self, i):
+        self.check_index(i)
+        feat = kaldi_io.read_mat(self.extended_filenames[i])
+        item = torch.from_numpy(feat).float()
+        return item
+
+    def __len__(self):
+        return self.size
+
+    @staticmethod
+    def exists(path):
+        return os.path.exists(path)
+
+
+class ScpCachedDataset(ScpDataset):
+
+    def __init__(self, path, ordered_prefetch=False, cache_size=4096):
+        super().__init__(path)
+        self.cache = None
+        self.cache_index = {}
+        self.cache_size = cache_size # in terms of number of examples
+        self.start_search_for_next_pos_start = 0
+        self.ordered_indices = list(range(self.size))
+        self.ordered_prefetch = ordered_prefetch # set to True ONLY if examples
+                                                 # are queried in the same order
+                                                 # as self.ordered_indices, and
+                                                 # doing this will speed up
+                                                 # search of the queried index.
+
+    @property
+    def supports_prefetch(self):
+        return True
+
+    def prefetch(self, indices):
+        """Sets self.ordered_indices. If being called, the caller is supposed to
+        query examples in the same order as self.ordered_indices.
+        self.ordered_prefetch can be set to True in this case. Note: the purpose
+        of this function is different from what it is supposed to do in the
+        fairseq framework."""
+        assert isinstance(indices, (list, np.ndarray))
+        assert self.size >= len(indices)
+        self.ordered_indices = indices.copy()
+
+    def __getitem__(self, i):
+        self.check_index(i)
+        if i not in self.cache_index:
+            assert self.start_search_for_next_pos_start < \
+                len(self.ordered_indices), \
+                'Search position starting beyond the end of ordered_indices.'
+            try:
+                pos_start = self.ordered_indices.index(i,
+                    self.start_search_for_next_pos_start)
+            except ValueError:
+                print('index {} not found in self.ordered_indices. Set '
+                'self.ordered_prefetch to False, and/or call self.prefetch() '
+                'with the full list of indices, and then try again.'.format(i))
+                raise
+            pos_end = min(pos_start + self.cache_size,
+                len(self.ordered_indices))
+            self.start_search_for_next_pos_start = pos_end \
+                if self.ordered_prefetch else 0
+            total_size = 0
+            for idx in self.ordered_indices[pos_start : pos_end]:
+                total_size += self.sizes[idx]
+            self.cache = np.empty((total_size, self.feat_dim), dtype=self.dtype)
+            ptx = 0
+            self.cache_index.clear()
+            for idx in self.ordered_indices[pos_start : pos_end]:
+                self.cache_index[idx] = ptx
+                length = self.sizes[idx]
+                dst = self.cache[ptx : ptx + length]
+                np.copyto(dst, kaldi_io.read_mat(self.extended_filenames[idx]))
+                ptx += length
+
+        ptx = self.cache_index[i]
+        a = self.cache[ptx : ptx + self.sizes[i]].copy()
+        return torch.from_numpy(a).float()
+
+
+class ScpInMemoryDataset(ScpDataset):
+    """Loader for TorchNet ScpDataset, keeps all the data in memory."""
+
+    def __init__(self, path):
+        super().__init__(path)
+        self.read_data()
+    
+    def read_data(self):
+        self.data_offsets = np.append([0], np.cumsum(self.sizes)[:-1])
+        self.buffer = np.empty((sum(self.sizes), self.feat_dim),
+            dtype=self.dtype)
+        for i in range(len(self.data_offsets)):
+            ptx = self.data_offsets[i]
+            dst = self.buffer[ptx : ptx + self.sizes[i]]
+            np.copyto(dst, kaldi_io.read_mat(self.extended_filenames[i]))
+
+    def filter_and_reorder(self, indices):
+        super().filter_and_reorder(indices)
+        self.read_data()
+    
+    def __getitem__(self, i):
+        self.check_index(i)
+        ptx = self.data_offsets[i]
+        a = self.buffer[ptx : ptx + self.sizes[i]].copy()
+        return torch.from_numpy(a).float()
+
+
+class TokenTextDataset(torch.utils.data.Dataset):
+    """Takes a text file as input and binarizes it in memory at instantiation.
+    Original lines are also kept in memory. Each line of the text file is in the
+    format of 'utt_id tokenized_text'."""
+
+    def __init__(self, path, dictionary, append_eos=True):
+        super().__init__()
+        self.dtype = np.float
+        self.append_eos = append_eos
+        self.read_text(path, dictionary)
+
+    def read_text(self, path, dictionary):
+        self.utt_ids = []
+        self.tokens_list = []
+        self.tensor_list = []
+        self.sizes = []
+        with open(path, 'r', encoding='utf-8') as f:
+            for line in f:
+                utt_id, tokens = line.strip().split(None, 1)
+                self.utt_ids.append(utt_id)
+                self.tokens_list.append(tokens)
+                tensor = Tokenizer.tokens_to_index_tensor(tokens, dictionary)
+                self.tensor_list.append(tensor)
+                self.sizes.append(len(self.tensor_list[-1]))
+
+        self.size = len(self.utt_ids) # number of utterances
+        self.sizes = np.array(self.sizes, dtype=np.int32)
+
+        assert len(self.utt_ids) == len(self.tokens_list) and \
+            len(self.utt_ids) == len(self.tensor_list) and \
+            len(self.utt_ids) == len(self.sizes)
+
+    def check_index(self, i):
+        if i < 0 or i >= self.size:
+            raise IndexError('index out of range')
+
+    def filter_and_reorder(self, indices):
+        assert isinstance(indices, (list, np.ndarray))
+        indices = np.array(indices)
+        assert all(indices < self.size) and all(indices >= 0)
+        assert len(np.unique(indices)) == len(indices), \
+            'Duplicate elements in indices.'
+        self.utt_ids = [self.utt_ids[i] for i in indices]
+        self.tokens_list = [self.tokens_list[i] for i in indices]
+        self.tensor_list = [self.tensor_list[i] for i in indices]
+        self.sizes = self.sizes[indices]
+        self.size = len(self.utt_ids)
+
+    def __getitem__(self, i):
+        self.check_index(i)
+        return self.tensor_list[i]
+
+    def get_original_tokens(self, i):
+        self.check_index(i)
+        return self.tokens_list[i]
+    
+    def get_original_text(self, i):
+        self.check_index(i)
+        return Tokenizer.tokens_to_sentence(self.tokens_list[i])
+
+    def __len__(self):
+        return self.size
+
+    @staticmethod
+    def exists(path):
+        return os.path.exists(path)
