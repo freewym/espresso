@@ -139,3 +139,6 @@ wandb/
 nohup.out
 multirun
 outputs
+
+# emacs saves
+*~
