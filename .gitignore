@@ -130,3 +130,6 @@ data-bin/
 
 # Experimental Folder
 experimental/*
+
+# emacs saves
+*~
