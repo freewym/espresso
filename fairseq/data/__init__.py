@@ -24,6 +24,9 @@ from .round_robin_zip_datasets import RoundRobinZipDatasets
 from .token_block_dataset import TokenBlockDataset
 from .transform_eos_dataset import TransformEosDataset
 from .transform_eos_lang_pair_dataset import TransformEosLangPairDataset
+from .token_dictionary import TokenDictionary
+from .scp_dataset import ScpDataset, ScpCachedDataset, ScpInMemoryDataset, TokenTextDataset
+from .speech_dataset import SpeechDataset
 
 from .iterators import (
     CountingIterator,
@@ -59,4 +62,10 @@ __all__ = [
     'TransformEosDataset',
     'TransformEosLangPairDataset',
     'TruncatedDictionary',
+    'TokenDictionary',
+    'ScpDataset',
+    'ScpCachedDataset',
+    'ScpInMemoryDataset',
+    'TokenTextDataset',
+    'SpeechDataset',
 ]

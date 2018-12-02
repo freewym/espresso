@@ -114,3 +114,6 @@ fairseq/temporal_convolution_tbc
 
 # data
 data-bin/
+
+# emacs saves
+*~
