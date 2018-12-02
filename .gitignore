@@ -119,3 +119,6 @@ data-bin/
 
 # reranking
 examples/reranking/rerank_data
+
+# emacs saves
+*~
