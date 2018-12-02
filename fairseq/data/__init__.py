@@ -43,6 +43,9 @@ from .transform_eos_dataset import TransformEosDataset
 from .transform_eos_lang_pair_dataset import TransformEosLangPairDataset
 from .truncate_dataset import TruncateDataset
 from .resampling_dataset import ResamplingDataset
+from .token_dictionary import TokenDictionary
+from .scp_dataset import ScpDataset, ScpCachedDataset, ScpInMemoryDataset, TokenTextDataset
+from .speech_dataset import SpeechDataset
 
 from .iterators import (
     CountingIterator,
@@ -98,4 +101,10 @@ __all__ = [
     'TransformEosLangPairDataset',
     'TruncateDataset',
     'TruncatedDictionary',
+    'TokenDictionary',
+    'ScpDataset',
+    'ScpCachedDataset',
+    'ScpInMemoryDataset',
+    'TokenTextDataset',
+    'SpeechDataset',
 ]
