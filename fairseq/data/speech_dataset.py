@@ -128,7 +128,7 @@ class SpeechDataset(FairseqDataset):
 
     def _match_src_tgt(self):
         """Makes utterances in src and tgt the same order in terms of
-        their utt_ids. Removes those that only appear in one of them."""
+        their utt_ids. Removes those that are only present in one of them."""
         assert self.tgt is not None
         if self.src.utt_ids == self.tgt.utt_ids:
             return
