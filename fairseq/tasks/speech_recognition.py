@@ -8,8 +8,9 @@
 import itertools
 import numpy as np
 import os
+import re
 
-from fairseq import options
+from fairseq import options, utils
 from fairseq.data import (
     data_utils, TokenDictionary, SpeechDataset, ConcatDataset,
     TokenTextDataset, ScpCachedDataset
@@ -42,8 +43,18 @@ class SpeechRecognitionTask(FairseqTask):
     @staticmethod
     def add_args(parser):
         """Add task-specific arguments to the parser."""
-        parser.add_argument('scp_files', nargs='+', help='path(s) to scp file(s)')
-        parser.add_argument('text_files', nargs='+', help='path(s) to text file(s)')
+        parser.add_argument('--train-scp-files', nargs='+',
+                            help='path(s) to scp file(s) for training')
+        parser.add_argument('--train-text-files', nargs='+',
+                            help='path(s) to text file(s) for training')
+        parser.add_argument('--valid-scp-files', nargs='+',
+                            help='path(s) to scp file(s) for validation')
+        parser.add_argument('--valid-text-files', nargs='+',
+                            help='path(s) to text file(s) for validation')
+        parser.add_argument('--test-scp-files', nargs='+',
+                            help='path(s) to scp file(s) for test')
+        parser.add_argument('--test-text-files', nargs='+',
+                            help='path(s) to text file(s) for test')
         parser.add_argument('--dict', default=None, type=str,
                             help='path to the dictionary')
         parser.add_argument('--raw-text', action='store_true',
@@ -58,6 +69,20 @@ class SpeechRecognitionTask(FairseqTask):
                             help='max number of tokens in the target sequence')
         parser.add_argument('--upsample-primary', default=1, type=int,
                             help='amount to upsample primary dataset')
+
+    @staticmethod
+    def load_pretrained_model(path, dict_path, arg_overrides=None):
+        model = utils.load_checkpoint_to_cpu(path)
+        args = model['args']
+        state_dict = model['model']
+        args = utils.override_model_args(args, arg_overrides)
+        dict = Dictionary.load(dict_path)
+
+        task = SpeechRecognitionTask(args, dict)
+        model = task.build_model(args)
+        model.upgrade_state_dict(state_dict)
+        model.load_state_dict(state_dict, strict=True)
+        return model
 
     def __init__(self, args, dict):
         super().__init__(args)
@@ -90,8 +115,22 @@ class SpeechRecognitionTask(FairseqTask):
         src_datasets = []
         tgt_datasets = []
 
-        assert len(self.args.scp_files) == len(self.args.text_files)
-        file_pairs = zip(self.args.scp_files, self.args.text_file)
+        if split == 'train':
+            scp_files = self.args.train_scp_files
+            text_files = self.args.train_text_files
+            assert len(scp_files) > 0 and len(text_files) > 0
+        elif re.match(r"^valid\d*$", split):
+            scp_files = self.args.valid_scp_files
+            text_files = self.args.valid_text_files
+            assert len(scp_files) > 0 and len(text_files) > 0
+        elif split == 'test':
+            scp_files = self.args.test_scp_files
+            text_files = self.args.test_text_files
+            assert len(scp_files) > 0 and len(text_files) > 0
+        else:
+            raise ValueError('split should be one of "train", "valid*", "test"')
+        assert len(scp_files) == len(text_files)
+        file_pairs = zip(scp_files, text_files)
         for scp, text in enumerate(file_pairs):
             assert ScpCachedDataset.exists(scp) and TokenTextDataset.exists(text)
             src_datasets.append(ScpCachedDataset(scp, ordered_indices=True))

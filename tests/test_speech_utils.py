@@ -73,7 +73,8 @@ class TestSpeechUtils(unittest.TestCase):
             tokens = utils.Tokenizer.tokenize(sent, \
                 space=self.dict.space_word, non_lang_syms=self.non_lang_syms)
 
-            # test Tokenizer.tokenize() with Tokenizer.tokens_to_index_tensor()
+            # test :func:`~speech_tools.utils.Tokenizer.tokenize` with
+            # :func:`~speech_tools.utils.Tokenizer.tokens_to_index_tensor`
             tensor = utils.Tokenizer.tokens_to_index_tensor(tokens, self.dict, \
                 append_eos=True)
             reconstructed_tokens = self.dict.string(tensor)
@@ -83,7 +84,8 @@ class TestSpeechUtils(unittest.TestCase):
             )
             self.assertEqual(reconstructed_tokens, expected_tokens)
 
-            # test Tokenizer.tokenize() with Tokenizer.tokens_to_sentence()
+            # test :func:`~speech_tools.utils.Tokenizer.tokenize` with
+            # :func:`~speech_tools.utils.Tokenizer.tokens_to_sentence`
             reconstructed_sent = utils.Tokenizer.tokens_to_sentence(tokens,
                 self.dict)
             expected_sent = []
