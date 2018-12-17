@@ -33,16 +33,16 @@ class SpeechLSTMModel(FairseqModel):
                             help='dropout probability')
         parser.add_argument('feat-dim', type=int, metavar='N',
                             help='input feature dimension')
-        paser.add_argument('--encoder-conv-channels', type=str, metavar='STR',
+        parser.add_argument('--encoder-conv-channels', type=str, metavar='STR',
                             help='list of encoder convolution\'s out channels')
-        paser.add_argument('--encoder-conv-kernel-size', type=str, metavar='STR',
+        parser.add_argument('--encoder-conv-kernel-size', type=str, metavar='STR',
                             help='list of encoder convolution\'s kernel size')
-        paser.add_argument('--encoder-conv-stride', type=str, metavar='STR',
+        parser.add_argument('--encoder-conv-stride', type=str, metavar='STR',
                             help='list of encoder convolution\'s stride')
         parser.add_argument('--encoder-rnn-hidden-size', type=int, metavar='N',
                             help='encoder rnn\'s hidden size')
         parser.add_argument('--encoder-rnn-layers', type=int, metavar='N',
-                            Lhelp='number of rnn encoder layers')
+                            help='number of rnn encoder layers')
         parser.add_argument('--encoder-rnn-bidirectional', action='store_true',
                             help='make all rnn layers of encoder bidirectional')
         parser.add_argument('--decoder-embed-dim', type=int, metavar='N',
@@ -154,7 +154,7 @@ class SpeechLSTMModel(FairseqModel):
 
 class ConvBNReLU(nn.Module):
     """Sequence of convolution-BatchNorm-ReLU layers."""
-    def __init__(self, out_channels, kernel_size, stride, in_channel=1)
+    def __init__(self, out_channels, kernel_size, stride, in_channel=1):
         super().__init__()
         self.out_channels = out_channels
         self.kernel_size = kernel_size
@@ -167,11 +167,11 @@ class ConvBNReLU(nn.Module):
         self.convolutions = nn.ModuleList()
         self.batchnorms = nn.ModuleList()
         for i in range(self.num_layers):
-            self.convolutions.append(Convolution2d(
-                self.in_channel if i == 0 else self.out_channels[i-1],
-                self.out_channels[i],
-                self.kernel_size[i], self.stride[i]))
-            )
+            self.convolutions.append(
+                Convolution2d(
+                    self.in_channel if i == 0 else self.out_channels[i-1],
+                    self.out_channels[i],
+                    self.kernel_size[i], self.stride[i]))
             self.batchnorms.append(nn.BatchNorm2d(out_channels[i]))
 
     def forward(self, src, src_lengths):

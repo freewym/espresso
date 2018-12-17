@@ -8,7 +8,7 @@
 import unittest
 import string
 import numpy as np
-import os
+from collections import Counter
 
 import torch
 
@@ -100,6 +100,112 @@ class TestSpeechUtils(unittest.TestCase):
                     expected_sent.append(w)
             expected_sent = ' '.join(expected_sent)
             self.assertEqual(reconstructed_sent, expected_sent)
+
+    def test_collate_frames(self):
+        vals = [
+            torch.tensor([4.5, 2.3, 1.2]).unsqueeze(-1).expand(-1, 10),
+            torch.tensor([6.7, 9.8]).unsqueeze(-1).expand(-1, 10),
+            torch.tensor([7.7, 5.4, 6.2, 8.0]).unsqueeze(-1).expand(-1, 10),
+            torch.tensor([1.5]).unsqueeze(-1).expand(-1, 10)]
+        expected_res1 = torch.tensor([
+            [4.5, 2.3, 1.2, 0.0],
+            [6.7, 9.8, 0.0, 0.0],
+            [7.7, 5.4, 6.2, 8.0],
+            [1.5, 0.0, 0.0, 0.0]]).unsqueeze(-1).expand(-1, -1, 10)
+        expected_res2 = torch.tensor([
+            [0.0, 4.5, 2.3, 1.2],
+            [0.0, 0.0, 6.7, 9.8],
+            [7.7, 5.4, 6.2, 8.0],
+            [0.0, 0.0, 0.0, 1.5]]).unsqueeze(-1).expand(-1, -1, 10)
+
+        res = utils.collate_frames(vals, pad_value=0.0, left_pad=False)
+        self.assertTensorEqual(res, expected_res1)
+
+        res = utils.collate_frames(vals, pad_value=0.0, left_pad=True)
+        self.assertTensorEqual(res, expected_res2)
+
+    def test_sequence_mask(self):
+        seq_len = torch.tensor([1, 4, 0, 3]).int()
+        expected_mask = torch.tensor([
+            [1, 0, 0, 0],
+            [1, 1, 1, 1],
+            [0, 0, 0, 0],
+            [1, 1, 1, 0]]).byte()
+        expected_mask2 = torch.tensor([
+            [1, 0, 0, 0, 0],
+            [1, 1, 1, 1, 0],
+            [0, 0, 0, 0, 0],
+            [1, 1, 1, 0, 0]]).byte()
+
+        generated_mask = utils.sequence_mask(seq_len)
+        generated_mask2 = utils.sequence_mask(seq_len, max_len=5)
+
+        self.assertTensorEqual(generated_mask, expected_mask)
+        self.assertTensorEqual(generated_mask2, expected_mask2)
+
+    def test_convert_padding_direction(self):
+        t1 = torch.tensor([
+            [4.5, 2.3, 1.2, 0.0],
+            [6.7, 9.8, 0.0, 0.0],
+            [7.7, 5.4, 6.2, 8.0],
+            [1.5, 0.0, 0.0, 0.0]]).unsqueeze(-1).expand(-1, -1, 10)
+        t2 = torch.tensor([
+            [0.0, 4.5, 2.3, 1.2],
+            [0.0, 0.0, 6.7, 9.8],
+            [7.7, 5.4, 6.2, 8.0],
+            [0.0, 0.0, 0.0, 1.5]]).unsqueeze(-1).expand(-1, -1, 10)
+        seq_len = torch.tensor([3, 2, 4, 1]).int()
+
+        t1_to_t2 = utils.convert_padding_direction(t1, seq_len,
+            right_to_left=True)
+        self.assertTensorEqual(t1_to_t2, t2)
+
+        t2_to_t1 = utils.convert_padding_direction(t2, seq_len,
+            left_to_right=True)
+        self.assertTensorEqual(t2_to_t1, t1)
+
+    def test_edit_distance(self):
+        ref, hyp = [], []
+        dist, steps, counter = utils.edit_distance(ref, hyp)
+        self.assertEqual(counter,
+            Counter({'words': 0, 'corr': 0, 'sub': 0, 'ins': 0, 'del': 0}))
+        self.assertEqual(steps, [])
+
+        ref, hyp = ['a', 'b', 'c'], []
+        dist, steps, counter = utils.edit_distance(ref, hyp)
+        self.assertEqual(counter,
+            Counter({'words': 3, 'corr': 0, 'sub': 0, 'ins': 0, 'del': 3}))
+        self.assertEqual(steps, ['del', 'del', 'del'])
+
+        ref, hyp = ['a', 'b', 'c'], ['a', 'b', 'c']
+        dist, steps, counter = utils.edit_distance(ref, hyp)
+        self.assertEqual(counter,
+            Counter({'words': 3, 'corr': 3, 'sub': 0, 'ins': 0, 'del': 0}))
+        self.assertEqual(steps, ['corr', 'corr', 'corr'])
+
+        ref, hyp = ['a', 'b', 'c'], ['d', 'b', 'c', 'e', 'f']
+        dist, steps, counter = utils.edit_distance(ref, hyp)
+        self.assertEqual(counter,
+            Counter({'words': 3, 'corr': 2, 'sub': 1, 'ins': 2, 'del': 0}))
+        self.assertEqual(steps, ['sub', 'corr', 'corr', 'ins', 'ins'])
+
+        ref, hyp = ['b', 'c', 'd', 'e', 'f', 'h'], \
+            ['d', 'b', 'c', 'e', 'f', 'g']
+        dist, steps, counter = utils.edit_distance(ref, hyp)
+        self.assertEqual(counter,
+            Counter({'words': 6, 'corr': 4, 'sub': 1, 'ins': 1, 'del': 1}))
+        self.assertEqual(steps,
+            ['ins', 'corr', 'corr', 'del', 'corr', 'corr', 'sub'])
+
+    def assertTensorEqual(self, t1, t2):
+        self.assertEqual(t1.size(), t2.size(), "size mismatch")
+        if (t1.dtype == torch.short or t1.dtype == torch.int or \
+            t1.dtype == torch.long or t1.dtype == torch.uint8) and \
+            (t2.dtype == torch.short or t2.dtype == torch.int or \
+            t2.dtype == torch.long or t2.dtype == torch.uint8):
+            self.assertEqual(t1.ne(t2).long().sum(), 0)
+        else:
+            self.assertEqual(t1.allclose(t2,rtol=1e-05, atol=1e-08), True)
 
 
 if __name__ == "__main__":

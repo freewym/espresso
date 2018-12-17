@@ -11,7 +11,7 @@ from collections import Counter
 
 import torch
 
-from fairseq.utils import buffered_arange
+from fairseq.utils import buffered_arange, item
 
 
 class Tokenizer:
@@ -82,33 +82,30 @@ def sequence_mask(sequence_length, max_len=None):
     if max_len is None:
         max_len = sequence_length.data.max()
     else:
-        assert utils.item(sequence_length.data.max()) <= utils.item(max_len)
+        assert item(sequence_length.data.max()) <= item(max_len)
     batch_size = sequence_length.size(0)
-    seq_range = torch.arange(0, max_len).long().to(device=sequence_length.device)
+    seq_range = torch.arange(0, max_len).to(device=sequence_length.device,
+        dtype=sequence_length.dtype)
     seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
     seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand)
     return seq_range_expand < seq_length_expand
 
-def covnert_padding_direction(src_frames, src_lengths, right_to_left=False,
+def convert_padding_direction(src_frames, src_lengths, right_to_left=False,
     left_to_right=False):
     """Counterpart of :func:`~fairseq.utils.convert_padding_direction`,
-    operating on 3d tensors of size B x T x C.
+    operating on 3d tensors of size B x T x C. Note that this function is unware
+    of whether it has already been right padded or left padded (since any real
+    value is legal for non-padded elements), so be clear of the actual padding
+    direction before calling this function.
     """
     assert right_to_left ^ left_to_right
     assert src_frames.size(0) == src_lengths.size(0)
-    pad_mask = sequence_mask(src_lengths, max_len=src_frames.size(1))
-    if not pad_mask.any():
+    max_len = src_frames.size(1)
+    if not src_lengths.eq(max_len).any():
         # no padding, return early
         return src_frames
-    if left_to_right and not pad_mask[:, 0].any():
-        # already right padded
-        return src_frames
-    if right_to_left and not pad_mask[:, -1].any():
-        # already left padded
-        return src_frames
-    max_len = src_frames.size(1)
-    range = buffered_arange(max_len).type_as(src_frames).expand_as(src_frames)
-    num_pads = pad_mask.long().sum(dim=1, keepdim=True)
+    range = buffered_arange(max_len).unsqueeze(-1).expand_as(src_frames)
+    num_pads = (max_len - src_lengths.type_as(range)).unsqueeze(-1).unsqueeze(-1)
     if right_to_left:
         index = torch.remainder(range - num_pads, max_len)
     else:
@@ -130,19 +127,17 @@ def edit_distance(ref, hyp):
         counter: object of collections.Counter containing counts of
             reference words ('words'), number of correct words ('corr'),
             substitutions ('sub'), insertions ('ins'), deletions ('del').
-
-
     """
 
     assert isinstance(ref, list) and isinstance(hyp, list)
 
-    dist = numpy.zeros((len(ref) + 1, len(hyp) + 1), dtype=numpy.uint32)
+    dist = np.zeros((len(ref) + 1, len(hyp) + 1), dtype=np.uint32)
     for i in range(len(ref) + 1):
         for j in range(len(hyp) + 1):
             if i == 0:
-                d[0][j] = j
+                dist[0][j] = j
             elif j == 0:
-                d[i][0] = i
+                dist[i][0] = i
     for i in range(1, len(ref) + 1):
         for j in range(1, len(hyp) + 1):
             if ref[i - 1] == hyp[j - 1]:
@@ -159,15 +154,14 @@ def edit_distance(ref, hyp):
     while True:
         if i == 0 and j == 0:
             break
-        elif i >= 1 and j >= 1 and dist[i][j] == dist[i - 1][j - 1]
-            assert ref[i - 1] == hyp[j - 1]
+        elif i >= 1 and j >= 1 and dist[i][j] == dist[i - 1][j - 1] and \
+            ref[i - 1] == hyp[j - 1]:
             steps.append('corr')
-            i = i - 1
-            j = j - 1
+            i, j = i - 1, j - 1
         elif i >= 1 and j >= 1 and dist[i][j] == dist[i - 1][j - 1] + 1:
+            assert ref[i - 1] != hyp[j - 1]
             steps.append('sub')
-            i = i - 1
-            j = j - 1
+            i, j = i - 1, j - 1
         elif j >= 1 and dist[i][j] == dist[i][j - 1] + 1:
             steps.append('ins')
             j = j - 1
@@ -177,7 +171,8 @@ def edit_distance(ref, hyp):
             i = i - 1
     steps = steps[::-1]
 
-    counter = Counter({'words', len(ref)})
+    counter = Counter({'words': len(ref), 'corr': 0, 'sub': 0, 'ins': 0,
+        'del': 0})
     counter.update(steps)
 
     return dist, steps, counter
@@ -190,6 +185,9 @@ def aligned_print(ref, hyp, steps):
         ref: list of words obtained by splitting reference sentence string
         hyp: list of words obtained by splitting hypothesis sentence string
         steps: list of edit steps with elements 'corr', 'sub', 'ins' or 'del'.
+
+    Return:
+        out_str: aligned reference and hypothesis string with edit steps.
     """
 
     assert isinstance(ref, list) and isinstance(hyp, list)
@@ -202,13 +200,13 @@ def aligned_print(ref, hyp, steps):
             ref_idx =  i - steps[:i].count('ins')
             hyp_idx = i - steps[:i].count('del')
             if len(ref[ref_idx]) < len(hyp[hyp_idx]):
-                out_str += ref[ref_idx] +
-                    ' ' * (len(hyp[hyp_idx])-len(ref[ref_idx])) + delim
+                out_str += ref[ref_idx] + \
+                    ' ' * (len(hyp[hyp_idx]) - len(ref[ref_idx])) + delim
             else:
                 out_str += ref[ref_idx] + delim
         elif steps[i] == 'ins':
             idx = i - steps[:i].count('del')
-            out_str += ' ' * len(hyp[idx] + delim
+            out_str += ' ' * len(hyp[idx]) + delim
         else:
             assert steps[i] == 'del' or steps[i] == 'corr'
             idx = i - steps[:i].count('ins')
@@ -221,13 +219,13 @@ def aligned_print(ref, hyp, steps):
             ref_idx =  i - steps[:i].count('ins')
             hyp_idx = i - steps[:i].count('del')
             if len(ref[ref_idx]) > len(hyp[hyp_idx]):
-                out_str += hyp[hyp_idx] +
-                    ' ' * (len(ref[ref_idx])-len(hyp[hyp_idx])) + delim
+                out_str += hyp[hyp_idx] + \
+                    ' ' * (len(ref[ref_idx]) - len(hyp[hyp_idx])) + delim
             else:
                 out_str += hyp[hyp_idx] + delim
         elif steps[i] == 'del':
             idx = i - steps[:i].count('ins')
-            out_str += ' ' * len(ref[idx] + delim
+            out_str += ' ' * len(ref[idx]) + delim
         else:
             assert steps[i] == 'ins' or steps[i] == 'corr'
             idx = i - steps[:i].count('del')
