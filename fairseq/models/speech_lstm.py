@@ -267,7 +267,8 @@ class SpeechLSTMEncoder(FairseqEncoder):
         if self.bidirectional:
 
             def combine_bidir(outs):
-                return outs.view(self.num_layers, 2, bsz, -1).transpose(1, 2).contiguous().view(self.num_layers, bsz, -1)
+                out = outs.view(self.num_layers, 2, bsz, -1).transpose(1, 2).contiguous()
+                return out.view(self.num_layers, bsz, -1)
 
             final_hiddens = combine_bidir(final_hiddens)
             final_cells = combine_bidir(final_cells)
