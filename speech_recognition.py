@@ -13,7 +13,7 @@ import os
 
 import torch
 
-from fairseq import wer, data, options, progress_bar, tasks, utils
+from fairseq import wer, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter
 from fairseq.speech_recognizer import SpeechRecognizer
 
@@ -40,8 +40,9 @@ def main(args):
 
     # Load ensemble
     print('| loading model(s) from {}'.format(args.path))
-    models, _ = utils.load_ensemble_for_inference(args.path.split(':'), task,
-        model_arg_overrides=eval(args.model_overrides))
+    models, _model_args = utils.load_ensemble_for_inference(
+        args.path.split(':'), task, model_arg_overrides=eval(args.model_overrides),
+    )
 
     # Optimize ensemble for generation
     for model in models:
@@ -65,9 +66,13 @@ def main(args):
         required_batch_size_multiple=8,
         num_shards=args.num_shards,
         shard_id=args.shard_id,
+        num_workers=args.num_workers,
     ).next_epoch_itr(shuffle=False)
 
     # Initialize generator
+    if args.match_source_len:
+        print('| The option match_source_len is not applicable to '
+            'speech recognition. Ignoring it.')
     gen_timer = StopwatchMeter()
     recognizer = SpeechSequenceGenerator(
         models, dict, beam_size=args.beam, minlen=args.min_len,
@@ -78,6 +83,7 @@ def main(args):
         sampling_temperature=args.sampling_temperature,
         diverse_beam_groups=args.diverse_beam_groups,
         diverse_beam_strength=args.diverse_beam_strength,
+        match_source_len=False, no_repeat_ngram_size=args.no_repeat_ngram_size,
     )
 
     if use_cuda:
