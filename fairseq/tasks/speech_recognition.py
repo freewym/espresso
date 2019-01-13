@@ -6,14 +6,17 @@
 # can be found in the PATENTS file in the same directory.
 
 import itertools
-import numpy as np
 import os
 import re
 
 from fairseq import options, utils
 from fairseq.data import (
-    data_utils, TokenDictionary, SpeechDataset, ConcatDataset,
-    TokenTextDataset, ScpCachedDataset
+    ConcatDataset,
+    data_utils,
+    ScpCachedDataset,
+    SpeechDataset,
+    TokenDictionary,
+    TokenTextDataset,
 )
 
 from . import FairseqTask, register_task
@@ -57,8 +60,6 @@ class SpeechRecognitionTask(FairseqTask):
                             help='path(s) to text file(s) for test')
         parser.add_argument('--dict', default=None, type=str,
                             help='path to the dictionary')
-        parser.add_argument('--raw-text', action='store_true',
-                            help='load raw text dataset')
         parser.add_argument('--left-pad-source', default='True', type=str, metavar='BOOL',
                             help='pad the source on the left')
         parser.add_argument('--left-pad-target', default='False', type=str, metavar='BOOL',

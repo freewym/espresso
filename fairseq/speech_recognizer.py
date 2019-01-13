@@ -20,11 +20,14 @@ class SpeechRecognizer(SequenceGenerator):
         cuda=False, timer=None, prefix_size=0,
     ):
         """Iterate over a batched dataset and yield individual transcription.
+
         Args:
-            maxlen_a/b: generate sequences of maximum length ax + b,
-                where x is the source sentence length.
-            cuda: use GPU for generation
-            timer: StopwatchMeter for timing generations.
+            maxlen_a/b (int, optional): generate sequences of maximum length
+                ``ax + b``, where ``x`` is the source sentence length.
+            cuda (bool, optional): use GPU for generation
+            timer (StopwatchMeter, optional): time generations
+            prefix_size (int, optional): prefill the generation with the gold
+                prefix up to this length.
         """
         if maxlen_b is None:
             maxlen_b = self.maxlen
