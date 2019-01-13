@@ -90,19 +90,19 @@ class SpeechDataset(FairseqDataset):
         tgt (torch.utils.data.Dataset, optional): target dataset to wrap
         tgt_sizes (List[int], optional): target sentence lengths
         dict (~fairseq.data.Dictionary, optional): target vocabulary
-        left_pad_source (bool, optional): pad source tensors on the left side.
-            Default: ``True``
-        left_pad_target (bool, optional): pad target tensors on the left side.
-            Default: ``False``
+        left_pad_source (bool, optional): pad source tensors on the left side
+            (default: True).
+        left_pad_target (bool, optional): pad target tensors on the left side
+            (default: False).
         max_source_positions (int, optional): max number of frames in the
-            source. Default: ``1024``
+            source (default: 1024).
         max_target_positions (int, optional): max number of tokens in the target
-            sentence. Default: ``1024``
-        shuffle (bool, optional): shuffle dataset elements before batching.
-            Default: ``True``
+            sentence (default: 1024)
+        shuffle (bool, optional): shuffle dataset elements before batching
+            (default: True)
         input_feeding (bool, optional): create a shifted version of the targets
-            to be passed into the model for input feeding/teacher forcing.
-            Default: ``True``
+            to be passed into the model for input feeding/teacher forcing
+            (default: True)
     """
 
     def __init__(
@@ -232,13 +232,11 @@ class SpeechDataset(FairseqDataset):
             indices = indices[np.argsort(self.tgt_sizes[indices], kind='mergesort')]
         return indices[np.argsort(self.src_sizes[indices], kind='mergesort')]
 
+    @property
+    def supports_prefetch(self):
+        return getattr(self.src, 'supports_prefetch', False)
+
     def prefetch(self, indices):
         """Only prefetch src."""
         self.src.prefetch(indices)
 
-    @property
-    def supports_prefetch(self):
-        return (
-            hasattr(self.src, 'supports_prefetch')
-            and self.src.supports_prefetch
-        )
