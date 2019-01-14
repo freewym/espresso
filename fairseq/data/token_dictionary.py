@@ -21,7 +21,6 @@ class TokenDictionary(Dictionary):
         self.pad_index = self.add_symbol(pad)
         self.eos_index = self.add_symbol(eos)
         self.unk_index = self.add_symbol(unk)
-        self.space_index = self.add_symbol(space)
         self.nspecial = len(self.symbols)
 
     def string(self, tensor, bpe_symbol=None, escape_unk=False):
@@ -50,8 +49,24 @@ class TokenDictionary(Dictionary):
         """Helper to get index of space symbol"""
         return self.space_index
 
+    @classmethod
+    def load(cls, f, ignore_utf_errors=False):
+        """Loads the dictionary from a text file with the format:
+
+        ```
+        <symbol0> <count0>
+        <symbol1> <count1>
+        ...
+        ```
+        and identifies the space symbol if it exists, by obtaining its index
+        (space_index=-1 if no space symbol)
+        """
+        d = super().load(f, ignore_utf_errors)
+        d.space_index = d.indices.get(d.space_word, -1)
+        return d
+
     def dummy_sentence(self, length):
-        # sample starting from space
-        t = torch.Tensor(length).uniform_(self.nspecial - 1, len(self)).int()
+        # sample excluding special symbols
+        t = torch.Tensor(length).uniform_(self.nspecial, len(self)).long()
         t[-1] = self.eos()
         return t
