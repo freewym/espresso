@@ -11,6 +11,8 @@ from fairseq import search, utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
 
+from speech_tools.utils import sequence_mask
+
 
 class SequenceGenerator(object):
     def __init__(
@@ -111,8 +113,10 @@ class SequenceGenerator(object):
         }
 
         src_tokens = encoder_input['src_tokens']
-        src_lengths = encoder_input.get('src_lengths', \
-            (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1))
+        if src_tokens.dim() > 2:
+            src_lengths = encoder_input('src_lengths')
+        else:
+            src_lengths = src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
         input_size = src_tokens.size()
         # batch dimension goes first followed by source lengths
         bsz = input_size[0]
