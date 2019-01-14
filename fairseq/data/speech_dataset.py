@@ -61,7 +61,7 @@ def collate(
             )
             prev_output_tokens = prev_output_tokens.index_select(0, sort_order)
     else:
-        ntokens = sum(len(s['source']) for s in samples)
+        ntokens = sum(s['source'].size(0) for s in samples)
 
     batch = {
         'id': id,
@@ -108,7 +108,7 @@ class SpeechDataset(FairseqDataset):
     def __init__(
         self, src, src_sizes,
         tgt=None, tgt_sizes=None, dict=None,
-        left_pad_source=True, left_pad_target=False,
+        left_pad_source=False, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True,
     ):
@@ -136,6 +136,7 @@ class SpeechDataset(FairseqDataset):
         src_indices = [i for i, id in enumerate(self.src.utt_ids) \
             if id in tgt_utt_ids_set]
         self.src.filter_and_reorder(src_indices)
+        self.src_sizes = np.array(self.src.sizes)
         try:
             tgt_indices = list(map(self.tgt.utt_ids.index, self.src.utt_ids))
         except ValueError:
@@ -143,6 +144,7 @@ class SpeechDataset(FairseqDataset):
                 happen. Something must be wrong.')
             raise
         self.tgt.filter_and_reorder(tgt_indices)
+        self.tgt_sizes = np.array(self.tgt.sizes)
         assert self.src.utt_ids == self.tgt.utt_ids
 
     def __getitem__(self, index):
@@ -183,7 +185,7 @@ class SpeechDataset(FairseqDataset):
                     is ``False``. Padding will appear on the left if
                     *left_pad_target* is ``True``.
 
-                - `target` (IntTensor): a padded 2D Tensor of tokens in the
+                - `target` (LongTensor): a padded 2D Tensor of tokens in the
                   target sentence of shape `(bsz, tgt_len)`. Padding will appear
                   on the left if *left_pad_target* is ``True``.
         """
@@ -193,14 +195,14 @@ class SpeechDataset(FairseqDataset):
             input_feeding=self.input_feeding,
         )
 
-    def get_dummy_batch(self, num_tokens, max_positions, src_len=128, tgt_len=128):
+    def get_dummy_batch(self, num_tokens, max_positions, max_sentences=16, src_len=300, tgt_len=30):
         """Return a dummy batch with a given number of tokens."""
         src_len, tgt_len = utils.resolve_max_positions(
             (src_len, tgt_len),
             max_positions,
             (self.max_source_positions, self.max_target_positions),
         )
-        bsz = max(num_tokens // tgt_len, 1)
+        bsz = max(min(num_tokens // src_len, max_sentences), 1)
         return self.collater([
             {
                 'id': i,
@@ -212,9 +214,9 @@ class SpeechDataset(FairseqDataset):
         ])
 
     def num_tokens(self, index):
-        """Return the number of tokens in a sample. This value is used to
+        """Return the number of frames in a sample. This value is used to
         enforce ``--max-tokens`` during batching."""
-        return self.tgt_sizes[index] if self.tgt_sizes is not None else 0
+        return self.src_sizes[index]
 
     def size(self, index):
         """Return an example's size as a float or tuple. This value is used when
