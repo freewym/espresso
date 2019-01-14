@@ -5,7 +5,7 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 
-import re
+import os, re
 import numpy as np
 from collections import Counter
 
@@ -18,15 +18,17 @@ class Tokenizer:
 
     @staticmethod
     def tokenize(sent, space='<space>', non_lang_syms=None):
+        assert isinstance(sent, str)
         sent = ' '.join(sent.strip().split())
 
         match_pos = []
         if non_lang_syms is not None:
             assert isinstance(non_lang_syms, list)
-            prog = re.compile('|'.join(map(re.escape, non_lang_syms)))
-            matches = prog.finditer(sent)
-            for match in matches:
-                match_pos.append([match.start(), match.end()])
+            if len(non_lang_syms) > 0:
+                prog = re.compile('|'.join(map(re.escape, non_lang_syms)))
+                matches = prog.finditer(sent)
+                for match in matches:
+                    match_pos.append([match.start(), match.end()])
 
         tokens = []
         i = 0
@@ -43,7 +45,7 @@ class Tokenizer:
     def tokens_to_index_tensor(line, dict, append_eos=True):
         tokens = line.strip().split()
         ntokens = len(tokens)
-        ids = torch.IntTensor(ntokens + 1 if append_eos else ntokens)
+        ids = torch.LongTensor(ntokens + 1 if append_eos else ntokens)
 
         for i, token in enumerate(tokens):
             ids[i] = dict.index(token)
@@ -52,13 +54,15 @@ class Tokenizer:
         return ids
 
     @staticmethod
-    def tokens_to_sentence(line, dict):
+    def tokens_to_sentence(line, dict, use_unk_sym=True):
+        # use_unk_sym=False when we want to restore original transcripts from
+        # token sequences, e.g., obtain reference to compute WER
         tokens = line.strip().split()
         sent = ""
         for token in tokens:
             if token == dict.space_word:
                 sent += " "
-            elif dict.index(token) == dict.unk():
+            elif use_unk_sym and dict.index(token) == dict.unk():
                 sent += dict.unk_word
             elif token != dict.pad_word and token != dict.eos_word:
                 sent += token
@@ -111,6 +115,25 @@ def convert_padding_direction(src_frames, src_lengths, right_to_left=False,
     else:
         index = torch.remainder(range + num_pads, max_len)
     return src_frames.gather(1, index)
+
+def plot_attention(attention, hypo_str, utt_id, save_dir):
+    """This function plots the attention for an example and save the plot in
+    save_dir with <utt_id>.pdf as its filename.
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        raise ImportError(
+            """This function requires matplotlib.
+            Please install it to generate plots.
+            If you are on a cluster where you do not have admin rights you could
+            try using virtualenv.""")
+
+    attn = attention.data.numpy()
+    plt.matshow(attn)
+    plt.title(hypo_str)
+    filename = os.path.join(save_dir, utt_id + '.pdf')
+    plt.savefig(filename, bbox_inches='tight')
 
 def edit_distance(ref, hyp):
     """This function is to calculate the edit distance of reference sentence and
@@ -247,7 +270,7 @@ def aligned_print(ref, hyp, steps):
         else:
             assert steps[i] == 'del' or steps[i] == 'corr'
             idx = i - steps[:i].count('ins')
-            sym = 'D' if step[i] == 'del' else ' '
+            sym = 'D' if steps[i] == 'del' else ' '
             out_str += sym + ' ' * (len(ref[idx]) - 1) + delim
 
     counter = Counter(steps)
