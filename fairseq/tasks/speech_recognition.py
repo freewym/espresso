@@ -46,26 +46,29 @@ class SpeechRecognitionTask(FairseqTask):
     @staticmethod
     def add_args(parser):
         """Add task-specific arguments to the parser."""
-        parser.add_argument('--train-scp-files', nargs='+',
-                            help='path(s) to scp file(s) for training')
+        parser.add_argument('--train-feat-files', nargs='+',
+                            help='path(s) to scp feature file(s) for training')
         parser.add_argument('--train-text-files', nargs='+',
-                            help='path(s) to text file(s) for training')
-        parser.add_argument('--valid-scp-files', nargs='+',
-                            help='path(s) to scp file(s) for validation')
+                            help='path(s) to text file(s) for training, where '
+                            'each should matches with one in --train-feat-files')
+        parser.add_argument('--valid-feat-files', nargs='+',
+                            help='path(s) to scp feature file(s) for validation')
         parser.add_argument('--valid-text-files', nargs='+',
-                            help='path(s) to text file(s) for validation')
-        parser.add_argument('--test-scp-files', nargs='+',
-                            help='path(s) to scp file(s) for test')
+                            help='path(s) to text file(s) for validation, where '
+                            'each should matches with one in --valid-feat-files')
+        parser.add_argument('--test-feat-files', nargs='+',
+                            help='path(s) to scp feature file(s) for test')
         parser.add_argument('--test-text-files', nargs='+',
-                            help='path(s) to text file(s) for test')
+                            help='path(s) to text file(s) for test, where '
+                            'each should matches with one in --test-feat-files')
         parser.add_argument('--dict', default=None, type=str,
                             help='path to the dictionary')
-        parser.add_argument('--left-pad-source', default='True', type=str, metavar='BOOL',
+        parser.add_argument('--left-pad-source', default='False', type=str, metavar='BOOL',
                             help='pad the source on the left')
         parser.add_argument('--left-pad-target', default='False', type=str, metavar='BOOL',
                             help='pad the target on the left')
         parser.add_argument('--max-source-positions', default=1024, type=int, metavar='N',
-                            help='max number of tokens in the source sequence')
+                            help='max number of frames in the source sequence')
         parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
                             help='max number of tokens in the target sequence')
         parser.add_argument('--upsample-primary', default=1, type=int,
@@ -77,7 +80,7 @@ class SpeechRecognitionTask(FairseqTask):
         args = model['args']
         state_dict = model['model']
         args = utils.override_model_args(args, arg_overrides)
-        dict = Dictionary.load(dict_path)
+        dict = TokenDictionary.load(dict_path)
 
         task = SpeechRecognitionTask(args, dict)
         model = task.build_model(args)
@@ -88,6 +91,7 @@ class SpeechRecognitionTask(FairseqTask):
     def __init__(self, args, dict):
         super().__init__(args)
         self.dict = dict
+        self.iterations_in_epoch = 0
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -117,26 +121,31 @@ class SpeechRecognitionTask(FairseqTask):
         tgt_datasets = []
 
         if split == 'train':
-            scp_files = self.args.train_scp_files
+            feat_files = self.args.train_feat_files
             text_files = self.args.train_text_files
-            assert len(scp_files) > 0 and len(text_files) > 0
+            assert len(feat_files) > 0 and len(text_files) > 0
         elif re.match(r"^valid\d*$", split):
-            scp_files = self.args.valid_scp_files
-            text_files = self.args.valid_text_files
-            assert len(scp_files) > 0 and len(text_files) > 0
+            m = re.match(r"^valid(\d*)$", split)
+            idx = 0 if m.group(1) == '' else int(m.group(1))
+            if idx >= len(self.args.valid_feat_files) or \
+                idx >= len(self.args.valid_text_files):
+                raise FileNotFoundError
+            feat_files = [self.args.valid_feat_files[idx]]
+            text_files = [self.args.valid_text_files[idx]]
+            assert len(feat_files) > 0 and len(text_files) > 0
         elif split == 'test':
-            scp_files = self.args.test_scp_files
+            feat_files = self.args.test_feat_files
             text_files = self.args.test_text_files
-            assert len(scp_files) > 0 and len(text_files) > 0
+            assert len(feat_files) > 0 and len(text_files) > 0
         else:
             raise ValueError('split should be one of "train", "valid*", "test"')
-        assert len(scp_files) == len(text_files)
-        file_pairs = zip(scp_files, text_files)
-        for scp, text in enumerate(file_pairs):
-            assert ScpCachedDataset.exists(scp) and TokenTextDataset.exists(text)
-            src_datasets.append(ScpCachedDataset(scp, ordered_indices=True))
+        assert len(feat_files) == len(text_files)
+        file_pairs = zip(feat_files, text_files)
+        for feat, text in file_pairs:
+            assert ScpCachedDataset.exists(feat) and TokenTextDataset.exists(text)
+            src_datasets.append(ScpCachedDataset(feat, ordered_prefetch=True))
             tgt_datasets.append(TokenTextDataset(text, self.dict))
-            print('| {} {} examples'.format(scp, len(src_datasets[-1])))
+            print('| {} {} examples'.format(feat, len(src_datasets[-1])))
             print('| {} {} examples'.format(text, len(tgt_datasets[-1])))
 
             if not combine:
@@ -144,9 +153,14 @@ class SpeechRecognitionTask(FairseqTask):
 
         assert len(src_datasets) == len(tgt_datasets)
 
+        self.feat_dim = src_datasets[0].feat_dim
+
         if len(src_datasets) == 1:
             src_dataset, tgt_dataset = src_datasets[0], tgt_datasets[0]
         else:
+            for i in range(1, len(src_datasets)):
+                assert self.feat_dim == src_datasets[i].feat_dim, \
+                    'feature dimension does not match across multiple scp files'
             sample_ratios = [1] * len(src_datasets)
             sample_ratios[0] = self.args.upsample_primary
             src_dataset = ConcatDataset(src_datasets, sample_ratios)

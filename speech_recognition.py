@@ -16,12 +16,16 @@ import torch
 from fairseq import wer, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter
 from fairseq.speech_recognizer import SpeechRecognizer
+from fairseq.utils import import_user_module
+from speech_tools.utils import plot_attention
 
 
 def main(args):
     assert args.path is not None, '--path required for recognition!'
     assert not args.sampling or args.nbest == args.beam, \
         '--sampling requires --nbest to be equal to --beam'
+
+    import_user_module(args)
 
     if args.max_tokens is None and args.max_sentences is None:
         args.max_tokens = 12000
@@ -74,7 +78,7 @@ def main(args):
         print('| The option match_source_len is not applicable to '
             'speech recognition. Ignoring it.')
     gen_timer = StopwatchMeter()
-    recognizer = SpeechSequenceGenerator(
+    recognizer = SpeechRecognizer(
         models, dict, beam_size=args.beam, minlen=args.min_len,
         stop_early=(not args.no_early_stop),
         normalize_scores=(not args.unnormalized),
@@ -105,9 +109,9 @@ def main(args):
             has_target = target_tokens is not None
             target_tokens = target_tokens.int().cpu() if has_target else None
 
-            # Regenerate original sentences from tokens.
+            # Retrieve the original sentences
             if has_target:
-                target_str = dict.string(target_tokens, args.remove_bpe)
+                target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
                 if not args.quiet:
                     print('T-{}\t{}'.format(utt_id, target_str))
 
@@ -130,46 +134,61 @@ def main(args):
                     # src_len x tgt_len
                     attention = hypo['attention'].float().cpu() \
                         if hypo['attention'] is not None else None
-                    scorer.add_prediction(hypo_str, utt_id=utt_id)
+                    if attention is not None and args.print_alignment:
+                        plot_attention(attention, hypo_str, utt_id,
+                            os.path.join(args.path, 'attn_plots'))
+                        print('| Saved attention plots in ' + \
+                            os.path.join(args.path, 'attn_plots'))
+                    scorer.add_prediction(utt_id, hypo_str)
                     if has_target:
-                        scorer.add(target_str, hypo_str, utt_id=utt_id)
+                        scorer.add_evaluation(utt_id, target_str, hypo_str)
 
             num_sentences += 1
 
     print('| Recognized {} utterances in {:.1f}s ({:.2f} utterances/s)'.format(
         num_sentences, gen_timer.sum, 1. / gen_timer.avg))
 
+    scorer.add_ordered_utt_list(*args.test_text_files)
+
     fn = 'results.txt'
     with open(os.path.join(args.path, fn), 'w', encoding='utf-8') as f:
-        f.write(scorer.results)
+        f.write(scorer.print_results())
         print('| Decoded results saved as ' + f.name)
 
     if has_target:
-        print('| Recognize {} with beam={}: WER={:.2f}%, Sub={:.2f}%, '
-            'Ins={:.2f}%, Del={:.2f}%'.format(args.gen_subset, args.beam,
-            *(scorer.wer())))
-        print('|                            CER={:.2f}%, Sub={:.2f}%, '
-            'Ins={:.2f}%, Del={:.2f}%'.format(*(scorer.cer())))
-
-        fn = 'wer.txt'
+        fn = 'wer'
         with open(os.path.join(args.path, fn), 'w', encoding='utf-8') as f:
-            f.write('WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%\n'
-                .format(*(scorer.wer())))
+            res = 'WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
+                *(scorer.wer()))
+            print('| Recognize {} with beam={}: '.format(args.gen_subset, args.beam) + res)
+            f.write(res + '\n')
             print('| WER saved in ' + f.name)
 
-        fn = 'cer.txt'
+        fn = 'cer'
         with open(os.path.join(args.path, fn), 'w', encoding='utf-8') as f:
-            f.write('CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%\n'
-                .format(*(scorer.cer())))
+            res = 'CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
+                *(scorer.cer()))
+            print('|                            ' + res)
+            f.write(res + '\n')
             print('| CER saved in ' + f.name)
 
         fn = 'aligned_results.txt'
         with open(os.path.join(args.path, fn), 'w', encoding='utf-8') as f:
-            f.write(scorer.aligned_results)
+            f.write(scorer.print_aligned_results())
             print('| Aligned results saved as ' + f.name)
 
 
+def print_options_meaning_changes(args):
+    """Options that have different meanings than those in the translation task
+    are explained here.
+    """
+    print('| --max-tokens is the maximum number of input frames in a batch')
+    if args.print_alignment:
+        print('| --print-alignment is set to plot attentions')
+
+
 if __name__ == '__main__':
-    parser = options.get_generation_parser()
+    parser = options.get_generation_parser(default_task='speech_recognition')
     args = options.parse_args_and_arch(parser)
+    print_options_meaning_changes(args)
     main(args)

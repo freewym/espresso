@@ -38,8 +38,8 @@ class BahdanauAttention(BaseAttention):
 
     def __init__(self, query_dim, value_dim, embed_dim, normalize=True):
         super().__init__(query_dim, value_dim, embed_dim)
-        self.query_proj = nn.Linear(self.query_dim, self.embed_dim, bias=False)
-        self.value_proj = nn.Linear(self.value_dim, self.embed_dim, bias=False)
+        self.query_proj = nn.Linear(self.query_dim, embed_dim, bias=False)
+        self.value_proj = nn.Linear(self.value_dim, embed_dim, bias=False)
         self.v = Parameter(torch.Tensor(embed_dim))
         self.normalize = normalize
         if self.normalize:
@@ -54,7 +54,7 @@ class BahdanauAttention(BaseAttention):
         nn.init.uniform_(self.v, -0.1, 0.1)
         if self.normalize:
             nn.init.constant_(self.b, 0.)
-            nn.init.constant_(self.g, math.sqrt(1. / embed_dim))
+            nn.init.constant_(self.g, math.sqrt(1. / self.embed_dim))
 
     def forward(self, query, value, key_padding_mask=None, state=None):
         # projected_query: 1 x bsz x embed_dim
@@ -63,14 +63,14 @@ class BahdanauAttention(BaseAttention):
         if self.normalize:
             # normed_v = g * v / ||v||
             normed_v = self.g * self.v / torch.norm(self.v)
-            attn_scores = (normed_v * nn.tanh(projected_query + key + \
+            attn_scores = (normed_v * torch.tanh(projected_query + key + \
                 self.b)).sum(dim=2) # len x bsz
         else:
-            attn_scores = v * nn.tanh(projected_query + key).sum(dim=2)
+            attn_scores = v * torch.tanh(projected_query + key).sum(dim=2)
 
-        if encoder_padding_mask is not None:
+        if key_padding_mask is not None:
             attn_scores = attn_scores.float().masked_fill_(
-                encoder_padding_mask, float('-inf'),
+                key_padding_mask, float('-inf'),
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
         attn_scores = F.softmax(attn_scores, dim=0)  # len x bsz
@@ -100,16 +100,16 @@ class LuongAttention(BaseAttention):
             nn.init.constant_(self.g, 1.)
 
     def forward(self, query, value, key_padding_mask=None, state=None):
-        query = self.query_proj(query).unsqueeze(1)  # bsz x 1 x query_dim
+        query = query.unsqueeze(1)  # bsz x 1 x query_dim
         key = self.value_proj(value).transpose(0, 1) # bsz x len x query_dim
         attn_scores = torch.bmm(query, key.transpose(1, 2)).squeeze(1)
         attn_scores = attn_scores.transpose(0, 1)  # len x bsz
         if self.scale:
             attn_scores = self.g * attn_scores
 
-        if encoder_padding_mask is not None:
+        if key_padding_mask is not None:
             attn_scores = attn_scores.float().masked_fill_(
-                encoder_padding_mask, float('-inf'),
+                key_padding_mask, float('-inf'),
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
         attn_scores = F.softmax(attn_scores, dim=0)  # len x bsz

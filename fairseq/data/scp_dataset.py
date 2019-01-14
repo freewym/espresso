@@ -101,16 +101,17 @@ class ScpCachedDataset(ScpDataset):
         assert isinstance(indices, (list, np.ndarray))
         assert self.size >= len(indices)
         self.ordered_indices = indices.copy()
+        self.start_pos_for_next_cache = 0
 
     def __getitem__(self, i):
         self.check_index(i)
         if i not in self.cache_index:
-            assert self.start_search_for_next_pos_start < \
+            assert self.start_pos_for_next_cache < \
                 len(self.ordered_indices), \
-                'Search position starting beyond the end of ordered_indices.'
+                'Position for next cache starting beyond the end of ordered_indices.'
             try:
                 pos_start = self.ordered_indices.index(i,
-                    self.start_search_for_next_pos_start)
+                    self.start_pos_for_next_cache)
             except ValueError:
                 print('index {} not found in self.ordered_indices. Set '
                 'self.ordered_prefetch to False, and/or call self.prefetch() '
@@ -118,7 +119,7 @@ class ScpCachedDataset(ScpDataset):
                 raise
             pos_end = min(pos_start + self.cache_size,
                 len(self.ordered_indices))
-            self.start_search_for_next_pos_start = pos_end \
+            self.start_pos_for_next_cache = pos_end \
                 if self.ordered_prefetch else 0
             total_size = 0
             for idx in self.ordered_indices[pos_start : pos_end]:
@@ -221,9 +222,10 @@ class TokenTextDataset(torch.utils.data.Dataset):
         self.check_index(i)
         return self.tokens_list[i]
     
-    def get_original_text(self, i):
+    def get_original_text(self, i, dictionary):
         self.check_index(i)
-        return Tokenizer.tokens_to_sentence(self.tokens_list[i])
+        return Tokenizer.tokens_to_sentence(self.tokens_list[i], dictionary,
+            use_unk_sym=False)
 
     def __len__(self):
         return self.size
