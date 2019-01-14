@@ -26,9 +26,11 @@ class TestSpeechUtils(unittest.TestCase):
         d = TokenDictionary()
         for token in vocab:
             d.add_symbol(token)
+        d.add_symbol('<space>')
         for token in non_lang_syms:
             d.add_symbol(token)
         d.finalize(padding_factor=1) # don't add extra padding symbols
+        d.space_index = d.indices.get('<space>', -1)
         return d
 
     @staticmethod
