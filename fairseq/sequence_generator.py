@@ -10,6 +10,8 @@ import torch
 from fairseq import search
 from fairseq.models import FairseqIncrementalDecoder
 
+from speech_tools.utils import sequence_mask
+
 
 class SequenceGenerator(object):
     def __init__(
@@ -126,8 +128,10 @@ class SequenceGenerator(object):
         }
 
         src_tokens = encoder_input['src_tokens']
-        src_lengths = encoder_input.get('src_lengths', \
-            (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1))
+        if src_tokens.dim() > 2:
+            src_lengths = encoder_input('src_lengths')
+        else:
+            src_lengths = src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
         input_size = src_tokens.size()
         # batch dimension goes first followed by source lengths
         bsz = input_size[0]
@@ -346,7 +350,14 @@ class SequenceGenerator(object):
                 if attn is None:
                     attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
                     attn_buf = attn.clone()
-                    nonpad_idxs = src_tokens.ne(self.pad)
+                    if src_tokens.dim() > 2:
+                        # speech src case, also consider encoder's frame subsampling
+                        output_lengths = self.models[0].encoder.output_lengths(
+                            encoder_input['src_lengths'])
+                        nonpad_idxs = sequence_mask(output_lengths, src_tokens.size[1])
+                    else:
+                        # text src case
+                        nonpad_idxs = src_tokens.ne(self.pad)
                 attn[:, :, step + 1].copy_(avg_attn_scores)
 
             scores = scores.type_as(lprobs)
