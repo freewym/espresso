@@ -21,9 +21,12 @@ from fairseq import distributed_utils, options, progress_bar, tasks, utils
 from fairseq.data import iterators
 from fairseq.trainer import Trainer
 from fairseq.meters import AverageMeter, StopwatchMeter
+from fairseq.utils import import_user_module
 
 
 def main(args):
+    import_user_module(args)
+
     if args.max_tokens is None:
         args.max_tokens = 6000
     print(args)
@@ -57,7 +60,7 @@ def main(args):
     # Build trainer
     trainer = Trainer(args, task, model, criterion, dummy_batch, oom_batch)
     print('| training on {} GPUs'.format(args.distributed_world_size))
-    print('| max tokens per GPU = {} and max sentences per GPU = {}'.format(
+    print('| max input frames per GPU = {} and max sentences per GPU = {}'.format(
         args.max_tokens,
         args.max_sentences,
     ))
@@ -86,7 +89,7 @@ def main(args):
     lr = trainer.get_lr()
     train_meter = StopwatchMeter()
     train_meter.start()
-    valid_losses = [None]
+    valid_losses, valid_wers = [None], [None]
     valid_subsets = args.valid_subset.split(',')
     while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
         # train for one epoch
@@ -125,6 +128,9 @@ def train(args, trainer, task, epoch_itr):
     first_valid = args.valid_subset.split(',')[0]
     max_update = args.max_update or math.inf
     for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
+        if hasattr(task, 'iterations_in_epoch'):
+            task.iterations_in_epoch = i
+
         log_output = trainer.train_step(samples)
         if log_output is None:
             continue
@@ -227,6 +233,9 @@ def validate(args, trainer, task, epoch_itr, subsets):
                 meter.reset()
         extra_meters = collections.defaultdict(lambda: AverageMeter())
 
+        if callable(getattr(trainer.criterion, 'set_valid_tgt_dataset', None)):
+            trainer.criterion.set_valid_tgt_dataset(task.dataset(subset).tgt)
+
         for sample in progress:
             log_output = trainer.valid_step(sample)
 
@@ -236,7 +245,8 @@ def validate(args, trainer, task, epoch_itr, subsets):
                     continue
                 if k == 'word_error':
                     extra_meters['valid_wer'].update(
-                        v / log_output['word_count'], log_output['word_count'])
+                        float(v) / log_output['word_count'] * 100,
+                        log_output['word_count'])
                 else:
                     extra_meters[k].update(v)
 
@@ -370,9 +380,17 @@ def distributed_main(i, args):
     main(args)
 
 
+def print_options_meaning_changes(args):
+    """Options that have different meanings than those in the translation task
+    are explained here.
+    """
+    print('| --max-tokens is the maximum number of input frames in a batch')
+
+
 if __name__ == '__main__':
-    parser = options.get_training_parser()
+    parser = options.get_training_parser(default_task='speech_recognition')
     args = options.parse_args_and_arch(parser)
+    print_options_meaning_changes(args)
 
     if args.distributed_init_method is None:
         distributed_utils.infer_init_method(args)
