@@ -28,7 +28,9 @@ class TestSpeechDataset(unittest.TestCase):
         alphabet = string.ascii_lowercase
         for token in alphabet:
             d.add_symbol(token)
+        d.add_symbol('<space>')
         d.finalize(padding_factor=1) # don't add extra padding symbols
+        d.space_index = d.indices.get('<space>', -1)
         return d
 
     @staticmethod
