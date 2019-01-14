@@ -29,16 +29,15 @@ class SpeechLSTMModel(FairseqModel):
     @staticmethod
     def add_args(parser):
         """Add model-specific arguments to the parser."""
+        # fmt: off
         parser.add_argument('--dropout', type=float, metavar='D',
                             help='dropout probability')
-        parser.add_argument('feat-dim', type=int, metavar='N',
-                            help='input feature dimension')
         parser.add_argument('--encoder-conv-channels', type=str, metavar='STR',
                             help='list of encoder convolution\'s out channels')
-        parser.add_argument('--encoder-conv-kernel-size', type=str, metavar='STR',
-                            help='list of encoder convolution\'s kernel size')
-        parser.add_argument('--encoder-conv-stride', type=str, metavar='STR',
-                            help='list of encoder convolution\'s stride')
+        parser.add_argument('--encoder-conv-kernel-sizes', type=str, metavar='STR',
+                            help='list of encoder convolution\'s kernel sizes')
+        parser.add_argument('--encoder-conv-strides', type=str, metavar='STR',
+                            help='list of encoder convolution\'s strides')
         parser.add_argument('--encoder-rnn-hidden-size', type=int, metavar='N',
                             help='encoder rnn\'s hidden size')
         parser.add_argument('--encoder-rnn-layers', type=int, metavar='N',
@@ -76,6 +75,7 @@ class SpeechLSTMModel(FairseqModel):
         parser.add_argument('--share-decoder-input-output-embed', default=False,
                             action='store_true',
                             help='share decoder input and output embeddings')
+        # fmt: on
 
     @classmethod
     def build_model(cls, args, task):
@@ -107,19 +107,44 @@ class SpeechLSTMModel(FairseqModel):
                 '--decoder-embed-dim to match --decoder-out-embed-dim'
             )
 
-        out_channels = options.eval_str_list(args.encoder_conv_channels,
-            type=int)
-        kernel_size = options.eval_str_list(args.encoder_conv_kernel_size,
-            type=int)
-        stride = options.eval_str_list(args.encoder_conv_stride, type=int)
-        in_channel = 1 # hard-coded for now
-        conv_layers = ConvBNReLU(out_channels, kernel_size, stride,
-            in_channel=in_channel) if not out_channels is None else None
+        def eval_str_nested_list_or_tuple(x, type=int):
+            if x is None:
+                return None
+            if isinstance(x, str):
+                x = eval(x)
+            if isinstance(x, list):
+                return list(
+                    map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
+            elif isinstance(x, tuple):
+                return tuple(
+                    map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
+            else:
+                try:
+                    return type(x)
+                except:
+                    raise ValueError
 
-        rnn_encoder_input_size = args.feat_dim // in_channel
+        out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels,
+            type=int)
+        kernel_sizes = eval_str_nested_list_or_tuple(
+            args.encoder_conv_kernel_sizes, type=int)
+        strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides,
+            type=int)
+        in_channels = 1 # hard-coded for now
+        conv_layers = ConvBNReLU(out_channels, kernel_sizes, strides,
+            in_channels=in_channels) if not out_channels is None else None
+
+        assert task.feat_dim % in_channels == 0
+        rnn_encoder_input_size = task.feat_dim // in_channels
         if conv_layers is not None:
-            for s in stride:
-                rnn_encoder_input_size = (rnn_input_size + s[1] - 1) // s[1]
+            for stride in strides:
+                if isinstance(stride, (list, tuple)):
+                    assert len(stride) > 0
+                    s = stride[1] if len(stride) > 1 else stride[0]
+                else:
+                    assert isinstance(stride, int)
+                    s = stride
+                rnn_encoder_input_size = (rnn_encoder_input_size + s - 1) // s
             rnn_encoder_input_size *= out_channels[-1]
 
         encoder = SpeechLSTMEncoder(
@@ -154,30 +179,42 @@ class SpeechLSTMModel(FairseqModel):
 
 class ConvBNReLU(nn.Module):
     """Sequence of convolution-BatchNorm-ReLU layers."""
-    def __init__(self, out_channels, kernel_size, stride, in_channel=1):
+    def __init__(self, out_channels, kernel_sizes, strides, in_channels=1):
         super().__init__()
         self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.in_channel = in_channel
+        self.kernel_sizes = kernel_sizes
+        self.strides = strides
+        self.in_channels = in_channels
 
-        self.num_layers = len(out_channels)
-        assert num_layers == len(kernel_size) and num_layers == len(stride)
+        num_layers = len(out_channels)
+        assert num_layers == len(kernel_sizes) and num_layers == len(strides)
 
         self.convolutions = nn.ModuleList()
         self.batchnorms = nn.ModuleList()
-        for i in range(self.num_layers):
+        for i in range(num_layers):
             self.convolutions.append(
                 Convolution2d(
-                    self.in_channel if i == 0 else self.out_channels[i-1],
+                    self.in_channels if i == 0 else self.out_channels[i-1],
                     self.out_channels[i],
-                    self.kernel_size[i], self.stride[i]))
+                    self.kernel_sizes[i], self.strides[i]))
             self.batchnorms.append(nn.BatchNorm2d(out_channels[i]))
+
+    def output_lengths(self, in_lengths):
+        out_lengths = in_lengths
+        for stride in self.strides:
+            if isinstance(stride, (list, tuple)):
+                assert len(stride) > 0
+                s = stride[0]
+            else:
+                assert isinstance(stride, int)
+                s = stride
+            out_lengths = (out_lengths + s - 1) // s
+        return out_lengths
 
     def forward(self, src, src_lengths):
         # B X T X C -> B X (input channel num) x T X (C / input channel num)
-        x = src.view(src.size(0), src.size(1), self.in_channel,
-            src.size(2) // self.in_channel).transpose(1, 2)
+        x = src.view(src.size(0), src.size(1), self.in_channels,
+            src.size(2) // self.in_channels).transpose(1, 2)
         for conv, bn in zip(self.convolutions, self.batchnorms):
             x = F.relu(bn(conv(x)))
         # B X (output channel num) x T X C' -> B X T X (output channel num) X C'
@@ -185,9 +222,7 @@ class ConvBNReLU(nn.Module):
         # B X T X (output channel num) X C' -> B X T X C
         x = x.contiguous().view(x.size(0), x.size(1), x.size(2) * x.size(3))
 
-        x_lengths = src_lengths
-        for i in range(self.num_layers):
-            x_lengths = (x_lengths + self.stride[0] - 1) // self.stride[0]
+        x_lengths = self.output_lengths(src_lengths)
         padding_mask = 1 - speech_utils.sequence_mask(x_lengths, x.size(1))
         if padding_mask.any():
             x = x.masked_fill(padding_mask.unsqueeze(-1), 0.0)
@@ -198,7 +233,7 @@ class ConvBNReLU(nn.Module):
 class SpeechLSTMEncoder(FairseqEncoder):
     """LSTM encoder."""
     def __init__(
-        self, conv_layers_before=None, input_size=40, hidden_size=512,
+        self, conv_layers_before=None, input_size=80, hidden_size=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, bidirectional=False,
         left_pad=False, pretrained_embed=None, padding_value=0.,
     ):
@@ -224,6 +259,9 @@ class SpeechLSTMEncoder(FairseqEncoder):
         if bidirectional:
             self.output_units *= 2
 
+    def output_lengths(self, in_lengths):
+        return in_lengths if self.conv_layers_before is None \
+            else self.conv_layers_before.output_lengths(in_lengths)
 
     def forward(self, src_tokens, src_lengths):
         if self.left_pad:
@@ -238,7 +276,8 @@ class SpeechLSTMEncoder(FairseqEncoder):
             x, src_lengths, padding_mask = self.conv_layers_before(src_tokens,
                 src_lengths)
         else:
-            x = src_tokens
+            x, padding_mask = src_tokens, \
+                1 - speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
 
         bsz, seqlen = x.size(0), x.size(1)
 
@@ -328,16 +367,16 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             )
             for layer in range(num_layers)
         ])
-        if attn.type == 'bahdanau':
+        if attn_type == 'bahdanau':
             self.attention = speech_attention.BahdanauAttention(hidden_size,
                 encoder_output_units, attn_dim)
-        elif attn.type == 'luong':
+        elif attn_type == 'luong':
             self.attention = speech_attention.LuongAttention(hidden_size,
                 encoder_output_units)
         else:
             raise ValueError('unrecognized attention type.')
-        if hidden_size != out_embed_dim:
-            self.additional_fc = Linear(hidden_size, out_embed_dim)
+        if hidden_size + encoder_output_units != out_embed_dim:
+            self.additional_fc = Linear(hidden_size + encoder_output_units, out_embed_dim)
         if adaptive_softmax_cutoff is not None:
             # setting adaptive_softmax dropout to dropout_out for now but can be redefined
             self.adaptive_softmax = AdaptiveSoftmax(num_embeddings, embed_dim, adaptive_softmax_cutoff,
@@ -458,18 +497,20 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
 
 
 def Convolution2d(in_channels, out_channels, kernel_size, stride):
-    if len(kernel_size) != 2:
-        if len(kernel_size) == 1:
+    if isinstance(kernel_size, (list, tuple)):
+        if len(kernel_size) != 2:
+            assert len(kernel_size) == 1
             kernel_size = (kernel_size[0], kernel_size[0])
-        else:
-            assert isinstance(kernel_size, int)
-            kernel_size = (kernel_size, kernel_size)
-    if len(stride) != 2:
-        if len(stride) == 1:
+    else:
+        assert isinstance(kernel_size, int)
+        kernel_size = (kernel_size, kernel_size)
+    if isinstance(stride, (list, tuple)):
+        if len(stride) != 2:
+            assert len(stride) == 1
             stride = (stride[0], stride[0])
-        else:
-            assert isinstance(stride, int)
-            stride = (stride, stride)
+    else:
+        assert isinstance(stride, int)
+        stride = (stride, stride)
     assert kernel_size[0] % 2 == 1 and kernel_size[1] % 2 == 1
     padding = ((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2)
     m = nn.Conv2d(in_channels, out_channels, kernel_size, stride=stride, \
@@ -480,27 +521,32 @@ def Convolution2d(in_channels, out_channels, kernel_size, stride):
 @register_model_architecture('speech_lstm', 'speech_lstm')
 def base_architecture(args):
     args.dropout = getattr(args, 'dropout', 0.1)
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
-    args.encoder_embed_path = getattr(args, 'encoder_embed_path', None)
-    args.encoder_hidden_size = getattr(args, 'encoder_hidden_size', args.encoder_embed_dim)
-    args.encoder_layers = getattr(args, 'encoder_layers', 1)
-    args.encoder_bidirectional = getattr(args, 'encoder_bidirectional', False)
-    args.encoder_dropout_in = getattr(args, 'encoder_dropout_in', args.dropout)
-    args.encoder_dropout_out = getattr(args, 'encoder_dropout_out', args.dropout)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
+    args.encoder_conv_channels = getattr(args, 'encoder_conv_channels',
+        '[64, 64, 128, 128]')
+    args.encoder_conv_kernel_sizes = getattr(args, 'encoder_conv_kernel_sizes',
+        '[(3, 3), (3, 3), (3, 3), (3, 3)]')
+    args.encoder_conv_strides = getattr(args, 'encoder_conv_strides',
+        '[(1, 1), (2, 2), (1, 1), (2, 2)]')
+    args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 320)
+    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 3)
+    args.encoder_rnn_bidirectional = getattr(args, 'encoder_rnn_bidirectional', True)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 320)
     args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
     args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', args.decoder_embed_dim)
-    args.decoder_layers = getattr(args, 'decoder_layers', 1)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 512)
-    args.decoder_attention = getattr(args, 'decoder_attention', '1')
+    args.decoder_layers = getattr(args, 'decoder_layers', 3)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 960)
+    args.attention_type = getattr(args, 'attention_type', 'bahdanau')
+    args.attention_dim = getattr(args, 'attention_dim', 320)
+    args.encoder_rnn_dropout_in = getattr(args, 'encoder_rnn_dropout_in', args.dropout)
+    args.encoder_rnn_dropout_out = getattr(args, 'encoder_rnn_dropout_out', args.dropout)
     args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', args.dropout)
     args.decoder_dropout_out = getattr(args, 'decoder_dropout_out', args.dropout)
     args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
-    args.share_all_embeddings = getattr(args, 'share_all_embeddings', False)
     args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', '10000,50000,200000')
 
-@register_model_architecture('speech_lstm', 'speech_lstm_wiseman_iwslt_de_en')
-def lstm_wiseman_iwslt_de_en(args):
+@register_model_architecture('speech_lstm', 'speech_conv_lstm_wsj')
+def conv_lstm_wsj(args):
+    '''
     args.dropout = getattr(args, 'dropout', 0.1)
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 256)
     args.encoder_dropout_in = getattr(args, 'encoder_dropout_in', 0)
@@ -509,16 +555,5 @@ def lstm_wiseman_iwslt_de_en(args):
     args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 256)
     args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', 0)
     args.decoder_dropout_out = getattr(args, 'decoder_dropout_out', args.dropout)
-    base_architecture(args)
-
-
-@register_model_architecture('speech_lstm', 'speech_lstm_luong_wmt_en_de')
-def lstm_luong_wmt_en_de(args):
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 1000)
-    args.encoder_layers = getattr(args, 'encoder_layers', 4)
-    args.encoder_dropout_out = getattr(args, 'encoder_dropout_out', 0)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1000)
-    args.decoder_layers = getattr(args, 'decoder_layers', 4)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1000)
-    args.decoder_dropout_out = getattr(args, 'decoder_dropout_out', 0)
+    '''
     base_architecture(args)
