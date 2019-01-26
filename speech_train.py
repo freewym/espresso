@@ -44,8 +44,12 @@ def main(args):
     # Build model and criterion
     model = task.build_model(args)
     criterion = task.build_criterion(args)
+    print(model)
     print('| model {}, criterion {}'.format(args.arch, criterion.__class__.__name__))
-    print('| num. model params: {}'.format(sum(p.numel() for p in model.parameters())))
+    print('| num. model params: {} (num. trained: {})'.format(
+        sum(p.numel() for p in model.parameters()),
+        sum(p.numel() for p in model.parameters() if p.requires_grad),
+    ))
 
     # Make a dummy batch to (i) warm the caching allocator and (ii) as a
     # placeholder DistributedDataParallel when there's an uneven number of
@@ -336,7 +340,10 @@ def save_checkpoint(args, trainer, epoch_itr, val_wer):
 def load_checkpoint(args, trainer, epoch_itr):
     """Load a checkpoint and replay dataloader to match."""
     os.makedirs(args.save_dir, exist_ok=True)
-    checkpoint_path = os.path.join(args.save_dir, args.restore_file)
+    if os.path.isabs(args.restore_file):
+        checkpoint_path = args.restore_file
+    else:
+        checkpoint_path = os.path.join(args.save_dir, args.restore_file)
     if os.path.isfile(checkpoint_path):
         extra_state = trainer.load_checkpoint(checkpoint_path, args.reset_optimizer, args.reset_lr_scheduler,
                                               eval(args.optimizer_overrides))
@@ -352,6 +359,8 @@ def load_checkpoint(args, trainer, epoch_itr):
             if 'best' in extra_state:
                 save_checkpoint.best = extra_state['best']
         return True
+    else:
+        print('| no existing checkpoint found {}'.format(checkpoint_path))
     return False
 
 
