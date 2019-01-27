@@ -25,7 +25,7 @@ from . import FairseqTask, register_task
 @register_task('speech_recognition')
 class SpeechRecognitionTask(FairseqTask):
     """
-    Translate from speech (source) to token text (target).
+    Transcribe from speech (source) to token text (target).
 
     Args:
         dict (Dictionary): dictionary for the output tokens
@@ -35,7 +35,7 @@ class SpeechRecognitionTask(FairseqTask):
         The speech recognition task is compatible with :mod:`train.py <train>`,
         :mod:`generate.py <generate>` and :mod:`interactive.py <interactive>`.
 
-    The speech_recognition task provides the following additional command-line
+    The speech recognition task provides the following additional command-line
     arguments:
 
     .. argparse::
@@ -46,6 +46,7 @@ class SpeechRecognitionTask(FairseqTask):
     @staticmethod
     def add_args(parser):
         """Add task-specific arguments to the parser."""
+        # fmt: off
         parser.add_argument('--train-feat-files', nargs='+',
                             help='path(s) to scp feature file(s) for training')
         parser.add_argument('--train-text-files', nargs='+',
@@ -63,6 +64,11 @@ class SpeechRecognitionTask(FairseqTask):
                             'each should matches with one in --test-feat-files')
         parser.add_argument('--dict', default=None, type=str,
                             help='path to the dictionary')
+        parser.add_argument('--non-lang-syms', default=None, type=str,
+                            help='list of non-linguistic symbols, e.g., <NOISE> '
+                            'etc. To be filtered out when calculating WER/CER')
+        parser.add_argument('--wer-output-filter', default=None, type=str,
+                            help='path to wer_output_filter file for WER evaluation')
         parser.add_argument('--left-pad-source', default='False', type=str, metavar='BOOL',
                             help='pad the source on the left')
         parser.add_argument('--left-pad-target', default='False', type=str, metavar='BOOL',
@@ -73,14 +79,16 @@ class SpeechRecognitionTask(FairseqTask):
                             help='max number of tokens in the target sequence')
         parser.add_argument('--upsample-primary', default=1, type=int,
                             help='amount to upsample primary dataset')
+        # fmt: off
 
     @staticmethod
-    def load_pretrained_model(path, dict_path, arg_overrides=None):
+    def load_pretrained_model(path, dict_path, non_lang_syms=None,
+        arg_overrides=None):
         model = utils.load_checkpoint_to_cpu(path)
         args = model['args']
         state_dict = model['model']
         args = utils.override_model_args(args, arg_overrides)
-        dict = TokenDictionary.load(dict_path)
+        dict = TokenDictionary.load(dict_path, f_non_lang_syms=non_lang_syms)
 
         task = SpeechRecognitionTask(args, dict)
         model = task.build_model(args)
@@ -91,7 +99,6 @@ class SpeechRecognitionTask(FairseqTask):
     def __init__(self, args, dict):
         super().__init__(args)
         self.dict = dict
-        self.iterations_in_epoch = 0
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -106,7 +113,8 @@ class SpeechRecognitionTask(FairseqTask):
         # load dictionaries
         dict_path = os.path.join(os.path.dirname(args.text_files[0]),
             'dict.txt') if args.dict is None else args.dict
-        dict = TokenDictionary.load(dict_path)
+        dict = TokenDictionary.load(dict_path,
+            f_non_lang_syms=args.non_lang_syms)
         print('| dictionary: {} types'.format(len(dict)))
 
         return cls(args, dict)
