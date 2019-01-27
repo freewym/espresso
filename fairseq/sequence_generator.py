@@ -129,9 +129,9 @@ class SequenceGenerator(object):
 
         src_tokens = encoder_input['src_tokens']
         if src_tokens.dim() > 2:
-            src_lengths = encoder_input('src_lengths')
+            src_lengths = encoder_input['src_lengths']
         else:
-            src_lengths = src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
+            src_lengths = (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
         input_size = src_tokens.size()
         # batch dimension goes first followed by source lengths
         bsz = input_size[0]
@@ -348,13 +348,19 @@ class SequenceGenerator(object):
             # Record attention scores
             if avg_attn_scores is not None:
                 if attn is None:
-                    attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
+                    if src_tokens.dim() > 2:
+                        max_encoder_output_length = \
+                            self.models[0].encoder.output_lengths(src_tokens.size(1))
+                        attn = scores.new(bsz * beam_size,
+                            max_encoder_output_length, maxlen + 2)
+                    else:
+                        attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
                     attn_buf = attn.clone()
                     if src_tokens.dim() > 2:
                         # speech src case, also consider encoder's frame subsampling
                         output_lengths = self.models[0].encoder.output_lengths(
                             encoder_input['src_lengths'])
-                        nonpad_idxs = sequence_mask(output_lengths, src_tokens.size[1])
+                        nonpad_idxs = sequence_mask(output_lengths, attn.size(1))
                     else:
                         # text src case
                         nonpad_idxs = src_tokens.ne(self.pad)
