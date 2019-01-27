@@ -139,6 +139,7 @@ class SpeechLSTMModel(FairseqModel):
         conv_layers = ConvBNReLU(out_channels, kernel_sizes, strides,
             in_channels=in_channels) if not out_channels is None else None
 
+        print('| input feature dimension: {}'.format(task.feat_dim))
         assert task.feat_dim % in_channels == 0
         rnn_encoder_input_size = task.feat_dim // in_channels
         if conv_layers is not None:
@@ -398,7 +399,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         bsz, seqlen = prev_output_tokens.size()
 
         # get outputs from encoder
-        encoder_outs, encoder_hiddens, encoder_cells = encoder_out[:3]
+        encoder_outs = encoder_out[0]
         srclen = encoder_outs.size(0)
 
         # embed tokens
