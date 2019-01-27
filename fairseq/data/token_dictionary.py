@@ -22,6 +22,7 @@ class TokenDictionary(Dictionary):
         self.eos_index = self.add_symbol(eos)
         self.unk_index = self.add_symbol(unk)
         self.nspecial = len(self.symbols)
+        self.non_lang_syms = None
 
     def string(self, tensor, bpe_symbol=None, escape_unk=False):
         """Helper for converting a tensor of token indices to a string.
@@ -50,7 +51,7 @@ class TokenDictionary(Dictionary):
         return self.space_index
 
     @classmethod
-    def load(cls, f, ignore_utf_errors=False):
+    def load(cls, f, f_non_lang_syms=None, ignore_utf_errors=False):
         """Loads the dictionary from a text file with the format:
 
         ```
@@ -58,11 +59,33 @@ class TokenDictionary(Dictionary):
         <symbol1> <count1>
         ...
         ```
-        and identifies the space symbol if it exists, by obtaining its index
+
+        Identifies the space symbol if it exists, by obtaining its index
         (space_index=-1 if no space symbol)
+
+        Loads non_lang_syms from another text file, if it exists, with one
+        symbol per line
         """
         d = super().load(f, ignore_utf_errors)
         d.space_index = d.indices.get(d.space_word, -1)
+
+        if f_non_lang_syms is not None:
+            assert isinstance(f_non_lang_syms, str)
+            try:
+                with open(f_non_lang_syms, 'r', encoding='utf-8',
+                    errors='ignore' if ignore_utf_errors else None) as fd:
+                    non_lang_syms = [x.rstrip() for x in fd.readlines()]
+            except FileNotFoundError as fnfe:
+                raise fnfe
+            except UnicodeError:
+                raise Exception("Incorrect encoding detected in {}, please "
+                                "rebuild the dataset".format(f))
+
+            for sym in non_lang_syms:
+                assert d.index(sym) != d.unk(), \
+                '{} in {} is not in the dictionary'.format(sym, f_non_lang_syms)
+            d.non_lang_syms = non_lang_syms
+
         return d
 
     def dummy_sentence(self, length):

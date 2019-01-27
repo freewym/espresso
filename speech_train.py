@@ -132,8 +132,8 @@ def train(args, trainer, task, epoch_itr):
     first_valid = args.valid_subset.split(',')[0]
     max_update = args.max_update or math.inf
     for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
-        if hasattr(task, 'iterations_in_epoch'):
-            task.iterations_in_epoch = i
+        if callable(getattr(trainer.criterion, 'set_num_updates', None)):
+            trainer.criterion.set_num_updates(trainer.get_num_updates())
 
         log_output = trainer.train_step(samples)
         if log_output is None:
@@ -245,12 +245,16 @@ def validate(args, trainer, task, epoch_itr, subsets):
 
             for k, v in log_output.items():
                 if k in ['loss', 'nll_loss', 'ntokens', 'nsentences',
-                    'sample_size', 'word_count']:
+                    'sample_size', 'word_count', 'char_count']:
                     continue
                 if k == 'word_error':
                     extra_meters['valid_wer'].update(
                         float(v) / log_output['word_count'] * 100,
                         log_output['word_count'])
+                elif k == 'char_error':
+                    extra_meters['valid_cer'].update(
+                        float(v) / log_output['char_count'] * 100,
+                        log_output['char_count'])
                 else:
                     extra_meters[k].update(v)
 

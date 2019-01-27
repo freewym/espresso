@@ -14,10 +14,10 @@ import os
 import torch
 
 from fairseq import wer, options, progress_bar, tasks, utils
-from fairseq.meters import StopwatchMeter
+from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.speech_recognizer import SpeechRecognizer
 from fairseq.utils import import_user_module
-from speech_tools.utils import plot_attention
+from speech_tools.utils import Tokenizer, plot_attention
 
 
 def main(args):
@@ -36,7 +36,7 @@ def main(args):
     # Load dataset split
     task = tasks.setup_task(args)
     task.load_dataset(args.gen_subset)
-    print('| {} {} {} examples'.format(args.data, args.gen_subset,
+    print('| {} {} examples'.format(args.gen_subset,
         len(task.dataset(args.gen_subset))))
 
     # Set dictionary
@@ -94,7 +94,7 @@ def main(args):
         recognizer.cuda()
 
     # Generate and compute WER
-    scorer = wer.Scorer(dict)
+    scorer = wer.Scorer(dict, wer_output_filter=args.wer_output_filter)
     num_sentences = 0
     has_target = True
     with progress_bar.build_progress_bar(args, itr) as t:
@@ -113,14 +113,19 @@ def main(args):
             if has_target:
                 target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
                 if not args.quiet:
-                    print('T-{}\t{}'.format(utt_id, target_str))
+                    target_sent = Tokenizer.tokens_to_sentence(target_str, dict,
+                        use_unk_sym=False)
+                    print('T-{}\t{}'.format(utt_id, target_sent))
 
             # Process top predictions
             for i, hypo in enumerate(hypos[:min(len(hypos), args.nbest)]):
-                hypo_str = dict.string(hypo['tokens'].int().cpu(), remove_bpe)
+                hypo_str = dict.string(hypo['tokens'].int().cpu(), args.remove_bpe)
+                if not args.quiet or i == 0:
+                    hypo_sent = Tokenizer.tokens_to_sentence(hypo_str, dict)
 
                 if not args.quiet:
-                    print('H-{}\t{}\t{}'.format(utt_id, hypo['score'], hypo_str))
+                    print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, hypo['score']))
+                    '''
                     print('P-{}\t{}'.format(
                         utt_id,
                         ' '.join(map(
@@ -128,17 +133,17 @@ def main(args):
                             hypo['positional_scores'].tolist(),
                         ))
                     ))
+                    '''
 
                 # Score and obtain attention only the top hypothesis
                 if i == 0:
                     # src_len x tgt_len
                     attention = hypo['attention'].float().cpu() \
                         if hypo['attention'] is not None else None
-                    if attention is not None and args.print_alignment:
-                        plot_attention(attention, hypo_str, utt_id,
-                            os.path.join(args.path, 'attn_plots'))
-                        print('| Saved attention plots in ' + \
-                            os.path.join(args.path, 'attn_plots'))
+                    if attention is not None:
+                        save_dir = os.path.join(args.output_dir, 'attn_plots')
+                        os.makedirs(save_dir, exist_ok=True)
+                        plot_attention(attention, hypo_sent, utt_id, save_dir)
                     scorer.add_prediction(utt_id, hypo_str)
                     if has_target:
                         scorer.add_evaluation(utt_id, target_str, hypo_str)
@@ -147,17 +152,21 @@ def main(args):
 
     print('| Recognized {} utterances in {:.1f}s ({:.2f} utterances/s)'.format(
         num_sentences, gen_timer.sum, 1. / gen_timer.avg))
+    if args.print_alignment:
+        print('| Saved attention plots in ' + save_dir)
 
     scorer.add_ordered_utt_list(*args.test_text_files)
 
-    fn = 'results.txt'
-    with open(os.path.join(args.path, fn), 'w', encoding='utf-8') as f:
+    os.makedirs(args.output_dir, exist_ok=True)
+
+    fn = 'decoded_results.txt'
+    with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
         f.write(scorer.print_results())
         print('| Decoded results saved as ' + f.name)
 
     if has_target:
         fn = 'wer'
-        with open(os.path.join(args.path, fn), 'w', encoding='utf-8') as f:
+        with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
             res = 'WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
                 *(scorer.wer()))
             print('| Recognize {} with beam={}: '.format(args.gen_subset, args.beam) + res)
@@ -165,7 +174,7 @@ def main(args):
             print('| WER saved in ' + f.name)
 
         fn = 'cer'
-        with open(os.path.join(args.path, fn), 'w', encoding='utf-8') as f:
+        with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
             res = 'CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
                 *(scorer.cer()))
             print('|                            ' + res)
@@ -173,7 +182,7 @@ def main(args):
             print('| CER saved in ' + f.name)
 
         fn = 'aligned_results.txt'
-        with open(os.path.join(args.path, fn), 'w', encoding='utf-8') as f:
+        with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
             f.write(scorer.print_aligned_results())
             print('| Aligned results saved as ' + f.name)
 
@@ -189,6 +198,8 @@ def print_options_meaning_changes(args):
 
 if __name__ == '__main__':
     parser = options.get_generation_parser(default_task='speech_recognition')
+    parser.add_argument('--output-dir', metavar='DIR', required=True,
+                        help='path to output results')
     args = options.parse_args_and_arch(parser)
     print_options_meaning_changes(args)
     main(args)
