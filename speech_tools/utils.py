@@ -116,24 +116,27 @@ def convert_padding_direction(src_frames, src_lengths, right_to_left=False,
         index = torch.remainder(range + num_pads, max_len)
     return src_frames.gather(1, index)
 
-def plot_attention(attention, hypo_str, utt_id, save_dir):
+def plot_attention(attention, hypo_sent, utt_id, save_dir):
     """This function plots the attention for an example and save the plot in
     save_dir with <utt_id>.pdf as its filename.
     """
     try:
+        import matplotlib as mpl
+        mpl.use('Agg')
         import matplotlib.pyplot as plt
     except ImportError:
         raise ImportError(
             """This function requires matplotlib.
-            Please install it to generate plots.
+            Please install it to generate plots, or unset --print-alignment.
             If you are on a cluster where you do not have admin rights you could
             try using virtualenv.""")
 
     attn = attention.data.numpy()
     plt.matshow(attn)
-    plt.title(hypo_str)
+    plt.title(hypo_sent, fontsize=8)
     filename = os.path.join(save_dir, utt_id + '.pdf')
     plt.savefig(filename, bbox_inches='tight')
+    plt.close()
 
 def edit_distance(ref, hyp):
     """This function is to calculate the edit distance of reference sentence and
