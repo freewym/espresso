@@ -61,6 +61,8 @@ class SpeechLSTMModel(FairseqModel):
                             help='attention type')
         parser.add_argument('--attention-dim', type=int, metavar='N',
                             help='attention dimension')
+        parser.add_argument('--need-attention', default=False, action='store_true',
+                            help='need to return attention tensor for the caller')
         parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
                             help='comma separated list of adaptive softmax cutoff points. '
                                  'Must be used with adaptive_loss criterion')
@@ -173,6 +175,7 @@ class SpeechLSTMModel(FairseqModel):
             encoder_output_units=encoder.output_units,
             attn_type=args.attention_type,
             attn_dim=args.attention_dim,
+            need_attn=args.need_attention,
             pretrained_embed=pretrained_decoder_embed,
             share_input_output_embed=args.share_decoder_input_output_embed,
             adaptive_softmax_cutoff=(
@@ -346,7 +349,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         self, dictionary, embed_dim=512, hidden_size=512, out_embed_dim=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1,
         encoder_output_units=512, attn_type='bahdanau', attn_dim=256,
-        pretrained_embed=None, share_input_output_embed=False,
+        need_attn=False, pretrained_embed=None, share_input_output_embed=False,
         adaptive_softmax_cutoff=None,
     ):
         super().__init__(dictionary)
@@ -354,7 +357,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         self.dropout_out = dropout_out
         self.hidden_size = hidden_size
         self.share_input_output_embed = share_input_output_embed
-        self.need_attn = True
+        self.need_attn = need_attn
 
         self.adaptive_softmax = None
         num_embeddings = len(dictionary)
@@ -545,6 +548,7 @@ def base_architecture(args):
     args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 960)
     args.attention_type = getattr(args, 'attention_type', 'bahdanau')
     args.attention_dim = getattr(args, 'attention_dim', 320)
+    args.need_attention = getattr(args, 'need_attention', False)
     args.encoder_rnn_dropout_in = getattr(args, 'encoder_rnn_dropout_in', args.dropout)
     args.encoder_rnn_dropout_out = getattr(args, 'encoder_rnn_dropout_out', args.dropout)
     args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', args.dropout)
