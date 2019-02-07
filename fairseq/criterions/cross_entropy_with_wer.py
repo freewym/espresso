@@ -7,10 +7,12 @@
 
 import math
 import numpy as np
+import torch
 import torch.nn.functional as F
 
 from fairseq import utils, wer
 from fairseq.data import data_utils
+from fairseq.models import FairseqIncrementalDecoder
 
 from speech_tools.utils import Tokenizer
 
@@ -51,46 +53,84 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
-        net_output = model(**sample['net_input'])
-        lprobs = model.get_normalized_probs(net_output, log_probs=True)
-        target = model.get_targets(sample, net_output)
+        dict = self.scorer.dict
+        if model.training:
+            net_output = model(**sample['net_input'])
+            lprobs = model.get_normalized_probs(net_output, log_probs=True)
+            target = model.get_targets(sample, net_output)
+        else:
+            assert isinstance(model.decoder, FairseqIncrementalDecoder)
+            incremental_states = {}
+            encoder_input = {
+                k: v for k, v in sample['net_input'].items()
+                if k != 'prev_output_tokens'
+            }
+            encoder_out = model.encoder(**encoder_input)
+            target = sample['target']
+            # make the maximum decoding length equal to at least the length of
+            # target, and the length of encoder_out if possible
+            # and at least the length of target
+            maxlen = max(encoder_out['encoder_out'][0].size(1), target.size(1))
+            tokens = target.new_full([target.size(0), maxlen + 2], dict.pad())
+            tokens[:, 0] = dict.eos()
+            lprobs = []
+            attn = [] if model.decoder.need_attn else None
+            dummy_log_probs = encoder_out['encoder_out'][0].new_full(
+                [target.size(0), len(dict)], -np.log(len(dict)))
+            for step in range(maxlen + 1): # one extra step for EOS marker
+                is_eos = tokens[:, step].eq(dict.eos())
+                # if all predictions are finished (i.e., ended with eos),
+                # pad lprobs to target length with dummy log probs,
+                # truncate tokens up to this step and break
+                if step > 0 and is_eos.sum() == is_eos.size(0):
+                    for _ in range(step, target.size(1)):
+                        lprobs.append(dummy_log_probs)
+                    tokens = tokens[:, :step + 1]
+                    break
+                log_probs, attn_scores = self._decode(tokens[:, :step + 1],
+                    model, encoder_out, incremental_states)
+                log_probs[:, dict.pad()] = -math.inf  # never select pad
+                tokens[:, step + 1] = log_probs.argmax(-1)
+                if step > 0: # deal with finished predictions
+                    # make log_probs uniform if the previous output token is EOS
+                    # and add consecutive EOS to the end of prediction
+                    log_probs[is_eos, :] = -np.log(log_probs.size(1))
+                    tokens[is_eos, step + 1] = dict.eos()
+                if step < target.size(1):
+                    lprobs.append(log_probs)
+                if model.decoder.need_attn:
+                    attn.append(attn_scores)
+            # bsz x min(tgtlen, maxlen + 1) x vocab_size
+            lprobs = torch.stack(lprobs, dim=1)
+            if model.decoder.need_attn:
+                # bsz x (maxlen + 1) x (length of encoder_out)
+                attn = torch.stack(attn, dim=1)
         # word error stats code starts
         if not model.training or (self.num_updates // self.args.print_interval >
             (self.num_updates - 1) // self.args.print_interval):
-            pred = lprobs.argmax(-1).cpu() # bsz x len
-            assert pred.size() == target.size()
+            pred = lprobs.argmax(-1).cpu() if model.training else \
+                tokens[:, 1:].data.cpu() # bsz x len
 
-            def lengths_strip_padding(idx_array, padding_idx):
-                # assume sequences are right-padded, so work out the length by
-                # looking for the first occurence of padding_idx
-                assert idx_array.ndim == 1 or idx_array.ndim == 2
-                if idx_array.ndim == 1:
-                    try:
-                        return idx_array.tolist().index(padding_idx)
-                    except ValueError:
-                        return len(idx_array)
-                return [lengths_strip_padding(row, padding_idx) for row in idx_array]
-
-            target_lengths = lengths_strip_padding(target.data.cpu().numpy(),
-                self.padding_idx)
-            dict = self.scorer.dict
             if not model.training: # validation step, compute WER stats with scorer
+                assert pred.size(0) == target.size(0)
                 self.scorer.reset()
-                for i, length in enumerate(target_lengths):
+                for i in range(target.size(0)):
                     utt_id = sample['utt_id'][i]
                     id = sample['id'].data[i]
                     #ref_tokens = dict.string(target.data[i])
                     ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
-                    pred_tokens = dict.string(pred.data[i][:length])
+                    pred_tokens = dict.string(pred.data[i])
                     self.scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
             else: # print a randomly sampled result every print_interval updates
+                assert pred.size() == target.size()
                 with data_utils.numpy_seed(self.num_updates):
                     i = np.random.randint(0, len(sample['id']))
                 id = sample['id'].data[i]
+                length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
                 #ref_one = Tokenizer.tokens_to_sentence(dict.string(target.data[i]), dict)
                 ref_one = self.train_tgt_dataset.get_original_text(id, dict)
                 pred_one = Tokenizer.tokens_to_sentence(
-                    dict.string(pred.data[i][:target_lengths[i]]), dict)
+                    dict.string(pred.data[i][:length]), dict)
                 print('| sample REF: ' + ref_one)
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends
@@ -126,6 +166,21 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
             agg_output['char_error'] = char_error
             agg_output['char_count'] = char_count
         return agg_output
+
+    def _decode(self, tokens, model, encoder_out, incremental_states):
+        with torch.no_grad():
+            decoder_out = list(model.decoder(tokens, encoder_out,
+                incremental_state=incremental_states))
+            decoder_out[0] = decoder_out[0][:, -1, :]
+            attn = decoder_out[1]
+            if type(attn) is dict:
+                attn = attn['attn']
+            if attn is not None:
+                if type(attn) is dict:
+                    attn = attn['attn']
+                attn = attn[:, -1, :]
+        probs = model.get_normalized_probs(decoder_out, log_probs=True)
+        return probs, attn
 
     def set_valid_tgt_dataset(self, dataset):
         self.valid_tgt_dataset = dataset
