@@ -1,5 +1,6 @@
-#!/usr/bin/env python3 -u
+#!/usr/bin/env python3
 # Copyright (c) 2017-present, Facebook, Inc.
+#               2018-present, Yiming Wang
 # All rights reserved.
 #
 # This source code is licensed under the license found in the LICENSE file in
@@ -24,7 +25,7 @@ from fairseq.meters import AverageMeter, StopwatchMeter
 from fairseq.utils import import_user_module
 
 
-def main(args):
+def main(args, init_distributed=False):
     import_user_module(args)
 
     if args.max_tokens is None:
@@ -40,6 +41,12 @@ def main(args):
 
     # Load dataset splits
     load_dataset_splits(task, ['train', 'valid'])
+
+    # Initialize distributed training (after data loading)
+    if init_distributed:
+        import socket
+        args.distributed_rank = distributed_utils.distributed_init(args)
+        print('| initialized host {} as rank {}'.format(socket.gethostname(), args.distributed_rank))
 
     # Build model and criterion
     model = task.build_model(args)
@@ -384,13 +391,10 @@ def load_dataset_splits(task, splits):
 
 
 def distributed_main(i, args):
-    import socket
     args.device_id = i
     if args.distributed_rank is None:  # torch.multiprocessing.spawn
         args.distributed_rank = i
-    args.distributed_rank = distributed_utils.distributed_init(args)
-    print('| initialized host {} as rank {}'.format(socket.gethostname(), args.distributed_rank))
-    main(args)
+    main(args, init_distributed=True)
 
 
 def print_options_meaning_changes(args):
@@ -400,7 +404,7 @@ def print_options_meaning_changes(args):
     print('| --max-tokens is the maximum number of input frames in a batch')
 
 
-if __name__ == '__main__':
+def cli_main():
     parser = options.get_training_parser(default_task='speech_recognition')
     args = options.parse_args_and_arch(parser)
     print_options_meaning_changes(args)
@@ -416,18 +420,8 @@ if __name__ == '__main__':
         port = random.randint(10000, 20000)
         args.distributed_init_method = 'tcp://localhost:{port}'.format(port=port)
         args.distributed_rank = None  # set based on device id
-        print(
-            '''| NOTE: you may get better performance with:
-
-            python -m torch.distributed.launch --nproc_per_node {ngpu} train.py {no_c10d}(...)
-            '''.format(
-                ngpu=args.distributed_world_size,
-                no_c10d=(
-                    '--ddp-backend=no_c10d ' if max(args.update_freq) > 1 and args.ddp_backend != 'no_c10d'
-                    else ''
-                ),
-            )
-        )
+        if max(args.update_freq) > 1 and args.ddp_backend != 'no_c10d':
+            print('| NOTE: you may get better performance with: --ddp-backend=no_c10d')
         torch.multiprocessing.spawn(
             fn=distributed_main,
             args=(args, ),
@@ -436,3 +430,7 @@ if __name__ == '__main__':
     else:
         # single GPU training
         main(args)
+
+
+if __name__ == '__main__':
+    cli_main()
