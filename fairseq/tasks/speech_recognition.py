@@ -32,8 +32,8 @@ class SpeechRecognitionTask(FairseqTask):
 
     .. note::
 
-        The speech recognition task is compatible with :mod:`train.py <train>`,
-        :mod:`generate.py <generate>` and :mod:`interactive.py <interactive>`.
+        The speech recognition task is compatible with :mod:`speech-train`,
+        :mod:`speech-recognition` and :mod:`fairseq-interactive`.
 
     The speech recognition task provides the following additional command-line
     arguments:
@@ -81,6 +81,21 @@ class SpeechRecognitionTask(FairseqTask):
                             help='amount to upsample primary dataset')
         # fmt: off
 
+    @classmethod
+    def load_dictionary(cls, filename, non_lang_syms=None):
+        """Load the dictionary from the filename
+        Args:
+            filename (str): the filename
+            non_lang_syms (str): non_lang_syms filename
+        """
+        return TokenDictionary.load(filename, f_non_lang_syms=non_lang_syms)
+
+    @classmethod
+    def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8):
+        """Disable this method
+        """
+        raise NotImplementedError
+
     @staticmethod
     def load_pretrained_model(path, dict_path, non_lang_syms=None,
         arg_overrides=None):
@@ -88,7 +103,7 @@ class SpeechRecognitionTask(FairseqTask):
         args = model['args']
         state_dict = model['model']
         args = utils.override_model_args(args, arg_overrides)
-        dict = TokenDictionary.load(dict_path, f_non_lang_syms=non_lang_syms)
+        dict = cls.load_dictionary(dict_path, non_lang_syms=non_lang_syms)
 
         task = SpeechRecognitionTask(args, dict)
         model = task.build_model(args)
@@ -113,8 +128,7 @@ class SpeechRecognitionTask(FairseqTask):
         # load dictionaries
         dict_path = os.path.join(os.path.dirname(args.text_files[0]),
             'dict.txt') if args.dict is None else args.dict
-        dict = TokenDictionary.load(dict_path,
-            f_non_lang_syms=args.non_lang_syms)
+        dict = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms)
         print('| dictionary: {} types'.format(len(dict)))
 
         return cls(args, dict)

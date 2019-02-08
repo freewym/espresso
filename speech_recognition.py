@@ -196,10 +196,14 @@ def print_options_meaning_changes(args):
         print('| --print-alignment is set to plot attentions')
 
 
-if __name__ == '__main__':
+def cli_main():
     parser = options.get_generation_parser(default_task='speech_recognition')
     parser.add_argument('--output-dir', metavar='DIR', required=True,
                         help='path to output results')
     args = options.parse_args_and_arch(parser)
     print_options_meaning_changes(args)
     main(args)
+
+
+if __name__ == '__main__':
+    cli_main()
