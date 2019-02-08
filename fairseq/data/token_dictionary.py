@@ -40,9 +40,14 @@ class TokenDictionary(Dictionary):
             else:
                 return self[i]
 
-        sent = ' '.join(token_string(i) for i in tensor if i != self.eos() and \
-            i != self.pad())
-        if bpe_symbol is not None:
+        if bpe_symbol == 'sentencepiece':
+            sent = ''.join(token_string(i) for i in tensor if i != self.eos() \
+                and i != self.pad())
+            sent = sent.replace('\u2581', ' ').strip()
+        else:
+            sent = ' '.join(token_string(i) for i in tensor if i != self.eos() \
+                and i != self.pad())
+        if bpe_symbol is not None and bpe_symbol != 'sentencepiece':
             sent = (sent + ' ').replace(bpe_symbol, '').rstrip()
         return sent
     
