@@ -1,5 +1,6 @@
-#!/usr/bin/env python3 -u
-# Copyright (c) 2018-present, Yiming Wang
+#!/usr/bin/env python3
+# Copyright (c) 2017-present, Facebook, Inc.
+#               2018-present, Yiming Wang
 # All rights reserved.
 #
 # This source code is licensed under the license found in the LICENSE file in
