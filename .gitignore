@@ -122,6 +122,3 @@ examples/reranking/rerank_data
 
 # emacs saves
 *~
-
-# speech related
-speech_tools/kaldi
