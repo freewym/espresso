@@ -142,6 +142,3 @@ outputs
 
 # emacs saves
 *~
-
-# speech related
-speech_tools/kaldi
