@@ -57,17 +57,16 @@ class SpeechLSTMModel(FairseqModel):
         parser.add_argument('--decoder-out-embed-dim', type=int, metavar='N',
                             help='decoder output embedding dimension')
         parser.add_argument('--attention-type', type=str, metavar='STR',
-                            choices=['bahdanau','luong'], default='bahdanau',
+                            choices=['bahdanau','luong'],
                             help='attention type')
         parser.add_argument('--attention-dim', type=int, metavar='N',
                             help='attention dimension')
-        parser.add_argument('--need-attention', default=False, action='store_true',
+        parser.add_argument('--need-attention', action='store_true',
                             help='need to return attention tensor for the caller')
         parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
                             help='comma separated list of adaptive softmax cutoff points. '
                                  'Must be used with adaptive_loss criterion')
-        parser.add_argument('--share-decoder-input-output-embed', default=False,
-                            action='store_true',
+        parser.add_argument('--share-decoder-input-output-embed', action='store_true',
                             help='share decoder input and output embeddings')
 
         # Granular dropout settings (if not specified these default to --dropout)
@@ -137,13 +136,13 @@ class SpeechLSTMModel(FairseqModel):
             args.encoder_conv_kernel_sizes, type=int)
         strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides,
             type=int)
-        in_channels = 1 # hard-coded for now
+        print('| input feature dimension: {}, channels: {}'.format(task.feat_dim,
+            task.feat_in_channels))
+        assert task.feat_dim % task.feat_in_channels == 0
         conv_layers = ConvBNReLU(out_channels, kernel_sizes, strides,
-            in_channels=in_channels) if not out_channels is None else None
+            in_channels=task.feat_in_channels) if not out_channels is None else None
 
-        print('| input feature dimension: {}'.format(task.feat_dim))
-        assert task.feat_dim % in_channels == 0
-        rnn_encoder_input_size = task.feat_dim // in_channels
+        rnn_encoder_input_size = task.feat_dim // task.feat_in_channels
         if conv_layers is not None:
             for stride in strides:
                 if isinstance(stride, (list, tuple)):

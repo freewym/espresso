@@ -10,5 +10,6 @@ export LC_ALL=C
 # END
 
 export PATH=~/anaconda3/bin:$PATH
-export PATH=$MAIN_ROOT:$PATH
+export PATH=$MAIN_ROOT:$MAIN_ROOT/speech_tools:$PATH
+export PYTHONUNBUFFERED=1
 

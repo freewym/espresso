@@ -1,4 +1,4 @@
-# Copyright (c) 2018-present, Yiming Wang
+# Copyright (c) 2019-present, Yiming Wang
 # All rights reserved.
 #
 # This source code is licensed under the license found in the LICENSE file in
@@ -8,7 +8,6 @@
 import math
 import numpy as np
 import torch
-import torch.nn.functional as F
 
 from fairseq import utils, wer
 from fairseq.data import data_utils
@@ -17,11 +16,11 @@ from fairseq.models import FairseqIncrementalDecoder
 from speech_tools.utils import Tokenizer
 
 from . import FairseqCriterion, register_criterion
-from .cross_entropy import CrossEntropyCriterion
+from .label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
 
 
-@register_criterion('cross_entropy_with_wer')
-class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
+@register_criterion('label_smoothed_cross_entropy_with_wer')
+class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriterion):
 
     def __init__(self, args, task):
         super().__init__(args, task)
@@ -37,6 +36,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
     def add_args(parser):
         """Add criterion-specific arguments to the parser."""
         # fmt: off
+        LabelSmoothedCrossEntropyCriterion.add_args(parser)
         parser.add_argument('--print-training-sample-interval', type=int,
                             metavar='N', dest='print_interval', default=500,
                             help='print a training sample (reference + '
@@ -89,7 +89,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                     break
                 log_probs, attn_scores = self._decode(tokens[:, :step + 1],
                     model, encoder_out, incremental_states)
-                log_probs[:, dict.pad()] = -math.inf  # never select pad
+                #log_probs[:, dict.pad()] = -math.inf  # never select pad
                 tokens[:, step + 1] = log_probs.argmax(-1)
                 if step > 0: # deal with finished predictions
                     # make log_probs uniform if the previous output token is EOS
@@ -135,11 +135,19 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends
         lprobs = lprobs.view(-1, lprobs.size(-1))
-        loss = F.nll_loss(lprobs, target.view(-1), ignore_index=self.padding_idx,
-                          reduction='sum' if reduce else 'none')
+        target = target.view(-1, 1)
+        non_pad_mask = target.ne(self.padding_idx)
+        nll_loss = -lprobs.gather(dim=-1, index=target)[non_pad_mask]
+        smooth_loss = -lprobs.sum(dim=-1, keepdim=True)[non_pad_mask]
+        if reduce:
+            nll_loss = nll_loss.sum()
+            smooth_loss = smooth_loss.sum()
+        eps_i = self.eps / lprobs.size(-1)
+        loss = (1. - self.eps) * nll_loss + eps_i * smooth_loss
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
+            'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
@@ -154,7 +162,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
         """Aggregate logging outputs from data parallel training."""
-        agg_output = CrossEntropyCriterion.aggregate_logging_outputs(logging_outputs)
+        agg_output = LabelSmoothedCrossEntropyCriterion.aggregate_logging_outputs(logging_outputs)
         word_error = sum(log.get('word_error', 0) for log in logging_outputs)
         word_count = sum(log.get('word_count', 0) for log in logging_outputs)
         char_error = sum(log.get('char_error', 0) for log in logging_outputs)

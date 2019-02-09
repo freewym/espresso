@@ -79,6 +79,8 @@ class SpeechRecognitionTask(FairseqTask):
                             help='max number of tokens in the target sequence')
         parser.add_argument('--upsample-primary', default=1, type=int,
                             help='amount to upsample primary dataset')
+        parser.add_argument('--feat-in-channels', default=1, type=int, metavar='N',
+                            help='feature input channels')
         # fmt: off
 
     @classmethod
@@ -114,6 +116,7 @@ class SpeechRecognitionTask(FairseqTask):
     def __init__(self, args, dict):
         super().__init__(args)
         self.dict = dict
+        self.feat_in_channels = args.feat_in_channels
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -200,10 +203,6 @@ class SpeechRecognitionTask(FairseqTask):
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
         return (self.args.max_source_positions, self.args.max_target_positions)
-
-    def source_dictionary(self):
-        """Return the source :class:`~fairseq.data.Dictionary`."""
-        return None
 
     @property
     def target_dictionary(self):

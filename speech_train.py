@@ -35,6 +35,8 @@ def main(args, init_distributed=False):
     if torch.cuda.is_available() and not args.cpu:
         torch.cuda.set_device(args.device_id)
     torch.manual_seed(args.seed)
+    torch.backends.cudnn.deterministic = True
+    #torch.backends.cudnn.enabled = False
 
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(args)
@@ -102,7 +104,9 @@ def main(args, init_distributed=False):
     train_meter.start()
     valid_losses, valid_wers = [None], [None]
     valid_subsets = args.valid_subset.split(',')
-    while lr > args.min_lr and epoch_itr.epoch < max_epoch and trainer.get_num_updates() < max_update:
+    while lr > args.min_lr and (epoch_itr.epoch < max_epoch or \
+        (epoch_itr.epoch == max_epoch and epoch_itr._next_epoch_itr is not None)) and \
+        trainer.get_num_updates() < max_update:
         # train for one epoch
         train(args, trainer, task, epoch_itr)
 
@@ -342,7 +346,7 @@ def save_checkpoint(args, trainer, epoch_itr, val_wer):
 
     if args.keep_last_epochs > 0:
         # remove old epoch checkpoints; checkpoints are sorted in descending order
-        checkpoints = utils.checkpoint_paths(args.save_dir, pattern=r'checkpoint\d+\.pt')
+        checkpoints = utils.checkpoint_paths(args.save_dir, pattern=r'checkpoint(\d+)\.pt')
         for old_chk in checkpoints[args.keep_last_epochs:]:
             if os.path.lexists(old_chk):
                 os.remove(old_chk)
