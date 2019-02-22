@@ -168,18 +168,18 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
         return agg_output
 
     def _decode(self, tokens, model, encoder_out, incremental_states):
-        with torch.no_grad():
-            decoder_out = list(model.decoder(tokens, encoder_out,
-                incremental_state=incremental_states))
-            decoder_out[0] = decoder_out[0][:, -1, :]
-            attn = decoder_out[1]
+        decoder_out = list(model.decoder(tokens, encoder_out,
+            incremental_state=incremental_states))
+        decoder_out[0] = decoder_out[0][:, -1:, :]
+        attn = decoder_out[1]
+        if type(attn) is dict:
+            attn = attn['attn']
+        if attn is not None:
             if type(attn) is dict:
                 attn = attn['attn']
-            if attn is not None:
-                if type(attn) is dict:
-                    attn = attn['attn']
-                attn = attn[:, -1, :]
+            attn = attn[:, -1, :]
         probs = model.get_normalized_probs(decoder_out, log_probs=True)
+        probs = probs[:, -1, :]
         return probs, attn
 
     def set_valid_tgt_dataset(self, dataset):

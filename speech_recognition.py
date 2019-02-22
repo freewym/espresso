@@ -16,7 +16,6 @@ import torch
 
 from fairseq import wer, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
-from fairseq.speech_recognizer import SpeechRecognizer
 from fairseq.utils import import_user_module
 from speech_tools.utils import Tokenizer, plot_attention
 
@@ -57,6 +56,8 @@ def main(args):
         )
         if args.fp16:
             model.half()
+        if use_cuda:
+            model.cuda()
 
     # Load dataset (possibly sharded)
     itr = task.get_batch_iterator(
@@ -79,77 +80,65 @@ def main(args):
         print('| The option match_source_len is not applicable to '
             'speech recognition. Ignoring it.')
     gen_timer = StopwatchMeter()
-    recognizer = SpeechRecognizer(
-        models, dict, beam_size=args.beam, minlen=args.min_len,
-        stop_early=(not args.no_early_stop),
-        normalize_scores=(not args.unnormalized),
-        len_penalty=args.lenpen, unk_penalty=args.unkpen,
-        sampling=args.sampling, sampling_topk=args.sampling_topk,
-        sampling_temperature=args.sampling_temperature,
-        diverse_beam_groups=args.diverse_beam_groups,
-        diverse_beam_strength=args.diverse_beam_strength,
-        match_source_len=False, no_repeat_ngram_size=args.no_repeat_ngram_size,
-    )
-
-    if use_cuda:
-        recognizer.cuda()
+    generator = task.build_generator(args)
 
     # Generate and compute WER
     scorer = wer.Scorer(dict, wer_output_filter=args.wer_output_filter)
     num_sentences = 0
     has_target = True
     with progress_bar.build_progress_bar(args, itr) as t:
-        recognitions = recognizer.generate_batched_itr(
-            t, maxlen_a=args.max_len_a, maxlen_b=args.max_len_b,
-            cuda=use_cuda, timer=gen_timer, prefix_size=args.prefix_size,
-        )
+        wps_meter = TimeMeter()
+        for sample in t:
+            sample = utils.move_to_cuda(sample) if use_cuda else sample
+            if 'net_input' not in sample:
+                continue
 
-        sps_meter = TimeMeter()
-        for sample_id, utt_id, target_tokens, hypos in recognitions:
-            # Process input and ground truth
-            has_target = target_tokens is not None
-            target_tokens = target_tokens.int().cpu() if has_target else None
+            prefix_tokens = None
+            if args.prefix_size > 0:
+                prefix_tokens = sample['target'][:, :args.prefix_size]
 
-            # Retrieve the original sentences
-            if has_target:
-                target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
-                if not args.quiet:
-                    target_sent = Tokenizer.tokens_to_sentence(target_str, dict,
-                        use_unk_sym=False)
-                    print('T-{}\t{}'.format(utt_id, target_sent))
+            gen_timer.start()
+            hypos = task.inference_step(generator, models, sample, prefix_tokens)
+            num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
+            gen_timer.stop(num_generated_tokens)
 
-            # Process top predictions
-            for i, hypo in enumerate(hypos[:min(len(hypos), args.nbest)]):
-                hypo_str = dict.string(hypo['tokens'].int().cpu(), args.remove_bpe)
-                if not args.quiet or i == 0:
-                    hypo_sent = Tokenizer.tokens_to_sentence(hypo_str, dict)
+            for i, sample_id in enumerate(sample['id'].tolist()):
+                has_target = sample['target'] is not None
+                utt_id = sample['utt_id'][i]
 
-                if not args.quiet:
-                    print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, hypo['score']))
-                    '''
-                    print('P-{}\t{}'.format(
-                        utt_id,
-                        ' '.join(map(
-                            lambda x: '{:.4f}'.format(x),
-                            hypo['positional_scores'].tolist(),
-                        ))
-                    ))
-                    '''
+                # Retrieve the original sentences
+                if has_target:
+                    target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
+                    if not args.quiet:
+                        target_sent = Tokenizer.tokens_to_sentence(target_str,
+                            dict, use_unk_sym=False)
+                        print('T-{}\t{}'.format(utt_id, target_sent))
 
-                # Score and obtain attention only the top hypothesis
-                if i == 0:
-                    # src_len x tgt_len
-                    attention = hypo['attention'].float().cpu() \
-                        if hypo['attention'] is not None else None
-                    if attention is not None:
-                        save_dir = os.path.join(args.output_dir, 'attn_plots')
-                        os.makedirs(save_dir, exist_ok=True)
-                        plot_attention(attention, hypo_sent, utt_id, save_dir)
-                    scorer.add_prediction(utt_id, hypo_str)
-                    if has_target:
-                        scorer.add_evaluation(utt_id, target_str, hypo_str)
+                # Process top predictions
+                for i, hypo in enumerate(hypos[i][:min(len(hypos), args.nbest)]):
+                    hypo_str = dict.string(hypo['tokens'].int().cpu(), args.remove_bpe)
+                    if not args.quiet or i == 0:
+                        hypo_sent = Tokenizer.tokens_to_sentence(hypo_str, dict)
 
-            num_sentences += 1
+                    if not args.quiet:
+                        print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, hypo['score']))
+
+                    # Score and obtain attention only the top hypothesis
+                    if i == 0:
+                        # src_len x tgt_len
+                        attention = hypo['attention'].float().cpu() \
+                            if hypo['attention'] is not None else None
+                        if attention is not None:
+                            save_dir = os.path.join(args.output_dir, 'attn_plots')
+                            os.makedirs(save_dir, exist_ok=True)
+                            plot_attention(attention, hypo_sent, utt_id, save_dir)
+                        scorer.add_prediction(utt_id, hypo_str)
+                        if has_target:
+                            scorer.add_evaluation(utt_id, target_str, hypo_str)
+
+            wps_meter.update(num_generated_tokens)
+            t.log({'wps': round(wps_meter.avg)})
+            num_sentences += sample['nsentences']
 
     print('| Recognized {} utterances in {:.1f}s ({:.2f} utterances/s)'.format(
         num_sentences, gen_timer.sum, 1. / gen_timer.avg))
@@ -166,11 +155,12 @@ def main(args):
         print('| Decoded results saved as ' + f.name)
 
     if has_target:
+        header = ' Recognize {} with beam={}: '.format(args.gen_subset, args.beam)
         fn = 'wer'
         with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
             res = 'WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
                 *(scorer.wer()))
-            print('| Recognize {} with beam={}: '.format(args.gen_subset, args.beam) + res)
+            print('|' + header + res)
             f.write(res + '\n')
             print('| WER saved in ' + f.name)
 
@@ -178,7 +168,7 @@ def main(args):
         with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
             res = 'CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
                 *(scorer.cer()))
-            print('|                            ' + res)
+            print('|' + ' ' * len(header) + res)
             f.write(res + '\n')
             print('| CER saved in ' + f.name)
 
