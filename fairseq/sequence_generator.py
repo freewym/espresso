@@ -137,7 +137,6 @@ class SequenceGenerator(object):
         bsz = input_size[0]
         src_len = input_size[1]
         beam_size = self.beam_size
-        maxlen = min(maxlen, self.maxlen) if maxlen is not None else self.maxlen
         if self.match_source_len:
             max_len = src_lengths.max().item()
         else:
@@ -350,15 +349,15 @@ class SequenceGenerator(object):
                 if attn is None:
                     if src_tokens.dim() > 2:
                         max_encoder_output_length = \
-                            self.models[0].encoder.output_lengths(src_tokens.size(1))
+                            models[0].encoder.output_lengths(src_tokens.size(1))
                         attn = scores.new(bsz * beam_size,
-                            max_encoder_output_length, maxlen + 2)
+                            max_encoder_output_length, max_len + 2)
                     else:
                         attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
                     attn_buf = attn.clone()
                     if src_tokens.dim() > 2:
                         # speech src case, also consider encoder's frame subsampling
-                        output_lengths = self.models[0].encoder.output_lengths(
+                        output_lengths = models[0].encoder.output_lengths(
                             encoder_input['src_lengths'])
                         nonpad_idxs = sequence_mask(output_lengths, attn.size(1))
                     else:
