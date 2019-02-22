@@ -200,6 +200,16 @@ class SpeechRecognitionTask(FairseqTask):
             max_target_positions=self.args.max_target_positions,
         )
 
+    def build_generator(self, args):
+        if args.score_reference:
+            args.score_reference = False
+            print('| --score-reference is not applicable to speech recognition,'
+                ' ignoring it.')
+        return super().build_generator(args)
+
+    def build_dataset_for_inference(self, src_tokens, src_lengths):
+        return SpeechDataset(src_tokens, src_lengths)
+
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
         return (self.args.max_source_positions, self.args.max_target_positions)
