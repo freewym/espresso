@@ -123,7 +123,6 @@ class SequenceGenerator(object):
         bsz = input_size[0]
         src_len = input_size[1]
         beam_size = self.beam_size
-        maxlen = min(maxlen, self.maxlen) if maxlen is not None else self.maxlen
         if self.match_source_len:
             max_len = src_lengths.max().item()
         else:
