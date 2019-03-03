@@ -40,7 +40,7 @@ class Tokenizer:
 
         tokens = [space if token == ' ' else token for token in tokens]
         return ' '.join(tokens)
-    
+
     @staticmethod
     def tokens_to_index_tensor(line, dict, append_eos=True):
         tokens = line.strip().split()
