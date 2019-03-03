@@ -252,7 +252,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
         self.dropout_out = dropout_out
         self.bidirectional = bidirectional
         self.hidden_size = hidden_size
-        
+
         self.lstm = LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
@@ -440,7 +440,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
 
                 # hidden state concatenated with context vector becomes the
                 # input to the next layer
-                input = torch.cat((hidden, context), dim=1) 
+                input = torch.cat((hidden, context), dim=1)
                 input = F.dropout(input, p=self.dropout_out, training=self.training)
 
                 # save state for next time step
