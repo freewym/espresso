@@ -81,7 +81,7 @@ train_text=data/$train_set/text
 if [ ${stage} -le 2 ]; then
   echo "Stage 2: Dictionary Preparation and Text Tokenization"
   mkdir -p data/lang
-  
+
   echo "$0: making a non-linguistic symbol list..."
   cut -f 2- $train_text | tr " " "\n" | sort | uniq | grep "<" > $nlsyms
   cat $nlsyms

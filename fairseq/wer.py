@@ -148,7 +148,7 @@ class Scorer(object):
             for utt_id in self.results:
                 res += utt_id + ' ' + self.results[utt_id]
         return res
-    
+
     def print_aligned_results(self):
         res = ''
         if self.ordered_utt_list is not None:

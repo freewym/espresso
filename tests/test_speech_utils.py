@@ -40,7 +40,7 @@ class TestSpeechUtils(unittest.TestCase):
             isinstance(non_lang_syms, list)
         np.random.seed(seed)
         sent_len = np.random.randint(2, 30)
-        sent = '' 
+        sent = ''
         for _ in range(sent_len):
             if len(non_lang_syms) > 0 and np.random.randint(0, 20) == 0:
                 word = non_lang_syms[np.random.randint(0, len(non_lang_syms))]

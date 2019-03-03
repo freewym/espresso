@@ -25,7 +25,7 @@ class BaseAttention(nn.Module):
 
     def reset_parameters(self):
         pass
- 
+
     def forward(self, query, value, key_padding_mask=None, state=None):
         # query: bsz x q_hidden
         # value: len x bsz x v_hidden

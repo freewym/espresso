@@ -145,7 +145,7 @@ class ScpInMemoryDataset(ScpDataset):
     def __init__(self, path):
         super().__init__(path)
         self.read_data()
-    
+ 
     def read_data(self):
         self.data_offsets = np.append([0], np.cumsum(self.sizes)[:-1])
         self.buffer = np.empty((sum(self.sizes), self.feat_dim),
@@ -158,7 +158,7 @@ class ScpInMemoryDataset(ScpDataset):
     def filter_and_reorder(self, indices):
         super().filter_and_reorder(indices)
         self.read_data()
-    
+
     def __getitem__(self, i):
         self.check_index(i)
         ptx = self.data_offsets[i]
@@ -221,7 +221,7 @@ class TokenTextDataset(torch.utils.data.Dataset):
     def get_original_tokens(self, i):
         self.check_index(i)
         return self.tokens_list[i]
-    
+
     def get_original_text(self, i, dictionary):
         self.check_index(i)
         return Tokenizer.tokens_to_sentence(self.tokens_list[i], dictionary,
