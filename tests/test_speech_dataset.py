@@ -64,7 +64,7 @@ class TestSpeechDataset(unittest.TestCase):
             encoding='utf-8') as f:
             for i in np.random.permutation(range(num)):
                 utt_id = 'utt_id_' + str(i)
-                length = np.random.randint(10, 100) 
+                length = np.random.randint(10, 100)
                 tokens = [vocab[np.random.randint(0, len(vocab))] \
                     for _ in range(length)]
                 if tokens[0] == space:
@@ -160,7 +160,7 @@ class TestSpeechDataset(unittest.TestCase):
 
     def test_speech_dataset_cached_with_ordered_prefetch(self):
         self._speech_dataset_helper(all_in_memory=False, ordered_prefetch=True)
-    
+
     def test_speech_dataset_all_in_memory(self):
         self._speech_dataset_helper(all_in_memory=True)
 
