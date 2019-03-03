@@ -5,9 +5,9 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 
-from fairseq.data import Dictionary
-
 import torch
+
+from fairseq.data import Dictionary, data_utils
 
 
 class TokenDictionary(Dictionary):
@@ -40,17 +40,10 @@ class TokenDictionary(Dictionary):
             else:
                 return self[i]
 
-        if bpe_symbol == 'sentencepiece':
-            sent = ''.join(token_string(i) for i in tensor if i != self.eos() \
-                and i != self.pad())
-            sent = sent.replace('\u2581', ' ').strip()
-        else:
-            sent = ' '.join(token_string(i) for i in tensor if i != self.eos() \
-                and i != self.pad())
-        if bpe_symbol is not None and bpe_symbol != 'sentencepiece':
-            sent = (sent + ' ').replace(bpe_symbol, '').rstrip()
-        return sent
-    
+        sent = ' '.join(token_string(i) for i in tensor if i != self.eos() and \
+            i != self.pad())
+        return data_utils.process_bpe_symbol(sent, bpe_symbol)
+
     def space(self):
         """Helper to get index of space symbol"""
         return self.space_index
