@@ -123,7 +123,7 @@ if [ ${stage} -le 3 ]; then
     --valid-subset $valid_subset --max-sentences-valid 64 \
     --distributed-world-size 1 --distributed-rank 0 --distributed-port -1 \
     --max-epoch 20 --optimizer "adam" --lr 0.001 --weight-decay 0.0 \
-    --lr-scheduler "reduce_lr_on_plateau" --lr-shrink 0.5 --min-lr "1e-8" \
+    --lr-scheduler "reduce_lr_on_plateau_v2" --lr-shrink 0.5 --min-lr "1e-4" --start-reduce-lr-epoch 11 \
     --save-dir $dir --restore-file "checkpoint_last.pt" --save-interval-updates 200 \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch "speech_conv_lstm_wsj" --criterion "label_smoothed_cross_entropy_with_wer" --label-smoothing 0.05 \
@@ -131,7 +131,6 @@ if [ ${stage} -le 3 ]; then
     --valid-feat-files $valid_feat --valid-text-files $valid_token_text \
     --dict $dict --non-lang-syms $nlsyms \
     --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
-exit 0
 fi
 
 if [ ${stage} -le 4 ]; then
