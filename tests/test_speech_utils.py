@@ -77,7 +77,8 @@ class TestSpeechUtils(unittest.TestCase):
 
             # test :func:`~speech_tools.utils.tokenize` with
             # :func:`~TokenDictionary.encode_line`
-            tensor = self.dict.encode_line(tokens, append_eos=True)
+            tensor = self.dict.encode_line(tokens, add_if_not_exist=False,
+                append_eos=True)
             reconstructed_tokens = self.dict.string(tensor)
             expected_tokens = ' '.join(
                 [token if self.dict.index(token) != self.dict.unk() else \
