@@ -9,7 +9,6 @@ import math
 import torch
 from torch import nn
 from torch.nn import Parameter
-import torch.nn.functional as F
 
 from fairseq import utils
 
@@ -22,6 +21,11 @@ class BaseAttention(nn.Module):
         self.query_dim = query_dim
         self.value_dim = value_dim
         self.embed_dim = embed_dim
+
+        self.onnx_trace = False
+
+    def prepare_for_onnx_export_(self):
+        self.onnx_trace = True
 
     def reset_parameters(self):
         pass
@@ -73,7 +77,8 @@ class BahdanauAttention(BaseAttention):
                 key_padding_mask, float('-inf'),
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
-        attn_scores = F.softmax(attn_scores, dim=0)  # len x bsz
+        attn_scores = utils.softmax(attn_scores, dim=0,
+            onnx_trace=self.onnx_trace).type_as(attn_scores)  # len x bsz
 
         # sum weighted value. context: bsz x value_dim
         context = (attn_scores.unsqueeze(2) * value).sum(dim=0)
@@ -112,7 +117,8 @@ class LuongAttention(BaseAttention):
                 key_padding_mask, float('-inf'),
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
-        attn_scores = F.softmax(attn_scores, dim=0)  # len x bsz
+        attn_scores = utils.softmax(attn_scores, dim=0,
+            onnx_trace=self.onnx_trace).type_as(attn_scores)  # len x bsz
 
         # sum weighted value. context: bsz x value_dim
         context = (attn_scores.unsqueeze(2) * value).sum(dim=0)
