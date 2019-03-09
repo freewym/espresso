@@ -9,7 +9,7 @@
 import argparse
 import sys
 
-from utils import Tokenizer
+from utils import tokenize
 
 
 def get_parser():
@@ -37,7 +37,7 @@ def main(args):
     with (open(args.text, 'r', encoding='utf-8') if args.text else sys.stdin) as f:
         for line in f:
             entry = line.rstrip().split()
-            tokenized = Tokenizer.tokenize(' '.join(entry[args.skip_ncols:]),
+            tokenized = tokenize(' '.join(entry[args.skip_ncols:]),
                 space=args.space, non_lang_syms=nls)
             print(' '.join(entry[:args.skip_ncols]) + ' ' + tokenized)
 
