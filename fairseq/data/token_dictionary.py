@@ -7,6 +7,7 @@
 
 import torch
 
+from fairseq.tokenizer import tokenize_line
 from fairseq.data import Dictionary, data_utils
 
 
@@ -91,3 +92,37 @@ class TokenDictionary(Dictionary):
         t = torch.Tensor(length).uniform_(self.nspecial, len(self)).long()
         t[-1] = self.eos()
         return t
+
+    def encode_line(self, line, line_tokenizer=tokenize_line, add_if_not_exist=False,
+            consumer=None, append_eos=True, reverse_order=False):
+        tokens = line_tokenizer(line)
+        if reverse_order:
+            tokens = list(reversed(tokens))
+        ntokens = len(tokens)
+        ids = torch.LongTensor(ntokens + 1 if append_eos else ntokens)
+
+        for i, token in enumerate(tokens):
+            if add_if_not_exist:
+                idx = self.add_symbol(token)
+            else:
+                idx = self.index(token)
+            ids[i] = idx
+            if consumer is not None:
+                consumer(word, idx)
+        if append_eos:
+            ids[ntokens] = self.eos_index
+        return ids
+
+    def tokens_to_sentence(self, line, line_tokenizer=tokenize_line, use_unk_sym=True):
+        # use_unk_sym=False when we want to restore original transcripts from
+        # token sequences, e.g., obtain reference to compute WER
+        tokens = line_tokenizer(line)
+        sent = ""
+        for token in tokens:
+            if token == self.space_word:
+                sent += " "
+            elif use_unk_sym and self.index(token) == self.unk_index:
+                sent += self.unk_word
+            elif token != self.pad_word and token != self.eos_word:
+                sent += token
+        return sent.strip()
