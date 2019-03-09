@@ -5,6 +5,8 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 
+import torch
+
 import itertools
 import os
 import re
@@ -117,6 +119,7 @@ class SpeechRecognitionTask(FairseqTask):
         super().__init__(args)
         self.dict = dict
         self.feat_in_channels = args.feat_in_channels
+        torch.backends.cudnn.deterministic = True
 
     @classmethod
     def setup_task(cls, args, **kwargs):
@@ -209,6 +212,12 @@ class SpeechRecognitionTask(FairseqTask):
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
         return SpeechDataset(src_tokens, src_lengths)
+
+    def inference_step(self, generator, models, sample, prefix_tokens=None,
+        lprob_weights=None):
+        with torch.no_grad():
+            return generator.generate(models, sample, prefix_tokens=prefix_tokens,
+                lprob_weights=lprob_weights)
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
