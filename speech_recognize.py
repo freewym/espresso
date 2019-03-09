@@ -47,6 +47,8 @@ def main(args):
     models, _model_args = utils.load_ensemble_for_inference(
         args.path.split(':'), task, model_arg_overrides=eval(args.model_overrides),
     )
+    if args.lprob_weights is not None:
+        print('| using model ensemble with lprob-weights={}'.format(str(args.lprob_weights)))
 
     # Optimize ensemble for generation
     for model in models:
@@ -66,7 +68,8 @@ def main(args):
         max_sentences=args.max_sentences,
         max_positions=utils.resolve_max_positions(
             task.max_positions(),
-            *[model.max_positions() for model in models]
+            *[model.max_positions() if hasattr(model, 'encoder') \
+            else (None, model.max_positions()) for model in models]
         ),
         ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
         required_batch_size_multiple=8,
@@ -98,7 +101,8 @@ def main(args):
                 prefix_tokens = sample['target'][:, :args.prefix_size]
 
             gen_timer.start()
-            hypos = task.inference_step(generator, models, sample, prefix_tokens)
+            hypos = task.inference_step(generator, models, sample, prefix_tokens,
+                lprob_weights=args.lprob_weights)
             num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
             gen_timer.stop(num_generated_tokens)
 
@@ -129,7 +133,7 @@ def main(args):
                         attention = hypo['attention'].float().cpu() \
                             if hypo['attention'] is not None else None
                         if attention is not None:
-                            save_dir = os.path.join(args.output_dir, 'attn_plots')
+                            save_dir = os.path.join(args.results_path, 'attn_plots')
                             os.makedirs(save_dir, exist_ok=True)
                             plot_attention(attention, hypo_sent, utt_id, save_dir)
                         scorer.add_prediction(utt_id, hypo_str)
@@ -147,17 +151,17 @@ def main(args):
 
     scorer.add_ordered_utt_list(*args.test_text_files)
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    os.makedirs(args.results_path, exist_ok=True)
 
     fn = 'decoded_results.txt'
-    with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
+    with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
         f.write(scorer.print_results())
         print('| Decoded results saved as ' + f.name)
 
     if has_target:
         header = ' Recognize {} with beam={}: '.format(args.gen_subset, args.beam)
         fn = 'wer'
-        with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
+        with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
             res = 'WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
                 *(scorer.wer()))
             print('|' + header + res)
@@ -165,7 +169,7 @@ def main(args):
             print('| WER saved in ' + f.name)
 
         fn = 'cer'
-        with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
+        with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
             res = 'CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
                 *(scorer.cer()))
             print('|' + ' ' * len(header) + res)
@@ -173,9 +177,10 @@ def main(args):
             print('| CER saved in ' + f.name)
 
         fn = 'aligned_results.txt'
-        with open(os.path.join(args.output_dir, fn), 'w', encoding='utf-8') as f:
+        with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
             f.write(scorer.print_aligned_results())
             print('| Aligned results saved as ' + f.name)
+    return scorer
 
 
 def print_options_meaning_changes(args):
@@ -189,9 +194,12 @@ def print_options_meaning_changes(args):
 
 def cli_main():
     parser = options.get_generation_parser(default_task='speech_recognition')
-    parser.add_argument('--output-dir', metavar='DIR', required=True,
-                        help='path to output results')
+    parser.add_argument('--lprob-weights', default=None, type=options.eval_str_list,
+                        metavar='W_1,W_2,...,W_N',
+                        help='model ensemble weights in log-prob space, the same'
+                        'length as number of models specified in --path')
     args = options.parse_args_and_arch(parser)
+    assert args.results_path is not None, 'please specify --results-path'
     print_options_meaning_changes(args)
     main(args)
 
