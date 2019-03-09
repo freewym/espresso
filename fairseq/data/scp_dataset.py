@@ -187,7 +187,8 @@ class TokenTextDataset(torch.utils.data.Dataset):
                 utt_id, tokens = line.strip().split(None, 1)
                 self.utt_ids.append(utt_id)
                 self.tokens_list.append(tokens)
-                tensor = dictionary.encode_line(tokens, append_eos=self.append_eos)
+                tensor = dictionary.encode_line(tokens,
+                    add_if_not_exist=False, append_eos=self.append_eos).long()
                 self.tensor_list.append(tensor)
                 self.sizes.append(len(self.tensor_list[-1]))
 

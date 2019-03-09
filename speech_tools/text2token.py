@@ -39,7 +39,10 @@ def main(args):
             entry = line.rstrip().split()
             tokenized = tokenize(' '.join(entry[args.skip_ncols:]),
                 space=args.space, non_lang_syms=nls)
-            print(' '.join(entry[:args.skip_ncols]) + ' ' + tokenized)
+            if args.skip_ncols > 0:
+                print(' '.join(entry[:args.skip_ncols]) + ' ' + tokenized)
+            else:
+                print(tokenized)
 
 
 if __name__ == '__main__':
