@@ -36,7 +36,8 @@ def main(args, init_distributed=False):
         torch.cuda.set_device(args.device_id)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = True
-    #torch.backends.cudnn.enabled = False
+    if args.disable_cudnn:
+        torch.backends.cudnn.enabled = False
 
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(args)
@@ -413,6 +414,9 @@ def print_options_meaning_changes(args):
 
 def cli_main():
     parser = options.get_training_parser(default_task='speech_recognition')
+    parser.add_argument('--disable-cudnn', action='store_true',
+                        help='disable cudnn, which would make the training '
+                        'much slower')
     args = options.parse_args_and_arch(parser)
     print_options_meaning_changes(args)
 
