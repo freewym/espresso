@@ -72,13 +72,12 @@ class TestSpeechUtils(unittest.TestCase):
         for i, sent in enumerate(self.text):
             print('test sentence {}:'.format(i))
             print(sent)
-            tokens = utils.Tokenizer.tokenize(sent, \
+            tokens = utils.tokenize(sent, \
                 space=self.dict.space_word, non_lang_syms=self.non_lang_syms)
 
-            # test :func:`~speech_tools.utils.Tokenizer.tokenize` with
-            # :func:`~speech_tools.utils.Tokenizer.tokens_to_index_tensor`
-            tensor = utils.Tokenizer.tokens_to_index_tensor(tokens, self.dict, \
-                append_eos=True)
+            # test :func:`~speech_tools.utils.tokenize` with
+            # :func:`~TokenDictionary.encode_line`
+            tensor = self.dict.encode_line(tokens, append_eos=True)
             reconstructed_tokens = self.dict.string(tensor)
             expected_tokens = ' '.join(
                 [token if self.dict.index(token) != self.dict.unk() else \
@@ -86,10 +85,9 @@ class TestSpeechUtils(unittest.TestCase):
             )
             self.assertEqual(reconstructed_tokens, expected_tokens)
 
-            # test :func:`~speech_tools.utils.Tokenizer.tokenize` with
-            # :func:`~speech_tools.utils.Tokenizer.tokens_to_sentence`
-            reconstructed_sent = utils.Tokenizer.tokens_to_sentence(tokens,
-                self.dict)
+            # test :func:`~speech_tools.utils.tokenize` with
+            # :func:`~TokenDictionary.tokens_to_sentence`
+            reconstructed_sent = self.dict.tokens_to_sentence(tokens)
             expected_sent = []
             words = sent.split(' ')
             for w in words:
