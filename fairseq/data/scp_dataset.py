@@ -11,7 +11,7 @@ import numpy as np
 import torch
 
 import speech_tools.kaldi_io as kaldi_io
-from speech_tools.utils import Tokenizer
+
 
 class ScpDataset(torch.utils.data.Dataset):
     """Loader for TorchNet IndexedDataset"""
@@ -187,7 +187,7 @@ class TokenTextDataset(torch.utils.data.Dataset):
                 utt_id, tokens = line.strip().split(None, 1)
                 self.utt_ids.append(utt_id)
                 self.tokens_list.append(tokens)
-                tensor = Tokenizer.tokens_to_index_tensor(tokens, dictionary)
+                tensor = dictionary.encode_line(tokens, append_eos=self.append_eos)
                 self.tensor_list.append(tensor)
                 self.sizes.append(len(self.tensor_list[-1]))
 
@@ -224,7 +224,7 @@ class TokenTextDataset(torch.utils.data.Dataset):
 
     def get_original_text(self, i, dictionary):
         self.check_index(i)
-        return Tokenizer.tokens_to_sentence(self.tokens_list[i], dictionary,
+        return dictionary.tokens_to_sentence(self.tokens_list[i],
             use_unk_sym=False)
 
     def __len__(self):

@@ -17,7 +17,7 @@ import torch
 from fairseq import wer, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.utils import import_user_module
-from speech_tools.utils import Tokenizer, plot_attention
+from speech_tools.utils import plot_attention
 
 
 def main(args):
@@ -110,15 +110,15 @@ def main(args):
                 if has_target:
                     target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
                     if not args.quiet:
-                        target_sent = Tokenizer.tokens_to_sentence(target_str,
-                            dict, use_unk_sym=False)
+                        target_sent = dict.tokens_to_sentence(target_str,
+                            use_unk_sym=False)
                         print('T-{}\t{}'.format(utt_id, target_sent))
 
                 # Process top predictions
                 for i, hypo in enumerate(hypos[i][:min(len(hypos), args.nbest)]):
                     hypo_str = dict.string(hypo['tokens'].int().cpu(), args.remove_bpe)
                     if not args.quiet or i == 0:
-                        hypo_sent = Tokenizer.tokens_to_sentence(hypo_str, dict)
+                        hypo_sent = dict.tokens_to_sentence(hypo_str)
 
                     if not args.quiet:
                         print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, hypo['score']))

@@ -14,59 +14,29 @@ import torch
 from fairseq.utils import buffered_arange, item
 
 
-class Tokenizer:
+def tokenize(sent, space='<space>', non_lang_syms=None):
+    assert isinstance(sent, str)
+    sent = ' '.join(sent.strip().split())
 
-    @staticmethod
-    def tokenize(sent, space='<space>', non_lang_syms=None):
-        assert isinstance(sent, str)
-        sent = ' '.join(sent.strip().split())
+    match_pos = []
+    if non_lang_syms is not None:
+        assert isinstance(non_lang_syms, list)
+        if len(non_lang_syms) > 0:
+            prog = re.compile('|'.join(map(re.escape, non_lang_syms)))
+            matches = prog.finditer(sent)
+            for match in matches:
+                match_pos.append([match.start(), match.end()])
 
-        match_pos = []
-        if non_lang_syms is not None:
-            assert isinstance(non_lang_syms, list)
-            if len(non_lang_syms) > 0:
-                prog = re.compile('|'.join(map(re.escape, non_lang_syms)))
-                matches = prog.finditer(sent)
-                for match in matches:
-                    match_pos.append([match.start(), match.end()])
+    tokens = []
+    i = 0
+    for (start_pos, end_pos) in match_pos:
+        tokens.extend([token for token in sent[i:start_pos]])
+        tokens.append(sent[start_pos:end_pos])
+        i = end_pos
+    tokens.extend([token for token in sent[i:]])
 
-        tokens = []
-        i = 0
-        for (start_pos, end_pos) in match_pos:
-            tokens.extend([token for token in sent[i:start_pos]])
-            tokens.append(sent[start_pos:end_pos])
-            i = end_pos
-        tokens.extend([token for token in sent[i:]])
-
-        tokens = [space if token == ' ' else token for token in tokens]
-        return ' '.join(tokens)
-
-    @staticmethod
-    def tokens_to_index_tensor(line, dict, append_eos=True):
-        tokens = line.strip().split()
-        ntokens = len(tokens)
-        ids = torch.LongTensor(ntokens + 1 if append_eos else ntokens)
-
-        for i, token in enumerate(tokens):
-            ids[i] = dict.index(token)
-        if append_eos:
-            ids[ntokens] = dict.eos_index
-        return ids
-
-    @staticmethod
-    def tokens_to_sentence(line, dict, use_unk_sym=True):
-        # use_unk_sym=False when we want to restore original transcripts from
-        # token sequences, e.g., obtain reference to compute WER
-        tokens = line.strip().split()
-        sent = ""
-        for token in tokens:
-            if token == dict.space_word:
-                sent += " "
-            elif use_unk_sym and dict.index(token) == dict.unk():
-                sent += dict.unk_word
-            elif token != dict.pad_word and token != dict.eos_word:
-                sent += token
-        return sent.strip()
+    tokens = [space if token == ' ' else token for token in tokens]
+    return ' '.join(tokens)
 
 def collate_frames(values, pad_value=0.0, left_pad=False):
     """Convert a list of 2d tensor into a padded 3d tensor."""

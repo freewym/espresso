@@ -50,7 +50,7 @@ class Scorer(object):
         if not isinstance(pred, str):
             raise TypeError('pred must be a string(got {})'.format(type(pred)))
 
-        pred_words = speech_utils.Tokenizer.tokens_to_sentence(pred, self.dict)
+        pred_words = self.dict.tokens_to_sentence(pred)
         assert not utt_id in self.results, \
             'Duplicated utterance id detected: {}'.format(utt_id)
         self.results[utt_id] = pred_words + '\n'
@@ -77,9 +77,8 @@ class Scorer(object):
         self.char_counter += counter
 
         # word level counts
-        ref_words = speech_utils.Tokenizer.tokens_to_sentence(ref, self.dict,
-            use_unk_sym=False)
-        pred_words = speech_utils.Tokenizer.tokens_to_sentence(pred, self.dict)
+        ref_words = self.dict.tokens_to_sentence(ref, use_unk_sym=False)
+        pred_words = self.dict.tokens_to_sentence(pred)
 
         # filter words according to self.word_filters (support re.sub only)
         for pattern, repl in self.word_filters:

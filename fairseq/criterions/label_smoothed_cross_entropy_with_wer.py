@@ -13,8 +13,6 @@ from fairseq import utils, wer
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
 
-from speech_tools.utils import Tokenizer
-
 from . import FairseqCriterion, register_criterion
 from .label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
 
@@ -127,10 +125,10 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                     i = np.random.randint(0, len(sample['id']))
                 id = sample['id'].data[i]
                 length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
-                #ref_one = Tokenizer.tokens_to_sentence(dict.string(target.data[i]), dict)
+                #ref_one = dict.tokens_to_sentence(dict.string(target.data[i]))
                 ref_one = self.train_tgt_dataset.get_original_text(id, dict)
-                pred_one = Tokenizer.tokens_to_sentence(
-                    dict.string(pred.data[i][:length]), dict)
+                pred_one = dict.tokens_to_sentence(
+                    dict.string(pred.data[i][:length]))
                 print('| sample REF: ' + ref_one)
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends
