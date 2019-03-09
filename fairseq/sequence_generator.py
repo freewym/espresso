@@ -116,7 +116,7 @@ class SequenceGenerator(object):
             prefix_tokens (torch.LongTensor, optional): force decoder to begin
                 with these tokens
         """
-        model = EnsembleModel(models)
+        model = EnsembleModel(models, lprob_weights=kwargs.get('lprob_weights', None))
         if not self.retain_dropout:
             model.eval()
 
@@ -537,12 +537,16 @@ class SequenceGenerator(object):
 class EnsembleModel(torch.nn.Module):
     """A wrapper around an ensemble of models."""
 
-    def __init__(self, models):
+    def __init__(self, models, lprob_weights=None):
         super().__init__()
         self.models = torch.nn.ModuleList(models)
         self.incremental_states = None
         if all(isinstance(m.decoder, FairseqIncrementalDecoder) for m in models):
             self.incremental_states = {m: {} for m in models}
+        self.lprob_weights = lprob_weights
+        if self.lprob_weights is not None:
+            assert isinstance(self.lprob_weights, list) and \
+                len(self.lprob_weights) == len(self.models)
 
     def has_encoder(self):
         return hasattr(self.models[0], 'encoder')
@@ -554,7 +558,7 @@ class EnsembleModel(torch.nn.Module):
     def forward_encoder(self, encoder_input):
         if not self.has_encoder():
             return None
-        return [model.encoder(**encoder_input) for model in self.models]
+        return [model.encoder(**encoder_input) if hasattr(model, 'encoder') else None for model in self.models]
 
     @torch.no_grad()
     def forward_decoder(self, tokens, encoder_outs, temperature=1.):
@@ -585,9 +589,13 @@ class EnsembleModel(torch.nn.Module):
                     avg_attn = attn
                 else:
                     avg_attn.add_(attn)
-        avg_probs = torch.logsumexp(torch.stack(log_probs, dim=0), dim=0) - math.log(len(self.models))
+                attn_count += 1
+        if self.lprob_weights is not None:
+            avg_probs = torch.sum(torch.stack(log_probs, dim=0), dim=0)
+        else:
+            avg_probs = torch.logsumexp(torch.stack(log_probs, dim=0), dim=0) - math.log(len(self.models))
         if avg_attn is not None:
-            avg_attn.div_(len(self.models))
+            avg_attn.div_(attn_count)
         return avg_probs, avg_attn
 
     def _decode_one(
@@ -614,7 +622,7 @@ class EnsembleModel(torch.nn.Module):
         if not self.has_encoder():
             return
         return [
-            model.encoder.reorder_encoder_out(encoder_out, new_order)
+            model.encoder.reorder_encoder_out(encoder_out, new_order) if hasattr(model, 'encoder') else None \
             for model, encoder_out in zip(self.models, encoder_outs)
         ]
 
