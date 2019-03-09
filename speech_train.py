@@ -35,7 +35,6 @@ def main(args, init_distributed=False):
     if torch.cuda.is_available() and not args.cpu:
         torch.cuda.set_device(args.device_id)
     torch.manual_seed(args.seed)
-    torch.backends.cudnn.deterministic = True
     if args.disable_cudnn:
         torch.backends.cudnn.enabled = False
 
