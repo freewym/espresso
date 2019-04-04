@@ -80,6 +80,20 @@ def collate(
     return batch
 
 
+def generate_dummy_batch(num_tokens, collate_fn, feat_dim, max_sentences=16, src_len=300, dict=None, tgt_len=30):
+    """Return a dummy batch with a given number of tokens."""
+    bsz = max(min(num_tokens // src_len, max_sentences), 1)
+    return collate_fn([
+        {
+            'id': i,
+            'utt_id': 'dummy' + str(i),
+            'source': torch.FloatTensor(src_len, feat_dim).uniform_(-10.0, 10.0),
+            'target': dict.dummy_sentence(tgt_len) if dict is not None else None,
+        }
+        for i in range(bsz)
+    ])
+
+
 class SpeechDataset(FairseqDataset):
     """
     A pair of torch.utils.data.Datasets.
@@ -202,16 +216,8 @@ class SpeechDataset(FairseqDataset):
             max_positions,
             (self.max_source_positions, self.max_target_positions),
         )
-        bsz = max(min(num_tokens // src_len, max_sentences), 1)
-        return self.collater([
-            {
-                'id': i,
-                'utt_id': 'dummy' + str(i),
-                'source': torch.FloatTensor(src_len, self.src.feat_dim).uniform_(-10.0, 10.0),
-                'target': self.dict.dummy_sentence(tgt_len) if self.dict is not None else None,
-            }
-            for i in range(bsz)
-        ])
+        return generate_dummy_batch(num_tokens, self.collater, self.src.feat_dim,
+            max_sentences, src_len, self.dict, tgt_len)
 
     def num_tokens(self, index):
         """Return the number of frames in a sample. This value is used to
