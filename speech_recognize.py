@@ -14,8 +14,10 @@ import os
 
 import torch
 
-from fairseq import wer, options, progress_bar, tasks, utils
+from fairseq import wer, checkpoint_utils, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
+from fairseq.models import FairseqLanguageModel
+from fairseq.models.external_language_model import LookAheadWordLanguageModel, MultiLevelLanguageModel
 from fairseq.utils import import_user_module
 from speech_tools.utils import plot_attention
 
@@ -25,7 +27,7 @@ def main(args):
     assert not args.sampling or args.nbest == args.beam, \
         '--sampling requires --nbest to be equal to --beam'
 
-    import_user_module(args)
+    utils.import_user_module(args)
 
     if args.max_tokens is None and args.max_sentences is None:
         args.max_tokens = 12000
@@ -36,19 +38,37 @@ def main(args):
     # Load dataset split
     task = tasks.setup_task(args)
     task.load_dataset(args.gen_subset)
-    print('| {} {} examples'.format(args.gen_subset,
-        len(task.dataset(args.gen_subset))))
 
     # Set dictionary
     dict = task.target_dictionary
 
     # Load ensemble
     print('| loading model(s) from {}'.format(args.path))
-    models, _model_args = utils.load_ensemble_for_inference(
-        args.path.split(':'), task, model_arg_overrides=eval(args.model_overrides),
+    models, _model_args = checkpoint_utils.load_model_ensemble(
+        args.path.split(':'),
+        arg_overrides=eval(args.model_overrides),
+        task=task,
     )
-    if args.lprob_weights is not None:
-        print('| using model ensemble with lprob-weights={}'.format(str(args.lprob_weights)))
+    for i, m in enumerate(models):
+        if hasattr(m, 'is_wordlm') and m.is_wordlm:
+            # assume subword LM comes before word LM
+            if isinstance(models[i - 1], FairseqLanguageModel):
+                models[i-1] = MultiLevelLanguageModel(m, models[i-1],
+                    subwordlm_weight=args.subwordlm_weight,
+                    oov_penalty=args.oov_penalty,
+                    open_vocab=not args.disable_open_vocab)
+                del models[i]
+                print('| LM fusion with Multi-level LM')
+            else:
+                models[i] = LookAheadWordLanguageModel(m, dict,
+                    oov_penalty=args.oov_penalty,
+                    open_vocab=not args.disable_open_vocab)
+                print('| LM fusion with Look-ahead Word LM')
+        # assume subword LM comes after E2E models
+        elif i == len(models) - 1 and isinstance(m, FairseqLanguageModel):
+            print('| LM fusion with Subword LM')
+    if args.lm_weight != 0.0:
+        print('| using LM fusion with lm-weight={:.2f}'.format(args.lm_weight))
 
     # Optimize ensemble for generation
     for model in models:
@@ -102,7 +122,7 @@ def main(args):
 
             gen_timer.start()
             hypos = task.inference_step(generator, models, sample, prefix_tokens,
-                lprob_weights=args.lprob_weights)
+                lm_weight=args.lm_weight)
             num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
             gen_timer.stop(num_generated_tokens)
 
@@ -144,14 +164,21 @@ def main(args):
             t.log({'wps': round(wps_meter.avg)})
             num_sentences += sample['nsentences']
 
-    print('| Recognized {} utterances in {:.1f}s ({:.2f} utterances/s)'.format(
-        num_sentences, gen_timer.sum, 1. / gen_timer.avg))
+    print('| Recognized {} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
+        num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
     if args.print_alignment:
         print('| Saved attention plots in ' + save_dir)
 
-    scorer.add_ordered_utt_list(*args.test_text_files)
+    if has_target:
+        assert args.test_text_files is not None
+        scorer.add_ordered_utt_list(*args.test_text_files)
 
     os.makedirs(args.results_path, exist_ok=True)
+
+    fn = 'decoded_char_results.txt'
+    with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
+        f.write(scorer.print_char_results())
+        print('| Decoded char results saved as ' + f.name)
 
     fn = 'decoded_results.txt'
     with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
@@ -189,15 +216,26 @@ def print_options_meaning_changes(args):
     """
     print('| --max-tokens is the maximum number of input frames in a batch')
     if args.print_alignment:
-        print('| --print-alignment is set to plot attentions')
+        print('| --print-alignment has been set to plot attentions')
 
 
 def cli_main():
     parser = options.get_generation_parser(default_task='speech_recognition')
-    parser.add_argument('--lprob-weights', default=None, type=options.eval_str_list,
-                        metavar='W_1,W_2,...,W_N',
-                        help='model ensemble weights in log-prob space, the same'
-                        'length as number of models specified in --path')
+    parser.add_argument('--coverage-weight', default=0.0, type=float, metavar='W',
+                        help='coverage weight in log-prob space, mostly to '
+                        'reduce deletion errors while using the pretrained '
+                        'external LM for decoding')
+    parser.add_argument('--lm-weight', default=0.0, type=float, metavar='W',
+                        help='LM weight in log-prob space, assuming the pretrained '
+                        'external LM is specified as the second one in --path')
+    parser.add_argument('--subwordlm-weight', default=0.8, type=float, metavar='W',
+                        help='subword LM weight relative to word LM. Only relevant '
+                        'to MultiLevelLanguageModel as an external LM')
+    parser.add_argument('--oov-penalty', default=1e-4, type=float,
+                        help='oov penalty with the pretrained external LM')
+    parser.add_argument('--disable-open-vocab', action='store_true',
+                        help='whether open vocabulary mode is enabled with the '
+                        'pretrained external LM')
     args = options.parse_args_and_arch(parser)
     assert args.results_path is not None, 'please specify --results-path'
     print_options_meaning_changes(args)
