@@ -122,20 +122,20 @@ class ScpCachedDataset(ScpDataset):
             self.start_pos_for_next_cache = pos_end \
                 if self.ordered_prefetch else 0
             total_size = 0
-            for idx in self.ordered_indices[pos_start : pos_end]:
+            for idx in self.ordered_indices[pos_start: pos_end]:
                 total_size += self.sizes[idx]
             self.cache = np.empty((total_size, self.feat_dim), dtype=self.dtype)
             ptx = 0
             self.cache_index.clear()
-            for idx in self.ordered_indices[pos_start : pos_end]:
+            for idx in self.ordered_indices[pos_start: pos_end]:
                 self.cache_index[idx] = ptx
                 length = self.sizes[idx]
-                dst = self.cache[ptx : ptx + length]
+                dst = self.cache[ptx: ptx + length]
                 np.copyto(dst, kaldi_io.read_mat(self.extended_filenames[idx]))
                 ptx += length
 
         ptx = self.cache_index[i]
-        a = self.cache[ptx : ptx + self.sizes[i]].copy()
+        a = self.cache[ptx: ptx + self.sizes[i]].copy()
         return torch.from_numpy(a).float()
 
 
@@ -152,7 +152,7 @@ class ScpInMemoryDataset(ScpDataset):
             dtype=self.dtype)
         for i in range(len(self.data_offsets)):
             ptx = self.data_offsets[i]
-            dst = self.buffer[ptx : ptx + self.sizes[i]]
+            dst = self.buffer[ptx: ptx + self.sizes[i]]
             np.copyto(dst, kaldi_io.read_mat(self.extended_filenames[i]))
 
     def filter_and_reorder(self, indices):
@@ -162,7 +162,7 @@ class ScpInMemoryDataset(ScpDataset):
     def __getitem__(self, i):
         self.check_index(i)
         ptx = self.data_offsets[i]
-        a = self.buffer[ptx : ptx + self.sizes[i]].copy()
+        a = self.buffer[ptx: ptx + self.sizes[i]].copy()
         return torch.from_numpy(a).float()
 
 

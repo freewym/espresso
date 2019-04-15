@@ -8,8 +8,6 @@
 import numpy as np
 import torch
 
-from fairseq import utils
-
 from . import data_utils, FairseqDataset
 import speech_tools.utils as speech_utils
 
@@ -78,20 +76,6 @@ def collate(
     if prev_output_tokens is not None:
         batch['net_input']['prev_output_tokens'] = prev_output_tokens
     return batch
-
-
-def generate_dummy_batch(num_tokens, collate_fn, feat_dim, max_sentences=16, src_len=300, dict=None, tgt_len=30):
-    """Return a dummy batch with a given number of tokens."""
-    bsz = max(min(num_tokens // src_len, max_sentences), 1)
-    return collate_fn([
-        {
-            'id': i,
-            'utt_id': 'dummy' + str(i),
-            'source': torch.FloatTensor(src_len, feat_dim).uniform_(-10.0, 10.0),
-            'target': dict.dummy_sentence(tgt_len) if dict is not None else None,
-        }
-        for i in range(bsz)
-    ])
 
 
 class SpeechDataset(FairseqDataset):
@@ -208,16 +192,6 @@ class SpeechDataset(FairseqDataset):
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding,
         )
-
-    def get_dummy_batch(self, num_tokens, max_positions, max_sentences=16, src_len=300, tgt_len=30):
-        """Return a dummy batch with a given number of tokens."""
-        src_len, tgt_len = utils.resolve_max_positions(
-            (src_len, tgt_len),
-            max_positions,
-            (self.max_source_positions, self.max_target_positions),
-        )
-        return generate_dummy_batch(num_tokens, self.collater, self.src.feat_dim,
-            max_sentences, src_len, self.dict, tgt_len)
 
     def num_tokens(self, index):
         """Return the number of frames in a sample. This value is used to
