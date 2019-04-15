@@ -11,7 +11,7 @@ import itertools
 import os
 import re
 
-from fairseq import options, utils
+from fairseq import options
 from fairseq.data import (
     ConcatDataset,
     data_utils,
@@ -30,7 +30,7 @@ class SpeechRecognitionTask(FairseqTask):
     Transcribe from speech (source) to token text (target).
 
     Args:
-        dict (Dictionary): dictionary for the output tokens
+        dict (~fairseq.data.TokenDictionary): dictionary for the output tokens
 
     .. note::
 
@@ -50,10 +50,12 @@ class SpeechRecognitionTask(FairseqTask):
         """Add task-specific arguments to the parser."""
         # fmt: off
         parser.add_argument('--train-feat-files', nargs='+',
-                            help='path(s) to scp feature file(s) for training')
+                            help='path(s) to scp feature file(s) for training, '
+                            'will be iterated upon during epochs in round-robin manner')
         parser.add_argument('--train-text-files', nargs='+',
                             help='path(s) to text file(s) for training, where '
-                            'each should matches with one in --train-feat-files')
+                            'each should matches with one in --train-feat-files, '
+                            'will be iterated upon during epochs in round-robin manner')
         parser.add_argument('--valid-feat-files', nargs='+',
                             help='path(s) to scp feature file(s) for validation')
         parser.add_argument('--valid-text-files', nargs='+',
@@ -61,14 +63,21 @@ class SpeechRecognitionTask(FairseqTask):
                             'each should matches with one in --valid-feat-files')
         parser.add_argument('--test-feat-files', nargs='+',
                             help='path(s) to scp feature file(s) for test')
-        parser.add_argument('--test-text-files', nargs='+',
-                            help='path(s) to text file(s) for test, where '
-                            'each should matches with one in --test-feat-files')
+        parser.add_argument('--test-text-files', nargs='*', default=None,
+                            help='path(s) to text file(s) for test. if not None, '
+                            'each one should matches with one in --test-feat-files')
+        parser.add_argument('--train-subset-feat-files', nargs='+',
+                            help='path(s) to scp feature file(s) for validation')
+        parser.add_argument('--train-subset-text-files', nargs='+',
+                            help='path(s) to text file(s) for validation, where '
+                            'each should matches with one in --train-subset-feat-files')
         parser.add_argument('--dict', default=None, type=str,
                             help='path to the dictionary')
         parser.add_argument('--non-lang-syms', default=None, type=str,
-                            help='list of non-linguistic symbols, e.g., <NOISE> '
-                            'etc. To be filtered out when calculating WER/CER')
+                            help='path to a file listing non-linguistic symbols, e.g., <NOISE> '
+                            'etc. One entry per line. To be filtered out when calculating WER/CER.')
+        parser.add_argument('--word-dict', default=None, type=str,
+                            help='path to the word dictionary. Only relevant for decoding')
         parser.add_argument('--wer-output-filter', default=None, type=str,
                             help='path to wer_output_filter file for WER evaluation')
         parser.add_argument('--left-pad-source', default='False', type=str, metavar='BOOL',
@@ -100,24 +109,10 @@ class SpeechRecognitionTask(FairseqTask):
         """
         raise NotImplementedError
 
-    @staticmethod
-    def load_pretrained_model(path, dict_path, non_lang_syms=None,
-        arg_overrides=None):
-        model = utils.load_checkpoint_to_cpu(path)
-        args = model['args']
-        state_dict = model['model']
-        args = utils.override_model_args(args, arg_overrides)
-        dict = cls.load_dictionary(dict_path, non_lang_syms=non_lang_syms)
-
-        task = SpeechRecognitionTask(args, dict)
-        model = task.build_model(args)
-        model.upgrade_state_dict(state_dict)
-        model.load_state_dict(state_dict, strict=True)
-        return model
-
-    def __init__(self, args, dict):
+    def __init__(self, args, dict, word_dict=None):
         super().__init__(args)
         self.dict = dict
+        self.word_dict = word_dict
         self.feat_in_channels = args.feat_in_channels
         torch.backends.cudnn.deterministic = True
 
@@ -132,14 +127,20 @@ class SpeechRecognitionTask(FairseqTask):
         args.left_pad_target = options.eval_bool(args.left_pad_target)
 
         # load dictionaries
-        dict_path = os.path.join(os.path.dirname(args.text_files[0]),
-            'dict.txt') if args.dict is None else args.dict
+        dict_path = os.path.join(os.path.dirname(args.text_files[0]), 'dict.txt') \
+            if args.dict is None and args.text_files is not None else args.dict
+        assert dict_path is not None, 'Please specify --dict'
         dict = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms)
         print('| dictionary: {} types'.format(len(dict)))
+        if args.word_dict is not None:
+            word_dict = cls.load_dictionary(args.word_dict)
+            print('| word dictionary: {} types'.format(len(word_dict)))
+            return cls(args, dict, word_dict)
 
-        return cls(args, dict)
+        else:
+            return cls(args, dict)
 
-    def load_dataset(self, split, combine=False, **kwargs):
+    def load_dataset(self, split, epoch=0, combine=False, **kwargs):
         """Load a given dataset split.
 
         Args:
@@ -151,40 +152,45 @@ class SpeechRecognitionTask(FairseqTask):
         if split == 'train':
             feat_files = self.args.train_feat_files
             text_files = self.args.train_text_files
-            assert len(feat_files) > 0 and len(text_files) > 0
-        elif re.match(r"^valid\d*$", split):
-            m = re.match(r"^valid(\d*)$", split)
-            idx = 0 if m.group(1) == '' else int(m.group(1))
-            if idx >= len(self.args.valid_feat_files) or \
-                idx >= len(self.args.valid_text_files):
-                raise FileNotFoundError
-            feat_files = [self.args.valid_feat_files[idx]]
-            text_files = [self.args.valid_text_files[idx]]
-            assert len(feat_files) > 0 and len(text_files) > 0
+            assert len(feat_files) > 0 and len(feat_files) == len(text_files)
+            feat_files = [feat_files[epoch % len(feat_files)]]
+            text_files = [text_files[epoch % len(text_files)]]
+        elif split == 'valid':
+            feat_files = self.args.valid_feat_files
+            text_files = self.args.valid_text_files
         elif split == 'test':
             feat_files = self.args.test_feat_files
-            text_files = self.args.test_text_files
-            assert len(feat_files) > 0 and len(text_files) > 0
+            text_files = self.args.test_text_files # can be empty
+            if text_files is None:
+                text_files = [None] * len(feat_files)
+        elif split == 'train_subset':
+            feat_files = self.args.train_subset_feat_files
+            text_files = self.args.train_subset_text_files
         else:
-            raise ValueError('split should be one of "train", "valid*", "test"')
-        assert len(feat_files) == len(text_files)
+            raise ValueError('split should be one of "train", "valid", "test", "train_subset"')
+
+        assert len(feat_files) > 0 and len(feat_files) == len(text_files)
         file_pairs = zip(feat_files, text_files)
         for feat, text in file_pairs:
-            assert ScpCachedDataset.exists(feat) and TokenTextDataset.exists(text)
+            assert ScpCachedDataset.exists(feat)
+            assert text is None or TokenTextDataset.exists(text)
             src_datasets.append(ScpCachedDataset(feat, ordered_prefetch=True))
-            tgt_datasets.append(TokenTextDataset(text, self.dict))
             print('| {} {} examples'.format(feat, len(src_datasets[-1])))
-            print('| {} {} examples'.format(text, len(tgt_datasets[-1])))
+            if text is not None:
+                tgt_datasets.append(TokenTextDataset(text, self.dict))
+                print('| {} {} examples'.format(text, len(tgt_datasets[-1])))
 
             if not combine:
                 break
 
-        assert len(src_datasets) == len(tgt_datasets)
+        if len(tgt_datasets) > 0:
+            assert len(src_datasets) == len(tgt_datasets)
 
         self.feat_dim = src_datasets[0].feat_dim
 
         if len(src_datasets) == 1:
-            src_dataset, tgt_dataset = src_datasets[0], tgt_datasets[0]
+            src_dataset = src_datasets[0]
+            tgt_dataset = tgt_datasets[0] if len(tgt_datasets) > 0 else None
         else:
             for i in range(1, len(src_datasets)):
                 assert self.feat_dim == src_datasets[i].feat_dim, \
@@ -192,32 +198,61 @@ class SpeechRecognitionTask(FairseqTask):
             sample_ratios = [1] * len(src_datasets)
             sample_ratios[0] = self.args.upsample_primary
             src_dataset = ConcatDataset(src_datasets, sample_ratios)
-            tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios)
+            tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios) \
+                if len(tgt_datasets) > 0 else None
 
         self.datasets[split] = SpeechDataset(
             src_dataset, src_dataset.sizes,
-            tgt_dataset, tgt_dataset.sizes, self.dict,
+            tgt_dataset, tgt_dataset.sizes if tgt_dataset is not None else None,
+            self.dict,
             left_pad_source=self.args.left_pad_source,
             left_pad_target=self.args.left_pad_target,
             max_source_positions=self.args.max_source_positions,
             max_target_positions=self.args.max_target_positions,
         )
 
+        # update the counts of <eos> and <unk> in dictionary with training data
+        if split == 'train':
+            self.dict.count[self.dict.eos()] = len(tgt_dataset)
+            unk_count = 0
+            for i in range(len(tgt_dataset)):
+                unk_count += (tgt_dataset[i] == self.dict.unk()).int().sum().item()
+            self.dict.count[self.dict.unk()] = unk_count
+
     def build_generator(self, args):
         if args.score_reference:
             args.score_reference = False
             print('| --score-reference is not applicable to speech recognition,'
                 ' ignoring it.')
-        return super().build_generator(args)
+        from fairseq.sequence_generator import SequenceGenerator
+        return SequenceGenerator(
+            self.target_dictionary,
+            beam_size=args.beam,
+            max_len_a=args.max_len_a,
+            max_len_b=args.max_len_b,
+            min_len=args.min_len,
+            stop_early=(not args.no_early_stop),
+            normalize_scores=(not args.unnormalized),
+            len_penalty=args.lenpen,
+            unk_penalty=args.unkpen,
+            sampling=args.sampling,
+            sampling_topk=args.sampling_topk,
+            temperature=args.temperature,
+            diverse_beam_groups=args.diverse_beam_groups,
+            diverse_beam_strength=args.diverse_beam_strength,
+            match_source_len=args.match_source_len,
+            no_repeat_ngram_size=args.no_repeat_ngram_size,
+            coverage_weight=args.coverage_weight,
+        )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
         return SpeechDataset(src_tokens, src_lengths)
 
     def inference_step(self, generator, models, sample, prefix_tokens=None,
-        lprob_weights=None):
+        lm_weight=0.0):
         with torch.no_grad():
             return generator.generate(models, sample, prefix_tokens=prefix_tokens,
-                lprob_weights=lprob_weights)
+                lm_weight=lm_weight)
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
@@ -225,5 +260,10 @@ class SpeechRecognitionTask(FairseqTask):
 
     @property
     def target_dictionary(self):
-        """Return the target :class:`~fairseq.data.Dictionary`."""
+        """Return the target :class:`~fairseq.data.TokenDictionary`."""
         return self.dict
+
+    @property
+    def word_dictionary(self):
+        """Return the target :class:`~fairseq.data.TokenDictionary`."""
+        return self.word_dict
