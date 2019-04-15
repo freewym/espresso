@@ -21,7 +21,8 @@ def get_parser():
     parser.add_argument('--space', default='<space>', type=str,
                         help='space symbol')
     parser.add_argument('--non-lang-syms', default=None, type=str,
-                        help='list of non-linguistic symobles, e.g., <NOISE> etc.')
+                        help='path to a file listing non-linguistic symbols, '
+                        'e.g., <NOISE> etc. One entry per line.')
     parser.add_argument('text', type=str, nargs='?',
                         help='input text')
     # fmt: on
