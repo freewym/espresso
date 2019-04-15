@@ -5,7 +5,6 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 
-import math
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -24,7 +23,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
     def __init__(self, args, task):
         super().__init__(args, task)
 
-        dict = task.dict if hasattr(task, 'dict') else getattr(task, 'tgt_dict')
+        dict = task.target_dictionary
         self.scorer = wer.Scorer(dict,
             wer_output_filter=task.args.wer_output_filter)
         self.train_tgt_dataset = task.dataset(args.train_subset).tgt
@@ -69,7 +68,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
             # target, and the length of encoder_out if possible
             # and at least the length of target
             maxlen = max(encoder_out['encoder_out'][0].size(1), target.size(1))
-            tokens = target.new_full([target.size(0), maxlen + 2], dict.pad())
+            tokens = target.new_full([target.size(0), maxlen + 2], self.padding_idx)
             tokens[:, 0] = dict.eos()
             lprobs = []
             attn = [] if model.decoder.need_attn else None
@@ -87,7 +86,6 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                     break
                 log_probs, attn_scores = self._decode(tokens[:, :step + 1],
                     model, encoder_out, incremental_states)
-                log_probs[:, dict.pad()] = -math.inf  # never select pad
                 tokens[:, step + 1] = log_probs.argmax(-1)
                 if step > 0: # deal with finished predictions
                     # make log_probs uniform if the previous output token is EOS
@@ -114,16 +112,20 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                 self.scorer.reset()
                 for i in range(target.size(0)):
                     utt_id = sample['utt_id'][i]
-                    id = sample['id'].data[i]
+                    id = sample['id'].data[i].item()
                     #ref_tokens = dict.string(target.data[i])
-                    ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
-                    pred_tokens = dict.string(pred.data[i])
-                    self.scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
+                    # if it is a dummy batch (e.g., a "padding" batch in a sharded
+                    # dataset), id might exceeds the dataset size; in that case we
+                    # just skip it
+                    if id < len( self.valid_tgt_dataset):
+                        ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
+                        pred_tokens = dict.string(pred.data[i])
+                        self.scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
             else: # print a randomly sampled result every print_interval updates
                 assert pred.size() == target.size()
                 with data_utils.numpy_seed(self.num_updates):
                     i = np.random.randint(0, len(sample['id']))
-                id = sample['id'].data[i]
+                id = sample['id'].data[i].item()
                 length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
                 #ref_one = dict.tokens_to_sentence(dict.string(target.data[i]))
                 ref_one = self.train_tgt_dataset.get_original_text(id, dict)
