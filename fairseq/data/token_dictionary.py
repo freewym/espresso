@@ -13,15 +13,16 @@ from fairseq.data import Dictionary, data_utils
 
 class TokenDictionary(Dictionary):
     """A mapping from symbols to consecutive integers"""
-    def __init__(self, pad='<pad>', eos='</s>', unk='<unk>', space='<space>'):
-        self.unk_word, self.pad_word, self.eos_word, self.space_word = \
-            unk, pad, eos, space
+
+    def __init__(self, pad='<pad>', eos='</s>', unk='<unk>', bos='<s>', space='<space>'):
+        self.unk_word, self.pad_word, self.eos_word, self.bos_word, self.space_word = \
+            unk, pad, eos, bos, space
         self.symbols = []
         self.count = []
         self.indices = {}
-        self.pad_index = self.add_symbol(pad)
-        self.eos_index = self.add_symbol(eos)
-        self.unk_index = self.add_symbol(unk)
+        self.pad_index = self.add_symbol(pad, n=0)
+        self.eos_index = self.add_symbol(eos, n=0)
+        self.unk_index = self.add_symbol(unk, n=0)
         self.nspecial = len(self.symbols)
         self.non_lang_syms = None
 
@@ -44,6 +45,10 @@ class TokenDictionary(Dictionary):
         sent = ' '.join(token_string(i) for i in tensor if i != self.eos() and \
             i != self.pad())
         return data_utils.process_bpe_symbol(sent, bpe_symbol)
+
+    def bos(self):
+        """Disallow beginning-of-sentence symbol"""
+        raise NotImplementedError
 
     def space(self):
         """Helper to get index of space symbol"""
