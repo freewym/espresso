@@ -11,7 +11,7 @@ from collections import Counter
 
 import torch
 
-from fairseq.utils import buffered_arange, item
+from fairseq import utils
 
 
 def tokenize(sent, space='<space>', non_lang_syms=None):
@@ -56,7 +56,7 @@ def sequence_mask(sequence_length, max_len=None):
     if max_len is None:
         max_len = sequence_length.data.max()
     else:
-        assert item(sequence_length.data.max()) <= item(max_len)
+        assert sequence_length.data.max().item() <= utils.item(max_len)
     batch_size = sequence_length.size(0)
     seq_range = torch.arange(0, max_len).to(device=sequence_length.device,
         dtype=sequence_length.dtype)
@@ -78,7 +78,7 @@ def convert_padding_direction(src_frames, src_lengths, right_to_left=False,
     if not src_lengths.eq(max_len).any():
         # no padding, return early
         return src_frames
-    range = buffered_arange(max_len).unsqueeze(-1).expand_as(src_frames)
+    range = utils.buffered_arange(max_len).unsqueeze(-1).expand_as(src_frames)
     num_pads = (max_len - src_lengths.type_as(range)).unsqueeze(-1).unsqueeze(-1)
     if right_to_left:
         index = torch.remainder(range - num_pads, max_len)
@@ -250,5 +250,57 @@ def aligned_print(ref, hyp, steps):
     wer = float(counter['sub'] + counter['ins'] + counter['del']) / len(ref) \
         * 100
     out_str += 'WER: ' + '{:.2f}%'.format(wer) + '\n'
+    out_str += '\n'
 
     return out_str
+
+def lexical_prefix_tree(word_dict, subword_dict, subword_tokenizer=None):
+    """Build a lexical prefix tree for words.
+
+    Args:
+        word_dict: an instance of :class:`fairseq.data.TokenDictionary`.
+        subword_dict: an instance of :class:`fairseq.data.TokenDictionary`.
+        subword_tokenizer (callable): a function that takes a word string as its
+            only one argument, and returns a list of subwords as a result of
+            tokenization.
+
+    Return:
+        root (Node): the root of the prefix tree, where each node has the fields:
+            ('children': Dict[int,Node], 'word_idx': int, 'word_set': Tuple[int]).
+            'children' is subword_idx -> node, and 'word_set' is (first-1, last),
+            where [first, last] is the range of the word indexes (inclusive) in
+            the word dictionary who share the same prefix at that node.
+            We assume words in the word dictionary are in lexical order.
+    """
+
+    class Node(object):
+        def __init__(self, children={}, word_idx=-1, word_set=None):
+            self.children = children
+            self.word_idx = word_idx
+            self.word_set = word_set
+
+    special_symbols = [word_dict.pad(), word_dict.eos(), word_dict.unk()]
+    assert 0 in special_symbols # to ensure widx - 1 >= 0
+    root = Node({}, -1, None)
+    for widx in range(len(word_dict)):
+        if widx not in special_symbols: # skip <pad>, <eos>, <unk>
+            # tokenize a word into a list of subwords
+            subwords = subword_tokenizer(word_dict[widx]) \
+                if subword_tokenizer is not None else list(word_dict[widx])
+            if any(subword_dict.index(s) == subword_dict.unk() for s in subwords):
+                # skip words containing any unknown subwords
+                continue
+            children = root.children
+            for i, s in enumerate(subwords):
+                sidx = subword_dict.index(s)
+                if sidx not in children: # make a new node
+                    children[sidx] = Node({}, -1, (widx - 1, widx))
+                else:
+                    children[sidx].word_set = (
+                        min(children[sidx].word_set[0], widx - 1),
+                        max(children[sidx].word_set[1], widx)
+                    )
+                if i == len(subwords) - 1: # if word end, set word_idx
+                    children[sidx].word_idx = widx
+                children = children[sidx].children # move to children
+    return root
