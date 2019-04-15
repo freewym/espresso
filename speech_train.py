@@ -11,14 +11,13 @@ Train a new model on one or across multiple GPUs.
 """
 
 import collections
-import itertools
-import os
 import math
+import os
 import random
 
 import torch
 
-from fairseq import distributed_utils, options, progress_bar, tasks, utils
+from fairseq import checkpoint_utils, distributed_utils, options, progress_bar, tasks, utils
 from fairseq.data import iterators
 from fairseq.trainer import Trainer
 from fairseq.meters import AverageMeter, StopwatchMeter
@@ -26,23 +25,27 @@ from fairseq.utils import import_user_module
 
 
 def main(args, init_distributed=False):
-    import_user_module(args)
+    utils.import_user_module(args)
 
-    if args.max_tokens is None:
-        args.max_tokens = 6000
-    print(args)
+    assert args.max_tokens is not None or args.max_sentences is not None, \
+        'Must specify batch size either with --max-tokens or --max-sentences'
 
+    # Initialize CUDA and distributed training
     if torch.cuda.is_available() and not args.cpu:
         torch.cuda.set_device(args.device_id)
     torch.manual_seed(args.seed)
-    if args.disable_cudnn:
-        torch.backends.cudnn.enabled = False
+    if init_distributed:
+        args.distributed_rank = distributed_utils.distributed_init(args)
+
+    # Print args
+    print(args)
 
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(args)
 
-    # Load dataset splits
-    load_dataset_splits(args, task)
+    # Load valid dataset (we load training data below, based on the latest checkpoint)
+    for valid_sub_split in args.valid_subset.split(','):
+        task.load_dataset(valid_sub_split, combine=True, epoch=0)
 
     # Build model and criterion
     model = task.build_model(args)
@@ -54,47 +57,20 @@ def main(args, init_distributed=False):
         sum(p.numel() for p in model.parameters() if p.requires_grad),
     ))
 
-    # Make a dummy batch to (i) warm the caching allocator and (ii) as a
-    # placeholder DistributedDataParallel when there's an uneven number of
-    # batches per worker.
-    max_positions = utils.resolve_max_positions(
-        task.max_positions(),
-        model.max_positions(),
-    )
-    dummy_batch = task.dataset(args.train_subset).get_dummy_batch(args.max_tokens, max_positions)
-    oom_batch = task.dataset(args.train_subset).get_dummy_batch(1, max_positions)
-
     # Build trainer
-    trainer = Trainer(args, task, model, criterion, dummy_batch, oom_batch)
+    trainer = Trainer(args, task, model, criterion)
     print('| training on {} GPUs'.format(args.distributed_world_size))
     print('| max input frames per GPU = {} and max sentences per GPU = {}'.format(
         args.max_tokens,
         args.max_sentences,
     ))
 
-    # Initialize dataloader
-    epoch_itr = task.get_batch_iterator(
-        dataset=task.dataset(args.train_subset),
-        max_tokens=args.max_tokens,
-        max_sentences=args.max_sentences,
-        max_positions=max_positions,
-        ignore_invalid_inputs=True,
-        required_batch_size_multiple=8,
-        seed=args.seed,
-        num_shards=args.distributed_world_size,
-        shard_id=args.distributed_rank,
-        num_workers=args.num_workers,
-    )
+    # Load the latest checkpoint if one is available and restore the
+    # corresponding train iterator
+    extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
 
-    # Initialize distributed training (after data loading)
-    if init_distributed:
-        import socket
-        args.distributed_rank = distributed_utils.distributed_init(args)
-        print('| initialized host {} as rank {}'.format(socket.gethostname(), args.distributed_rank))
-
-    # Load the latest checkpoint if one is available
-    if not load_checkpoint(args, trainer, epoch_itr):
-        trainer.dummy_train_step([dummy_batch])
+    if callable(getattr(trainer.criterion, 'set_train_tgt_dataset', None)):
+        trainer.criterion.set_train_tgt_dataset(task.dataset(args.train_subset).tgt)
 
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
@@ -104,13 +80,13 @@ def main(args, init_distributed=False):
     train_meter.start()
     valid_losses, valid_wers = [None], [None]
     valid_subsets = args.valid_subset.split(',')
-    while lr >= args.min_lr and (epoch_itr.epoch < max_epoch or \
+    while lr > args.min_lr and (epoch_itr.epoch < max_epoch or \
         (epoch_itr.epoch == max_epoch and epoch_itr._next_epoch_itr is not None)) and \
         trainer.get_num_updates() < max_update:
         # train for one epoch
         train(args, trainer, task, epoch_itr)
 
-        if epoch_itr.epoch % args.validate_interval == 0:
+        if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
             valid_losses, valid_wers = validate(args, trainer, task, epoch_itr, valid_subsets)
 
         # only use first validation wer to update the learning rate
@@ -118,7 +94,11 @@ def main(args, init_distributed=False):
 
         # save checkpoint
         if epoch_itr.epoch % args.save_interval == 0:
-            save_checkpoint(args, trainer, epoch_itr, valid_wers[0])
+            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_wers[0])
+
+        if len(args.train_feat_files) > 1:
+            # sharded data: get train iterator for next epoch
+            epoch_itr = trainer.get_train_iterator(epoch_itr.epoch)
     train_meter.stop()
     print('| done training in {:.1f} seconds'.format(train_meter.sum))
 
@@ -128,7 +108,7 @@ def train(args, trainer, task, epoch_itr):
 
     # Update parameters every N batches
     update_freq = args.update_freq[epoch_itr.epoch - 1] \
-            if epoch_itr.epoch <= len(args.update_freq) else args.update_freq[-1]
+        if epoch_itr.epoch <= len(args.update_freq) else args.update_freq[-1]
 
     # Initialize data iterator
     itr = epoch_itr.next_epoch_itr(
@@ -141,7 +121,7 @@ def train(args, trainer, task, epoch_itr):
     )
 
     extra_meters = collections.defaultdict(lambda: AverageMeter())
-    first_valid = args.valid_subset.split(',')[0]
+    valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
     for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
         if callable(getattr(trainer.criterion, 'set_num_updates', None)):
@@ -168,9 +148,14 @@ def train(args, trainer, task, epoch_itr):
             trainer.get_meter('wps').reset()
 
         num_updates = trainer.get_num_updates()
-        if args.save_interval_updates > 0 and num_updates % args.save_interval_updates == 0 and num_updates > 0:
-            valid_losses, valid_wers = validate(args, trainer, task, epoch_itr, [first_valid])
-            save_checkpoint(args, trainer, epoch_itr, valid_wers[0])
+        if (
+            not args.disable_validation
+            and args.save_interval_updates > 0
+            and num_updates % args.save_interval_updates == 0
+            and num_updates > 0
+        ):
+            valid_losses, valid_wers = validate(args, trainer, task, epoch_itr, valid_subsets)
+            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_wers[0])
 
         if num_updates >= max_update:
             break
@@ -198,7 +183,7 @@ def get_training_stats(trainer):
         stats['nll_loss'] = nll_loss
     else:
         nll_loss = trainer.get_meter('train_loss')
-    stats['ppl'] = get_perplexity(nll_loss.avg)
+    stats['ppl'] = utils.get_perplexity(nll_loss.avg)
     stats['wps'] = trainer.get_meter('wps')
     stats['ups'] = trainer.get_meter('ups')
     stats['wpb'] = trainer.get_meter('wpb')
@@ -274,8 +259,8 @@ def validate(args, trainer, task, epoch_itr, subsets):
         stats = get_valid_stats(trainer)
         for k, meter in extra_meters.items():
             stats[k] = meter.avg
-        if hasattr(save_checkpoint, 'best'):
-            stats['best_wer'] = min(save_checkpoint.best, stats['wer'])
+        if hasattr(checkpoint_utils.save_checkpoint, 'best'):
+            stats['best_wer'] = min(checkpoint_utils.save_checkpoint.best, stats['wer'])
         progress.print(stats, tag=subset, step=trainer.get_num_updates())
 
         valid_losses.append(stats['loss'].avg)
@@ -291,118 +276,15 @@ def get_valid_stats(trainer):
         stats['nll_loss'] = nll_loss
     else:
         nll_loss = stats['loss']
-    stats['ppl'] = get_perplexity(nll_loss.avg)
+    stats['ppl'] = utils.get_perplexity(nll_loss.avg)
     stats['num_updates'] = trainer.get_num_updates()
     return stats
 
 
-def get_perplexity(loss):
-    try:
-        return '{:.2f}'.format(math.pow(2, loss))
-    except OverflowError:
-        return float('inf')
-
-
-def save_checkpoint(args, trainer, epoch_itr, val_wer):
-    if args.no_save or not distributed_utils.is_master(args):
-        return
-    epoch = epoch_itr.epoch
-    end_of_epoch = epoch_itr.end_of_epoch()
-    updates = trainer.get_num_updates()
-
-    checkpoint_conds = collections.OrderedDict()
-    checkpoint_conds['checkpoint{}.pt'.format(epoch)] = (
-            end_of_epoch and not args.no_epoch_checkpoints and
-            epoch % args.save_interval == 0
-    )
-    checkpoint_conds['checkpoint_{}_{}.pt'.format(epoch, updates)] = (
-            not end_of_epoch and args.save_interval_updates > 0 and
-            updates % args.save_interval_updates == 0
-    )
-    checkpoint_conds['checkpoint_best.pt'] = (
-            val_wer is not None and
-            (not hasattr(save_checkpoint, 'best') or val_wer < save_checkpoint.best)
-    )
-    checkpoint_conds['checkpoint_last.pt'] = True  # keep this last so that it's a symlink
-
-    prev_best = getattr(save_checkpoint, 'best', val_wer)
-    if val_wer is not None:
-        save_checkpoint.best = min(val_wer, prev_best)
-    extra_state = {
-        'train_iterator': epoch_itr.state_dict(),
-        'val_wer': val_wer,
-    }
-    if hasattr(save_checkpoint, 'best'):
-        extra_state.update({'best': save_checkpoint.best})
-
-    checkpoints = [os.path.join(args.save_dir, fn) for fn, cond in checkpoint_conds.items() if cond]
-    if len(checkpoints) > 0:
-        for cp in checkpoints:
-            trainer.save_checkpoint(cp, extra_state)
-
-    if not end_of_epoch and args.keep_interval_updates > 0:
-        # remove old checkpoints; checkpoints are sorted in descending order
-        checkpoints = utils.checkpoint_paths(args.save_dir, pattern=r'checkpoint_\d+_(\d+)\.pt')
-        for old_chk in checkpoints[args.keep_interval_updates:]:
-            if os.path.lexists(old_chk):
-                os.remove(old_chk)
-
-    if args.keep_last_epochs > 0:
-        # remove old epoch checkpoints; checkpoints are sorted in descending order
-        checkpoints = utils.checkpoint_paths(args.save_dir, pattern=r'checkpoint(\d+)\.pt')
-        for old_chk in checkpoints[args.keep_last_epochs:]:
-            if os.path.lexists(old_chk):
-                os.remove(old_chk)
-
-
-def load_checkpoint(args, trainer, epoch_itr):
-    """Load a checkpoint and replay dataloader to match."""
-
-    # Only rank 0 should attempt to create the required dir
-    if args.distributed_rank == 0:
-        os.makedirs(args.save_dir, exist_ok=True)
-
-    if os.path.isabs(args.restore_file):
-        checkpoint_path = args.restore_file
-    else:
-        checkpoint_path = os.path.join(args.save_dir, args.restore_file)
-    if os.path.isfile(checkpoint_path):
-        extra_state = trainer.load_checkpoint(checkpoint_path, args.reset_optimizer, args.reset_lr_scheduler,
-                                              eval(args.optimizer_overrides))
-        if extra_state is not None:
-            # replay train iterator to match checkpoint
-            epoch_itr.load_state_dict(extra_state['train_iterator'])
-
-            print('| loaded checkpoint {} (epoch {} @ {} updates)'.format(
-                checkpoint_path, epoch_itr.epoch, trainer.get_num_updates()))
-
-            trainer.lr_step(epoch_itr.epoch)
-            trainer.lr_step_update(trainer.get_num_updates())
-            if 'best' in extra_state:
-                save_checkpoint.best = extra_state['best']
-        return True
-    else:
-        print('| no existing checkpoint found {}'.format(checkpoint_path))
-    return False
-
-
-def load_dataset_splits(args, task):
-    task.load_dataset(args.train_subset, combine=True)
-    for split in args.valid_subset.split(','):
-        for k in itertools.count():
-            split_k = split + (str(k) if k > 0 else '')
-            try:
-                task.load_dataset(split_k, combine=False)
-            except FileNotFoundError as e:
-                if k > 0:
-                    break
-                raise e
-
-
-def distributed_main(i, args):
+def distributed_main(i, args, start_rank=0):
     args.device_id = i
     if args.distributed_rank is None:  # torch.multiprocessing.spawn
-        args.distributed_rank = i
+        args.distributed_rank = start_rank + i
     main(args, init_distributed=True)
 
 
@@ -415,9 +297,6 @@ def print_options_meaning_changes(args):
 
 def cli_main():
     parser = options.get_training_parser(default_task='speech_recognition')
-    parser.add_argument('--disable-cudnn', action='store_true',
-                        help='disable cudnn, which would make the training '
-                        'much slower')
     args = options.parse_args_and_arch(parser)
     print_options_meaning_changes(args)
 
@@ -426,9 +305,19 @@ def cli_main():
 
     if args.distributed_init_method is not None:
         # distributed training
-        distributed_main(args.device_id, args)
+        if torch.cuda.device_count() > 1 and not args.distributed_no_spawn:
+            start_rank = args.distributed_rank
+            args.distributed_rank = None  # assign automatically
+            torch.multiprocessing.spawn(
+                fn=distributed_main,
+                args=(args, start_rank),
+                nprocs=torch.cuda.device_count(),
+            )
+        else:
+            distributed_main(args.device_id, args)
     elif args.distributed_world_size > 1:
         # fallback for single node with multiple GPUs
+        assert args.distributed_world_size <= torch.cuda.device_count()
         port = random.randint(10000, 20000)
         args.distributed_init_method = 'tcp://localhost:{port}'.format(port=port)
         args.distributed_rank = None  # set based on device id

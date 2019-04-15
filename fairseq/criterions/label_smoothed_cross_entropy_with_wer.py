@@ -5,7 +5,6 @@
 # the root directory of this source tree. An additional grant of patent rights
 # can be found in the PATENTS file in the same directory.
 
-import math
 import numpy as np
 import torch
 
@@ -23,12 +22,17 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
     def __init__(self, args, task):
         super().__init__(args, task)
 
-        dict = task.dict if hasattr(task, 'dict') else getattr(task, 'tgt_dict')
+        dict = task.target_dictionary
         self.scorer = wer.Scorer(dict,
             wer_output_filter=task.args.wer_output_filter)
-        self.train_tgt_dataset = task.dataset(args.train_subset).tgt
+        self.train_tgt_dataset = None
         self.valid_tgt_dataset = None
         self.num_updates = -1
+        if args.smoothing_type == 'unigram':
+            self.unigram_tensor = torch.cuda.FloatTensor(dict.count).unsqueeze(-1) \
+                if torch.cuda.is_available() and not args.cpu \
+                else torch.FloatTensor(dict.count).unsqueeze(-1)
+            self.unigram_tensor.div_(self.unigram_tensor.sum())
 
     @staticmethod
     def add_args(parser):
@@ -39,6 +43,9 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                             metavar='N', dest='print_interval', default=500,
                             help='print a training sample (reference + '
                                  'prediction) every this number of updates')
+        parser.add_argument('--smoothing-type', type=str, default='uniform',
+                            choices=['uniform', 'unigram', 'temporal'],
+                            help='label smoothing type. Default: uniform')
         # fmt: on
 
     def forward(self, model, sample, reduce=True):
@@ -69,7 +76,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
             # target, and the length of encoder_out if possible
             # and at least the length of target
             maxlen = max(encoder_out['encoder_out'][0].size(1), target.size(1))
-            tokens = target.new_full([target.size(0), maxlen + 2], dict.pad())
+            tokens = target.new_full([target.size(0), maxlen + 2], self.padding_idx)
             tokens[:, 0] = dict.eos()
             lprobs = []
             attn = [] if model.decoder.need_attn else None
@@ -87,7 +94,6 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                     break
                 log_probs, attn_scores = self._decode(tokens[:, :step + 1],
                     model, encoder_out, incremental_states)
-                #log_probs[:, dict.pad()] = -math.inf  # never select pad
                 tokens[:, step + 1] = log_probs.argmax(-1)
                 if step > 0: # deal with finished predictions
                     # make log_probs uniform if the previous output token is EOS
@@ -114,16 +120,20 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                 self.scorer.reset()
                 for i in range(target.size(0)):
                     utt_id = sample['utt_id'][i]
-                    id = sample['id'].data[i]
+                    id = sample['id'].data[i].item()
                     #ref_tokens = dict.string(target.data[i])
-                    ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
-                    pred_tokens = dict.string(pred.data[i])
-                    self.scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
+                    # if it is a dummy batch (e.g., a "padding" batch in a sharded
+                    # dataset), id might exceeds the dataset size; in that case we
+                    # just skip it
+                    if id < len( self.valid_tgt_dataset):
+                        ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
+                        pred_tokens = dict.string(pred.data[i])
+                        self.scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
             else: # print a randomly sampled result every print_interval updates
                 assert pred.size() == target.size()
                 with data_utils.numpy_seed(self.num_updates):
                     i = np.random.randint(0, len(sample['id']))
-                id = sample['id'].data[i]
+                id = sample['id'].data[i].item()
                 length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
                 #ref_one = dict.tokens_to_sentence(dict.string(target.data[i]))
                 ref_one = self.train_tgt_dataset.get_original_text(id, dict)
@@ -132,15 +142,43 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                 print('| sample REF: ' + ref_one)
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends
+        if self.args.smoothing_type == 'temporal':
+            # see https://arxiv.org/pdf/1612.02695.pdf
+            # prob_mask.dtype=int for deterministic behavior of Tensor.scatter_add_()
+            prob_mask = torch.zeros_like(lprobs, dtype=torch.int) # bsz x tgtlen x vocab_size
+            idx_tensor = target.new_full(target.size(), self.padding_idx).unsqueeze(-1) # bsz x tgtlen x 1
+            # hard-code the remaining probabilty mass distributed symmetrically
+            # over neighbors at distance ±1 and ±2 with a 5 : 2 ratio
+            idx_tensor[:, 2:, 0] = target[:, :-2] # two neighbors to the left
+            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
+            idx_tensor.fill_(self.padding_idx)[:, 1:, 0] = target[:, :-1]
+            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
+            idx_tensor.fill_(self.padding_idx)[:, :-2, 0] = target[:, 2:] # two neighbors to the right
+            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
+            idx_tensor.fill_(self.padding_idx)[:, :-1, 0] = target[:, 1:]
+            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
+            prob_mask[:, :, self.padding_idx] = 0 # clear cumulative count on <pad>
+            prob_mask = prob_mask.float() # convert to float
+            sum_prob = prob_mask.sum(-1, keepdim=True)
+            sum_prob[sum_prob.squeeze(-1).eq(0.)] = 1. # deal with "divided by 0" problem
+            prob_mask = prob_mask.div_(sum_prob).view(-1, prob_mask.size(-1))
+
         lprobs = lprobs.view(-1, lprobs.size(-1))
         target = target.view(-1, 1)
         non_pad_mask = target.ne(self.padding_idx)
         nll_loss = -lprobs.gather(dim=-1, index=target)[non_pad_mask]
-        smooth_loss = -lprobs.sum(dim=-1, keepdim=True)[non_pad_mask]
+        if self.args.smoothing_type == 'temporal':
+            smooth_loss = -lprobs.mul(prob_mask).sum(-1, keepdim=True)[non_pad_mask]
+        elif self.args.smoothing_type == 'unigram':
+            smooth_loss = -lprobs.matmul(self.unigram_tensor.to(lprobs))[non_pad_mask]
+        elif self.args.smoothing_type == 'uniform':
+            smooth_loss = -lprobs.sum(dim=-1, keepdim=True)[non_pad_mask]
+        else:
+            raise ValueError('Unsupported smoothing type: {}'.format(self.args.smoothing_type))
         if reduce:
             nll_loss = nll_loss.sum()
             smooth_loss = smooth_loss.sum()
-        eps_i = self.eps / lprobs.size(-1)
+        eps_i = self.eps / lprobs.size(-1) if self.args.smoothing_type == 'uniform' else self.eps
         loss = (1. - self.eps) * nll_loss + eps_i * smooth_loss
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
@@ -187,6 +225,9 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         probs = model.get_normalized_probs(decoder_out, log_probs=True)
         probs = probs[:, -1, :]
         return probs, attn
+
+    def set_train_tgt_dataset(self, dataset):
+        self.train_tgt_dataset = dataset
 
     def set_valid_tgt_dataset(self, dataset):
         self.valid_tgt_dataset = dataset

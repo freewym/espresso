@@ -11,10 +11,9 @@ import os
 
 from fairseq import tokenizer
 from fairseq.data import TokenDictionary
+from fairseq.tasks import register_task
 
 from .language_modeling import LanguageModelingTask
-
-from . import register_task
 
 
 @register_task('language_modeling_for_asr')
@@ -56,7 +55,7 @@ class LanguageModelingForASRTask(LanguageModelingTask):
                             help='path to the dictionary')
         # fmt: on
 
-    def __init__(self, args, dictionary, output_dictionary, targets=None):
+    def __init__(self, args, dictionary, output_dictionary=None, targets=None):
         super().__init__(args, dictionary, output_dictionary, targets=targets)
         torch.backends.cudnn.deterministic = True
 
@@ -99,7 +98,9 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         dictionary = None
         output_dictionary = None
         if args.data:
-            dict_path = os.path.join(args.data, 'dict.txt') if args.dict is None \
+            paths = args.data.split(':')
+            assert len(paths) > 0
+            dict_path = os.path.join(paths[0], 'dict.txt') if args.dict is None \
                 else args.dict
             dictionary = TokenDictionary.load(dict_path)
             print('| dictionary: {} types'.format(len(dictionary)))

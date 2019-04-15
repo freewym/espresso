@@ -23,6 +23,7 @@ class Scorer(object):
     def reset(self):
         self.char_counter = Counter()
         self.word_counter = Counter()
+        self.char_results = OrderedDict()
         self.results = OrderedDict()
         self.aligned_results = OrderedDict()
 
@@ -42,13 +43,18 @@ class Scorer(object):
                         assert m is not None
                         self.word_filters.append([m.group(1), m.group(2)])
                     else:
-                        print('Unsupported pattern: "' + line + '", ignored')
+                        print('Unsupported pattern: "{}", ignored'.format(line),
+                            file=sys.stderr)
 
     def add_prediction(self, utt_id, pred):
         if not isinstance(utt_id, str):
             raise TypeError('utt_id must be a string(got {})'.format(type(utt_id)))
         if not isinstance(pred, str):
             raise TypeError('pred must be a string(got {})'.format(type(pred)))
+
+        assert not utt_id in self.char_results, \
+            'Duplicated utterance id detected: {}'.format(utt_id)
+        self.char_results[utt_id] = pred + '\n'
 
         pred_words = self.dict.tokens_to_sentence(pred)
         assert not utt_id in self.results, \
@@ -132,10 +138,23 @@ class Scorer(object):
             with open(text_file, 'r', encoding='utf-8') as f:
                 one_utt_list = [line.strip().split()[0] for line in f]
                 self.ordered_utt_list.extend(one_utt_list)
+        if len(self.char_results):
+            assert set(self.ordered_utt_list) == set(self.char_results.keys())
         if len(self.results):
             assert set(self.ordered_utt_list) == set(self.results.keys())
         if len(self.aligned_results):
             assert set(self.ordered_utt_list) == set(self.aligned_results.keys())
+
+    def print_char_results(self):
+        res = ''
+        if self.ordered_utt_list is not None:
+            assert set(self.ordered_utt_list) == set(self.char_results.keys())
+            for utt_id in self.ordered_utt_list:
+                res += utt_id + ' ' + self.char_results[utt_id]
+        else:
+            for utt_id in self.char_results:
+                res += utt_id + ' ' + self.char_results[utt_id]
+        return res
 
     def print_results(self):
         res = ''
