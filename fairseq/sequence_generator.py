@@ -9,6 +9,7 @@ import torch
 
 from fairseq import search, utils
 from fairseq.data import data_utils
+from fairseq.models import external_language_model as extlm
 from fairseq.models import FairseqIncrementalDecoder
 
 from speech_tools.utils import sequence_mask
@@ -30,6 +31,7 @@ class SequenceGenerator(object):
         match_source_len=False,
         no_repeat_ngram_size=0,
         search_strategy=None,
+        coverage_weight=0.01,
     ):
         """Generates translations of a given source sentence.
 
@@ -71,6 +73,8 @@ class SequenceGenerator(object):
         self.temperature = temperature
         self.match_source_len = match_source_len
         self.no_repeat_ngram_size = no_repeat_ngram_size
+        self.coverage_weight = coverage_weight
+
         assert temperature > 0, '--temperature must be greater than 0'
 
         self.search = (
@@ -90,7 +94,11 @@ class SequenceGenerator(object):
             bos_token (int, optional): beginning of sentence token
                 (default: self.eos)
         """
-        model = EnsembleModel(models, lprob_weights=kwargs.get('lprob_weights', None))
+        lm_weight = kwargs.get('lm_weight', 0.0)
+        if lm_weight == 0.0:
+            model = EnsembleModel(models)
+        else:
+            model = LMFusionModel(models, lm_weight)
         return self._generate(model, sample, **kwargs)
 
     @torch.no_grad()
@@ -146,6 +154,7 @@ class SequenceGenerator(object):
         tokens_buf = tokens.clone()
         tokens[:, 0] = self.eos if bos_token is None else bos_token
         attn, attn_buf = None, None
+        coverage, coverage_buf = None, None
 
         # The blacklist indicates candidates that should be ignored.
         # For example, suppose we're sampling and have already finalized 2/5
@@ -340,10 +349,19 @@ class SequenceGenerator(object):
                             models[0].encoder.output_lengths(src_tokens.size(1))
                         attn = scores.new(bsz * beam_size,
                             max_encoder_output_length, max_len + 2)
+                        coverage = scores.new_full([bsz * beam_size, max_encoder_output_length], 0.)
                     else:
                         attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
+                        coverage = scores.new_full([bsz * beam_size, src_tokens.size(1)], 0.)
                     attn_buf = attn.clone()
+                    coverage_buf = coverage.clone()
                 attn[:, :, step + 1].copy_(avg_attn_scores)
+                if self.coverage_weight > 0:
+                    coverage.add_(avg_attn_scores)
+                    # TODO: hard-code the numbers below for now
+                    frames_covered = (coverage > 0.5).float().sum(1, keepdim=True)
+                    frames_covered -= (torch.where(coverage - 1.0 > 0., coverage - (1.0 - 0.7), coverage.new([0.]))).sum(1, keepdim=True)
+                    lprobs.add_(self.coverage_weight, frames_covered)
 
             scores = scores.type_as(lprobs)
             scores_buf = scores_buf.type_as(lprobs)
@@ -431,6 +449,9 @@ class SequenceGenerator(object):
                 if attn is not None:
                     attn = attn.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, attn.size(1), -1)
                     attn_buf.resize_as_(attn)
+                if coverage is not None:
+                    coverage = coverage.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
+                    coverage_buf.resize_as_(coverage)
                 bsz = new_bsz
             else:
                 batch_idxs = None
@@ -497,12 +518,17 @@ class SequenceGenerator(object):
                     attn[:, :, :step + 2], dim=0, index=active_bbsz_idx,
                     out=attn_buf[:, :, :step + 2],
                 )
+            if coverage is not None:
+                torch.index_select(
+                    coverage, dim=0, index=active_bbsz_idx, out=coverage_buf)
 
             # swap buffers
             tokens, tokens_buf = tokens_buf, tokens
             scores, scores_buf = scores_buf, scores
             if attn is not None:
                 attn, attn_buf = attn_buf, attn
+            if coverage is not None:
+                coverage, coverage_buf = coverage_buf, coverage
 
             # reorder incremental state in decoder
             reorder_state = active_bbsz_idx
@@ -516,16 +542,12 @@ class SequenceGenerator(object):
 class EnsembleModel(torch.nn.Module):
     """A wrapper around an ensemble of models."""
 
-    def __init__(self, models, lprob_weights=None):
+    def __init__(self, models):
         super().__init__()
         self.models = torch.nn.ModuleList(models)
         self.incremental_states = None
         if all(hasattr(m, 'decoder') and isinstance(m.decoder, FairseqIncrementalDecoder) for m in models):
             self.incremental_states = {m: {} for m in models}
-        self.lprob_weights = lprob_weights
-        if self.lprob_weights is not None:
-            assert isinstance(self.lprob_weights, list) and \
-                len(self.lprob_weights) == len(self.models)
 
     def has_encoder(self):
         return hasattr(self.models[0], 'encoder')
@@ -537,7 +559,7 @@ class EnsembleModel(torch.nn.Module):
     def forward_encoder(self, encoder_input):
         if not self.has_encoder():
             return None
-        return [model.encoder(**encoder_input) if hasattr(model, 'encoder') else None for model in self.models]
+        return [model.encoder(**encoder_input) for model in self.models]
 
     @torch.no_grad()
     def forward_decoder(self, tokens, encoder_outs, temperature=1.):
@@ -568,13 +590,9 @@ class EnsembleModel(torch.nn.Module):
                     avg_attn = attn
                 else:
                     avg_attn.add_(attn)
-                attn_count += 1
-        if self.lprob_weights is not None:
-            avg_probs = torch.sum(torch.stack(log_probs, dim=0), dim=0)
-        else:
-            avg_probs = torch.logsumexp(torch.stack(log_probs, dim=0), dim=0) - math.log(len(self.models))
+        avg_probs = torch.logsumexp(torch.stack(log_probs, dim=0), dim=0) - math.log(len(self.models))
         if avg_attn is not None:
-            avg_attn.div_(attn_count)
+            avg_attn.div_(len(self.models))
         return avg_probs, avg_attn
 
     def _decode_one(
@@ -605,7 +623,7 @@ class EnsembleModel(torch.nn.Module):
         if not self.has_encoder():
             return
         return [
-            model.encoder.reorder_encoder_out(encoder_out, new_order) if hasattr(model, 'encoder') else None \
+            model.encoder.reorder_encoder_out(encoder_out, new_order)
             for model, encoder_out in zip(self.models, encoder_outs)
         ]
 
@@ -717,3 +735,78 @@ class EnsembleModelWithAlignment(EnsembleModel):
         probs = model.get_normalized_probs(decoder_out, log_probs=log_probs)
         probs = probs[:, -1, :]
         return probs, attn
+
+
+class LMFusionModel(EnsembleModel):
+    """A wrapper around an LM fused models."""
+
+    def __init__(self, models, lm_weight):
+        super().__init__(models)
+        self.lm_weight = lm_weight
+        assert len(self.models) == 2, 'Only support LM fusion with one E2E model'
+        assert self.has_encoder()
+
+    @torch.no_grad()
+    def forward_encoder(self, encoder_input):
+        return [model.encoder(**encoder_input) if hasattr(model, 'encoder') else None for model in self.models]
+
+    @torch.no_grad()
+    def forward_decoder(self, tokens, encoder_outs, temperature=1.):
+        log_probs = []
+        avg_attn = None
+        attn_count = 0
+        for i, (model, encoder_out) in enumerate(zip(self.models, encoder_outs)):
+            probs, attn = self._decode_one(
+                tokens,
+                model,
+                encoder_out,
+                self.incremental_states,
+                log_probs=True,
+                temperature=temperature,
+                use_raw_out=isinstance(model, (extlm.LookAheadWordLanguageModel, extlm.MultiLevelLanguageModel)),
+            )
+            if i == 1 and self.lm_weight != 1.0: # assuming LM is the last model
+                probs.mul_(self.lm_weight)
+            log_probs.append(probs)
+            if attn is not None:
+                if avg_attn is None:
+                    avg_attn = attn
+                else:
+                    avg_attn.add_(attn)
+                attn_count += 1
+
+        avg_probs = torch.sum(torch.stack(log_probs, dim=0), dim=0)
+        if avg_attn is not None:
+            avg_attn.div_(attn_count)
+        return avg_probs, avg_attn
+
+    def _decode_one(
+        self, tokens, model, encoder_out, incremental_states, log_probs,
+        temperature=1., use_raw_out=False,
+    ):
+        if self.incremental_states is not None:
+            decoder_out = list(model.decoder(tokens, encoder_out, incremental_state=self.incremental_states[model]))
+        else:
+            decoder_out = list(model.decoder(tokens, encoder_out))
+        decoder_out[0] = decoder_out[0][:, -1:, :]
+        if temperature != 1.:
+            decoder_out[0].div_(temperature)
+        attn = decoder_out[1]
+        if type(attn) is dict:
+            attn = attn['attn']
+        if attn is not None:
+            if type(attn) is dict:
+                attn = attn['attn']
+            attn = attn[:, -1, :]
+        if use_raw_out:
+            return decoder_out[0][:, -1, :], attn
+        else:
+            probs = model.get_normalized_probs(decoder_out, log_probs=log_probs)
+            probs = probs[:, -1, :]
+            return probs, attn
+
+    def reorder_encoder_out(self, encoder_outs, new_order):
+        return [
+            model.encoder.reorder_encoder_out(encoder_out, new_order) if hasattr(model, 'encoder') else None \
+            for model, encoder_out in zip(self.models, encoder_outs)
+        ]
