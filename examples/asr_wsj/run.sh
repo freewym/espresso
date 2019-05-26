@@ -11,7 +11,7 @@ set -e -o pipefail
 
 stage=0
 ngpus=1 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
-free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned on CLSP grid
+free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned if on CLSP grid
 
 # E2E model related
 affix=
@@ -53,8 +53,6 @@ wordlmdir=exp/wordlm_lstm${wordlm_affix:+_${wordlm_affix}}
 dir=exp/lstm${affix:+_$affix}
 
 if [ ${stage} -le 0 ]; then
-  ### Task dependent. You have to make data the following preparation part by yourself.
-  ### But you can utilize Kaldi recipes in most cases
   echo "Stage 0: Data Preparation"
   local/wsj_data_prep.sh ${wsj0}/??-{?,??}.? ${wsj1}/??-{?,??}.?
   echo "Preparing train and test data"
@@ -75,8 +73,6 @@ train_subset_feat_dir=${dumpdir}/${train_set}_${train_subset_size}/delta${do_del
 valid_feat_dir=${dumpdir}/${valid_set}/delta${do_delta}; mkdir -p ${valid_feat_dir}
 test_feat_dir=${dumpdir}/${test_set}/delta${do_delta}; mkdir -p ${test_feat_dir}
 if [ ${stage} -le 1 ]; then
-  ### Task dependent. You have to design training and dev sets by yourself.
-  ### But you can utilize Kaldi recipes in most cases
   echo "Stage 1: Feature Generation"
   fbankdir=fbank
   # Generate the fbank features; by default 80-dimensional fbanks with pitch on each frame
@@ -275,12 +271,13 @@ if [ ${stage} -le 8 ]; then
     --num-workers 0 --max-tokens 24000 --max-sentences 32 \
     --valid-subset $valid_subset --max-sentences-valid 64 \
     --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
-    --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 \
+    --max-epoch 30 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 11 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 400 \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch speech_conv_lstm_wsj --criterion label_smoothed_cross_entropy_with_wer \
     --label-smoothing 0.05 --smoothing-type temporal \
+    --scheduled-sampling-probs 0.4 --start-scheduled-sampling-epoch 11 \
     --train-feat-files $train_feat --train-text-files $train_token_text \
     --valid-feat-files $valid_feat --valid-text-files $valid_token_text \
     --dict $dict --non-lang-syms $nlsyms \
@@ -299,7 +296,7 @@ if [ ${stage} -le 9 ]; then
       decode_affix=shallow_fusion
     else
       path="$path:$wordlmdir/$lm_checkpoint"
-      opts="$opts --word-dict $wordlmdict --lm-weight 0.7 --oov-penalty 1e-4 --coverage-weight 0.01"
+      opts="$opts --word-dict $wordlmdict --lm-weight 0.8 --oov-penalty 1e-6 --coverage-weight 0.01"
       decode_affix=shallow_fusion_wordlm
     fi
   fi
