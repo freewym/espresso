@@ -135,14 +135,14 @@ def main(args):
                     target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
                     if not args.quiet:
                         target_sent = dict.tokens_to_sentence(target_str,
-                            use_unk_sym=False)
+                            use_unk_sym=False, bpe_symbol=args.remove_bpe)
                         print('T-{}\t{}'.format(utt_id, target_sent))
 
                 # Process top predictions
                 for i, hypo in enumerate(hypos[i][:min(len(hypos), args.nbest)]):
-                    hypo_str = dict.string(hypo['tokens'].int().cpu(), args.remove_bpe)
+                    hypo_str = dict.string(hypo['tokens'].int().cpu()) # not removing bpe at this point
                     if not args.quiet or i == 0:
-                        hypo_sent = dict.tokens_to_sentence(hypo_str)
+                        hypo_sent = dict.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
 
                     if not args.quiet:
                         print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, hypo['score']))
@@ -156,9 +156,9 @@ def main(args):
                             save_dir = os.path.join(args.results_path, 'attn_plots')
                             os.makedirs(save_dir, exist_ok=True)
                             plot_attention(attention, hypo_sent, utt_id, save_dir)
-                        scorer.add_prediction(utt_id, hypo_str)
+                        scorer.add_prediction(utt_id, hypo_str, bpe_symbol=args.remove_bpe)
                         if has_target:
-                            scorer.add_evaluation(utt_id, target_str, hypo_str)
+                            scorer.add_evaluation(utt_id, target_str, hypo_str, bpe_symbol=args.remove_bpe)
 
             wps_meter.update(num_generated_tokens)
             t.log({'wps': round(wps_meter.avg)})

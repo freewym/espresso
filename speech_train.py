@@ -299,6 +299,10 @@ def print_options_meaning_changes(args):
 
 def cli_main():
     parser = options.get_training_parser(default_task='speech_recognition')
+    parser.add_argument('--remove-bpe', nargs='?', const='@@ ', default=None,
+                        help='remove BPE tokens before scoring '
+                        '(can be set to sentencepiece). Being used for monitoring '
+                        'and validation')
     args = options.parse_args_and_arch(parser)
     print_options_meaning_changes(args)
 

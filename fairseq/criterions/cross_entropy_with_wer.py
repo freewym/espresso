@@ -41,7 +41,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                             help='print a training sample (reference + '
                                  'prediction) every this number of updates')
         parser.add_argument('--scheduled-sampling-probs', type=eval_str_list,
-                            metavar='P_1,P_2,...,P_N', default=1.0,
+                            metavar='P_1,P_2,...,P_N', default=[1.0],
                             help='schedule sampling probabilities of sampling the truth '
                             'labels for N epochs starting from --start-schedule-sampling-epoch; '
                             'all later epochs using P_N')
@@ -170,9 +170,12 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                 id = sample['id'].data[i].item()
                 length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
                 #ref_one = dict.tokens_to_sentence(dict.string(target.data[i]))
-                ref_one = self.train_tgt_dataset.get_original_text(id, dict)
+                ref_one = self.train_tgt_dataset.get_original_text(id, dict,
+                    bpe_symbol=self.args.remove_bpe)
                 pred_one = dict.tokens_to_sentence(
-                    dict.string(pred.data[i][:length]))
+                    dict.string(pred.data[i][:length]),
+                    bpe_symbol=self.args.remove_bpe,
+                )
                 print('| sample REF: ' + ref_one)
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends

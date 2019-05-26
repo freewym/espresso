@@ -2,21 +2,27 @@ KALDI =
 
 .PHONY: all clean
 
-all: kaldi kaldi-io-for-python
+all: kaldi kaldi-io-for-python sentencepiece
 
 kaldi-io-for-python:
+	rm -rf kaldi-io-for-python
 	git clone https://github.com/vesis84/kaldi-io-for-python.git
 	ln -sf kaldi-io-for-python/kaldi_io/kaldi_io.py kaldi_io.py
+
+sentencepiece:
+	rm -rf sentencepiece
+	git clone https://github.com/google/sentencepiece.git
+	cd sentencepiece && mkdir build && cd build && (cmake3 .. || cmake ..) && $(MAKE)
 
 ifneq ($(strip $(KALDI)),)
 kaldi:
 		ln -s $(KALDI) kaldi
 else
 kaldi:
-		# git clone https://github.com/kaldi-asr/kaldi.git kaldi_github; cd kaldi_github/tools; $(MAKE) all
-		# cd kaldi_github/src; ./configure --shared --use-cuda=no; $(MAKE) depend; $(MAKE) all
-		# ln -nfs kaldi_github kaldi
+		test -d kaldi || git clone https://github.com/kaldi-asr/kaldi.git
+		cd kaldi/tools; $(MAKE) all
+		cd kaldi/src; ./configure --shared --use-cuda=no; $(MAKE) depend; $(MAKE) all
 endif
 
 clean:
-		rm -fr kaldi kaldi-io-for-python kaldi_io.py
+		rm -rf kaldi kaldi-io-for-python kaldi_io.py sentencepiece

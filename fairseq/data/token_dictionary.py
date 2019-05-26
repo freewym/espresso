@@ -98,7 +98,10 @@ class TokenDictionary(Dictionary):
         t[-1] = self.eos()
         return t
 
-    def tokens_to_sentence(self, line, line_tokenizer=tokenize_line, use_unk_sym=True):
+    def tokens_to_sentence(self, line, line_tokenizer=tokenize_line,
+        use_unk_sym=True, bpe_symbol=None):
+        if bpe_symbol is not None:
+            return data_utils.process_bpe_symbol(sent, bpe_symbol)
         # use_unk_sym=False when we want to restore original transcripts from
         # token sequences, e.g., obtain reference to compute WER
         tokens = line_tokenizer(line)

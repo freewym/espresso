@@ -773,6 +773,17 @@ def lstm_lm_wsj(args):
     base_lm_architecture(args)
 
 
+@register_model_architecture('lstm_lm', 'lstm_lm_librispeech')
+def lstm_lm_librispeech(args):
+    args.dropout = getattr(args, 'dropout', 0.2)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1024)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1024)
+    args.decoder_layers = getattr(args, 'decoder_layers', 1)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1024)
+    args.share_embed = getattr(args, 'share_embed', True)
+    base_lm_architecture(args)
+
+
 @register_model_architecture('lstm_lm', 'lstm_wordlm_wsj')
 def lstm_wordlm_wsj(args):
     args.dropout = getattr(args, 'dropout', 0.3)
@@ -816,6 +827,21 @@ def base_architecture(args):
     args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
     args.pretrained_lm_checkpoint = getattr(args, 'pretrained_lm_checkpoint', None)
 
+
 @register_model_architecture('speech_lstm', 'speech_conv_lstm_wsj')
 def conv_lstm_wsj(args):
+    base_architecture(args)
+
+
+@register_model_architecture('speech_lstm', 'speech_conv_lstm_librispeech')
+def speech_conv_lstm_librispeech(args):
+    args.dropout = getattr(args, 'dropout', 0.3)
+    args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 1024)
+    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 3)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1024)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1024)
+    args.decoder_layers = getattr(args, 'decoder_layers', 3)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 3072)
+    args.attention_type = getattr(args, 'attention_type', 'bahdanau')
+    args.attention_dim = getattr(args, 'attention_dim', 1024)
     base_architecture(args)
