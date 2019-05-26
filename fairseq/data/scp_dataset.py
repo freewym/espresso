@@ -223,10 +223,10 @@ class TokenTextDataset(torch.utils.data.Dataset):
         self.check_index(i)
         return self.tokens_list[i]
 
-    def get_original_text(self, i, dictionary):
+    def get_original_text(self, i, dictionary, bpe_symbol=None):
         self.check_index(i)
         return dictionary.tokens_to_sentence(self.tokens_list[i],
-            use_unk_sym=False)
+            use_unk_sym=False, bpe_symbol=bpe_symbol)
 
     def __len__(self):
         return self.size
