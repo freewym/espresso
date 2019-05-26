@@ -12,6 +12,7 @@ import torch.nn.functional as F
 from fairseq import utils, wer
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
+from fairseq.options import eval_str_list
 
 from . import FairseqCriterion, register_criterion
 from .cross_entropy import CrossEntropyCriterion
@@ -29,6 +30,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
         self.train_tgt_dataset = task.dataset(args.train_subset).tgt
         self.valid_tgt_dataset = None
         self.num_updates = -1
+        self.epoch = 0
 
     @staticmethod
     def add_args(parser):
@@ -38,6 +40,14 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                             metavar='N', dest='print_interval', default=500,
                             help='print a training sample (reference + '
                                  'prediction) every this number of updates')
+        parser.add_argument('--scheduled-sampling-probs', type=eval_str_list,
+                            metavar='P_1,P_2,...,P_N', default=1.0,
+                            help='schedule sampling probabilities of sampling the truth '
+                            'labels for N epochs starting from --start-schedule-sampling-epoch; '
+                            'all later epochs using P_N')
+        parser.add_argument('--start-scheduled-sampling-epoch', type=int,
+                            metavar='N', default=1,
+                            help='start schedule sampling from the specified epoch')
         # fmt: on
 
     def forward(self, model, sample, reduce=True):
@@ -52,9 +62,42 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
         """
         dict = self.scorer.dict
         if model.training:
-            net_output = model(**sample['net_input'])
-            lprobs = model.get_normalized_probs(net_output, log_probs=True)
-            target = model.get_targets(sample, net_output)
+            if (len(self.args.scheduled_sampling_probs) > 1 or \
+                self.args.scheduled_sampling_probs[0] < 1.0) and \
+                self.epoch >= self.args.start_scheduled_sampling_epoch:
+                # scheduled sampling
+                ss_prob = self.args.scheduled_sampling_probs[
+                    min(self.epoch - self.args.start_scheduled_sampling_epoch,
+                    len(self.args.scheduled_sampling_probs) - 1)
+                ]
+                assert isinstance(model.decoder, FairseqIncrementalDecoder)
+                incremental_states = {}
+                encoder_input = {
+                    k: v for k, v in sample['net_input'].items()
+                    if k != 'prev_output_tokens'
+                }
+                encoder_out = model.encoder(**encoder_input)
+                target = sample['target']
+                tokens = sample['net_input']['prev_output_tokens']
+                lprobs = []
+                for step in range(target.size(1)):
+                    if step > 0:
+                        sampling_mask = torch.rand([target.size(0), 1],
+                            device=target.device).lt(ss_prob)
+                        feed_tokens = torch.where(sampling_mask,
+                            tokens[:, step:step + 1], pred)
+                    else:
+                        feed_tokens = tokens[:, step:step + 1]
+                    log_probs, _ = self._decode(feed_tokens,
+                        model, encoder_out, incremental_states)
+                    pred = log_probs.argmax(-1,keepdim=True)
+                    lprobs.append(log_probs)
+                lprobs = torch.stack(lprobs, dim=1)
+            else:
+                # normal training
+                net_output = model(**sample['net_input'])
+                lprobs = model.get_normalized_probs(net_output, log_probs=True)
+                target = model.get_targets(sample, net_output)
         else:
             assert isinstance(model.decoder, FairseqIncrementalDecoder)
             incremental_states = {}
@@ -66,7 +109,6 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
             target = sample['target']
             # make the maximum decoding length equal to at least the length of
             # target, and the length of encoder_out if possible
-            # and at least the length of target
             maxlen = max(encoder_out['encoder_out'][0].size(1), target.size(1))
             tokens = target.new_full([target.size(0), maxlen + 2], self.padding_idx)
             tokens[:, 0] = dict.eos()
@@ -187,3 +229,6 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
 
     def set_num_updates(self, num_updates):
         self.num_updates = num_updates
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
