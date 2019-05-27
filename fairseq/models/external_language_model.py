@@ -59,17 +59,30 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
 
         word_dict = self.lm_decoder.dictionary
         assert isinstance(word_dict, TokenDictionary)
+        self.word_pad_idx = word_dict.pad()
         self.word_eos_idx = word_dict.eos()
         self.word_unk_idx = word_dict.unk()
 
         assert isinstance(subword_dict, TokenDictionary)
         self.subword_space_idx = subword_dict.space()
+        self.subword_pad_idx = subword_dict.pad()
         self.subword_eos_idx = subword_dict.eos()
         self.subword_vocab_size = len(subword_dict)
 
         tokenizer = lambda x: tokenize(
             x, non_lang_syms=subword_dict.non_lang_syms).split(' ')
         self.lexroot = lexical_prefix_tree(word_dict, subword_dict, tokenizer)
+
+        def max_out_degree(node):
+            if len(node.children) == 0:
+                return 0
+            cur_max = len(node.children)
+            for _, node in node.children.items():
+                cur_max = max(cur_max, max_out_degree(node))
+            return cur_max
+
+        self.max_num_children = max_out_degree(self.lexroot)
+        assert self.max_num_children <= self.subword_vocab_size
 
     @torch.no_grad()
     def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None):
@@ -172,21 +185,28 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             ).squeeze(-1)
 
         # compute transition probabilities to child nodes (case 2 in Eqn. 15)
+        subword_idx = [[self.subword_pad_idx] * self.max_num_children \
+            for _ in range(bsz)]
+        left_ranges = [[self.word_pad_idx] * self.max_num_children \
+            for _ in range(bsz)]
+        right_ranges = [[self.word_pad_idx] * self.max_num_children \
+            for _ in range(bsz)]
         for i in range(bsz):
             node = nodes[i]
             if node is not None and len(node.children) > 0:
-                subword_idx, left_ranges, right_ranges = [], [], []
-                for sidx, child in node.children.items():
-                    subword_idx.append(sidx)
-                    left_ranges.append(child.word_set[0])
-                    right_ranges.append(child.word_set[1])
-                subword_idx = prev_output_tokens.new(subword_idx)
-                left_ranges = prev_output_tokens.new(left_ranges)
-                right_ranges = prev_output_tokens.new(right_ranges)
-                out_probs[i, :, subword_idx] = \
-                    self.zero if sum_probs[i].item() < self.zero else \
-                    (cumsum_probs[i, :, right_ranges] - \
-                    cumsum_probs[i, :, left_ranges]) / sum_probs[i]
+                for j, (sidx, child) in enumerate(node.children.items()):
+                    subword_idx[i][j] = sidx
+                    left_ranges[i][j] = child.word_set[0]
+                    right_ranges[i][j] = child.word_set[1]
+        # B x 1 x max_num_children
+        subword_idx = prev_output_tokens.new(subword_idx).unsqueeze(1)
+        left_ranges = prev_output_tokens.new(left_ranges).unsqueeze(1)
+        right_ranges = prev_output_tokens.new(right_ranges).unsqueeze(1)
+        cumsum_probs_children = (cumsum_probs.gather(-1, right_ranges) - \
+            cumsum_probs.gather(-1, left_ranges)) / sum_probs.unsqueeze(-1)
+        cumsum_probs_children[sum_probs.squeeze(-1) < self.zero, :, :] = self.zero
+        out_probs.scatter_(-1, subword_idx, cumsum_probs_children)
+        out_probs[:, :, self.subword_pad_idx] = self.zero
 
         # apply word-level probabilies for <space> and <eos> (case 1 in Eqn. 15)
         word_idx, batch_node_word_end_mask = [], []
