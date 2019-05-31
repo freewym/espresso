@@ -27,7 +27,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
         dict = task.target_dictionary
         self.scorer = wer.Scorer(dict,
             wer_output_filter=task.args.wer_output_filter)
-        self.train_tgt_dataset = task.dataset(args.train_subset).tgt
+        self.train_tgt_dataset = None
         self.valid_tgt_dataset = None
         self.num_updates = -1
         self.epoch = 0
@@ -40,8 +40,8 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                             metavar='N', dest='print_interval', default=500,
                             help='print a training sample (reference + '
                                  'prediction) every this number of updates')
-        parser.add_argument('--scheduled-sampling-probs', type=eval_str_list,
-                            metavar='P_1,P_2,...,P_N', default=[1.0],
+        parser.add_argument('--scheduled-sampling-probs', type=lambda p: eval_str_list(p),
+                            metavar='P_1,P_2,...,P_N', default=1.0,
                             help='schedule sampling probabilities of sampling the truth '
                             'labels for N epochs starting from --start-schedule-sampling-epoch; '
                             'all later epochs using P_N')
@@ -162,7 +162,8 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                     if id < len( self.valid_tgt_dataset):
                         ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
                         pred_tokens = dict.string(pred.data[i])
-                        self.scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
+                        self.scorer.add_evaluation(utt_id, ref_tokens,
+                            pred_tokens, bpe_symbol=self.args.remove_bpe)
             else: # print a randomly sampled result every print_interval updates
                 assert pred.size() == target.size()
                 with data_utils.numpy_seed(self.num_updates):
@@ -180,8 +181,12 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends
         lprobs = lprobs.view(-1, lprobs.size(-1))
-        loss = F.nll_loss(lprobs, target.view(-1), ignore_index=self.padding_idx,
-                          reduction='sum' if reduce else 'none')
+        loss = F.nll_loss(
+            lprobs,
+            target.view(-1),
+            ignore_index=self.padding_idx,
+            reduction='sum' if reduce else 'none',
+        )
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
@@ -226,6 +231,9 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
         probs = model.get_normalized_probs(decoder_out, log_probs=True)
         probs = probs[:, -1, :]
         return probs, attn
+
+    def set_train_tgt_dataset(self, dataset):
+        self.train_tgt_dataset = dataset
 
     def set_valid_tgt_dataset(self, dataset):
         self.valid_tgt_dataset = dataset

@@ -12,7 +12,7 @@ kaldi-io-for-python:
 sentencepiece:
 	rm -rf sentencepiece
 	git clone https://github.com/google/sentencepiece.git
-	cd sentencepiece && mkdir build && cd build && (cmake3 .. || cmake ..) && $(MAKE)
+	cd sentencepiece && git checkout v0.1.82 && mkdir build && cd build && (cmake3 .. || cmake ..) && $(MAKE)
 
 ifneq ($(strip $(KALDI)),)
 kaldi:

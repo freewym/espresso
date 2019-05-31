@@ -48,8 +48,8 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         parser.add_argument('--smoothing-type', type=str, default='uniform',
                             choices=['uniform', 'unigram', 'temporal'],
                             help='label smoothing type. Default: uniform')
-        parser.add_argument('--scheduled-sampling-probs', type=eval_str_list,
-                            metavar='P_1,P_2,...,P_N', default=[1.0],
+        parser.add_argument('--scheduled-sampling-probs', type=lambda p: eval_str_list(p),
+                            metavar='P_1,P_2,...,P_N', default=1.0,
                             help='scheduled sampling probabilities of sampling the truth '
                             'labels for N epochs starting from --start-schedule-sampling-epoch; '
                             'all later epochs using P_N')
@@ -170,7 +170,8 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                     if id < len( self.valid_tgt_dataset):
                         ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
                         pred_tokens = dict.string(pred.data[i])
-                        self.scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
+                        self.scorer.add_evaluation(utt_id, ref_tokens,
+                            pred_tokens, bpe_symbol=self.args.remove_bpe)
             else: # print a randomly sampled result every print_interval updates
                 assert pred.size() == target.size()
                 with data_utils.numpy_seed(self.num_updates):

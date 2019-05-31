@@ -183,7 +183,8 @@ if [ ${stage} -le 3 ]; then
   fi
 fi
 
-[ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus)
+[ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
+  echo "Unable to get $ngpus GPUs"
 [ -z "$free_gpu" ] && echo "$0: please specify --free-gpu" && exit 1;
 [ $(echo $free_gpu | sed 's/,/ /g' | awk '{print NF}') -ne "$ngpus" ] && \
   echo "number of GPU ids in --free-gpu=$free_gpu does not match --ngpus=$ngpus" && exit 1;
@@ -267,7 +268,7 @@ if [ ${stage} -le 8 ]; then
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
-    --log-interval 1000 --log-format simple --print-training-sample-interval 1000 \
+    --log-interval 400 --log-format simple --print-training-sample-interval 1000 \
     --num-workers 0 --max-tokens 24000 --max-sentences 32 \
     --valid-subset $valid_subset --max-sentences-valid 64 \
     --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
@@ -296,7 +297,7 @@ if [ ${stage} -le 9 ]; then
       decode_affix=shallow_fusion
     else
       path="$path:$wordlmdir/$lm_checkpoint"
-      opts="$opts --word-dict $wordlmdict --lm-weight 0.8 --oov-penalty 1e-6 --coverage-weight 0.01"
+      opts="$opts --word-dict $wordlmdict --lm-weight 0.8 --oov-penalty 5e-7 --coverage-weight 0.01"
       decode_affix=shallow_fusion_wordlm
     fi
   fi

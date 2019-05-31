@@ -80,9 +80,9 @@ def main(args, init_distributed=False):
     train_meter.start()
     valid_losses, valid_wers = [None], [None]
     valid_subsets = args.valid_subset.split(',')
-    while lr > args.min_lr and (epoch_itr.epoch < max_epoch or \
-        (epoch_itr.epoch == max_epoch and epoch_itr._next_epoch_itr is not None)) and \
-        trainer.get_num_updates() < max_update:
+    while (lr > args.min_lr or trainer.get_num_updates() <= getattr(args, 'warmup_updates', 0)) and \
+        (epoch_itr.epoch < max_epoch or (epoch_itr.epoch == max_epoch and \
+        epoch_itr._next_epoch_itr is not None)) and trainer.get_num_updates() < max_update:
         # train for one epoch
         train(args, trainer, task, epoch_itr)
 
