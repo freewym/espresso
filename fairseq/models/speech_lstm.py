@@ -49,9 +49,11 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                             help='encoder rnn\'s hidden size')
         parser.add_argument('--encoder-rnn-layers', type=int, metavar='N',
                             help='number of rnn encoder layers')
-        parser.add_argument('--encoder-rnn-bidirectional', action='store_true',
+        parser.add_argument('--encoder-rnn-bidirectional',
+                            type=lambda x: options.eval_bool(x),
                             help='make all rnn layers of encoder bidirectional')
-        parser.add_argument('--encoder-rnn-residual', action='store_true',
+        parser.add_argument('--encoder-rnn-residual',
+                            type=lambda x: options.eval_bool(x),
                             help='create residual connections for rnn encoder '
                             'layers (starting from the 2nd layer), i.e., the actual '
                             'output of such layer is the sum of its input and output')
@@ -67,7 +69,8 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                             help='number of decoder layers')
         parser.add_argument('--decoder-out-embed-dim', type=int, metavar='N',
                             help='decoder output embedding dimension')
-        parser.add_argument('--decoder-rnn-residual', action='store_true',
+        parser.add_argument('--decoder-rnn-residual',
+                            type=lambda x: options.eval_bool(x),
                             help='create residual connections for rnn decoder '
                             'layers (starting from the 2nd layer), i.e., the actual '
                             'output of such layer is the sum of its input and output')
@@ -81,7 +84,8 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
                             help='comma separated list of adaptive softmax cutoff points. '
                                  'Must be used with adaptive_loss criterion')
-        parser.add_argument('--share-decoder-input-output-embed', action='store_true',
+        parser.add_argument('--share-decoder-input-output-embed',
+                            type=lambda x: options.eval_bool(x),
                             help='share decoder input and output embeddings')
         parser.add_argument('--pretrained-lm-checkpoint', type=str, metavar='STR',
                             help='path to load checkpoint from pretrained language model(LM), '
@@ -253,7 +257,8 @@ class LSTMLanguageModel(FairseqLanguageModel):
         parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
                             help='comma separated list of adaptive softmax cutoff points. '
                                  'Must be used with adaptive_loss criterion')
-        parser.add_argument('--share-embed', action='store_true',
+        parser.add_argument('--share-embed',
+                            type=lambda x: options.eval_bool(x),
                             help='share input and output embeddings')
         parser.add_argument('--is-wordlm', action='store_true',
                             help='whether it is word LM or subword LM. Only '
@@ -434,9 +439,8 @@ class SpeechLSTMEncoder(FairseqEncoder):
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
-        state_size = (2 if self.bidirectional else 1) * self.num_layers, bsz, self.hidden_size
+        state_size = 2 if self.bidirectional else 1, bsz, self.hidden_size
         h0, c0 = x.new_zeros(*state_size), x.new_zeros(*state_size)
-        final_hiddens, final_cells = x.new_empty(*state_size), x.new_empty(*state_size)
 
         for i in range(len(self.lstm)):
             if self.residual and i > 0: # residual connection starts from the 2nd layer
@@ -445,11 +449,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
             packed_x = nn.utils.rnn.pack_padded_sequence(x, src_lengths.data.tolist())
 
             # apply LSTM
-            h0_i = h0[i * 2 : (i + 1) * 2]
-            c0_i = c0[i * 2 : (i + 1) * 2]
-            final_hiddens_i = final_hiddens[i * 2 : (i + 1) * 2]
-            final_cells_i = final_cells[i * 2 : (i + 1) * 2]
-            packed_outs, (final_hiddens_i, final_cells_i) = self.lstm[i](packed_x, (h0_i, c0_i))
+            packed_outs, (_, _) = self.lstm[i](packed_x, (h0, c0))
 
             # unpack outputs and apply dropout
             x, _ = nn.utils.rnn.pad_packed_sequence(packed_outs, padding_value=self.padding_value)
@@ -458,19 +458,10 @@ class SpeechLSTMEncoder(FairseqEncoder):
             x = x + prev_x if self.residual and i > 0 else x
         assert list(x.size()) == [seqlen, bsz, self.output_units]
 
-        if self.bidirectional:
-
-            def combine_bidir(outs):
-                out = outs.view(self.num_layers, 2, bsz, -1).transpose(1, 2).contiguous()
-                return out.view(self.num_layers, bsz, -1)
-
-            final_hiddens = combine_bidir(final_hiddens)
-            final_cells = combine_bidir(final_cells)
-
         encoder_padding_mask = padding_mask.t()
 
         return {
-            'encoder_out': (x, final_hiddens, final_cells),
+            'encoder_out': (x,),
             'encoder_padding_mask': encoder_padding_mask if encoder_padding_mask.any() else None
         }
 
@@ -674,8 +665,8 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         if self.adaptive_softmax is None:
             # project back to size of vocabulary
             if hasattr(self, 'additional_fc'):
-                x = self.additional_fc(features)
-                return F.dropout(x, p=self.dropout_out, training=self.training)
+                features = self.additional_fc(features)
+                features = F.dropout(features, p=self.dropout_out, training=self.training)
             if self.share_input_output_embed:
                 return F.linear(features, self.embed_tokens.weight)
             else:
@@ -775,11 +766,11 @@ def lstm_lm_wsj(args):
 
 @register_model_architecture('lstm_lm', 'lstm_lm_librispeech')
 def lstm_lm_librispeech(args):
-    args.dropout = getattr(args, 'dropout', 0.2)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1024)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1024)
-    args.decoder_layers = getattr(args, 'decoder_layers', 1)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1024)
+    args.dropout = getattr(args, 'dropout', 0.0)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 360)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 720)
+    args.decoder_layers = getattr(args, 'decoder_layers', 4)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 360)
     args.share_embed = getattr(args, 'share_embed', True)
     base_lm_architecture(args)
 
@@ -823,7 +814,7 @@ def base_architecture(args):
     args.encoder_rnn_dropout_out = getattr(args, 'encoder_rnn_dropout_out', args.dropout)
     args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', args.dropout)
     args.decoder_dropout_out = getattr(args, 'decoder_dropout_out', args.dropout)
-    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', '10000,50000,200000')
+    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
     args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
     args.pretrained_lm_checkpoint = getattr(args, 'pretrained_lm_checkpoint', None)
 
@@ -838,10 +829,11 @@ def speech_conv_lstm_librispeech(args):
     args.dropout = getattr(args, 'dropout', 0.3)
     args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 1024)
     args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 3)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1024)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
     args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1024)
     args.decoder_layers = getattr(args, 'decoder_layers', 3)
     args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 3072)
+    args.decoder_rnn_residual = getattr(args, 'decoder_rnn_residual', True)
     args.attention_type = getattr(args, 'attention_type', 'bahdanau')
-    args.attention_dim = getattr(args, 'attention_dim', 1024)
+    args.attention_dim = getattr(args, 'attention_dim', 512)
     base_architecture(args)
