@@ -74,7 +74,7 @@ def main(args):
     for model in models:
         model.make_generation_fast_(
             beamable_mm_beam_size=None if args.no_beamable_mm else args.beam,
-            need_attn=args.print_alignment,
+            need_attn=args.print_alignment or args.coverage_weight > 0.,
         )
         if args.fp16:
             model.half()
@@ -152,7 +152,7 @@ def main(args):
                         # src_len x tgt_len
                         attention = hypo['attention'].float().cpu() \
                             if hypo['attention'] is not None else None
-                        if attention is not None:
+                        if args.print_alignment and attention is not None:
                             save_dir = os.path.join(args.results_path, 'attn_plots')
                             os.makedirs(save_dir, exist_ok=True)
                             plot_attention(attention, hypo_sent, utt_id, save_dir)
