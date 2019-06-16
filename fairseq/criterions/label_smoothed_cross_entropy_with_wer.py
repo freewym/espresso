@@ -121,7 +121,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
             tokens = target.new_full([target.size(0), maxlen + 2], self.padding_idx)
             tokens[:, 0] = dict.eos()
             lprobs = []
-            attn = [] if model.decoder.need_attn else None
+            attn = [] if getattr(model.decoder, 'need_attn', False) else None
             dummy_log_probs = encoder_out['encoder_out'][0].new_full(
                 [target.size(0), len(dict)], -np.log(len(dict)))
             for step in range(maxlen + 1): # one extra step for EOS marker
@@ -144,11 +144,11 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                     tokens[is_eos, step + 1] = dict.eos()
                 if step < target.size(1):
                     lprobs.append(log_probs)
-                if model.decoder.need_attn:
+                if getattr(model.decoder, 'need_attn', False):
                     attn.append(attn_scores)
             # bsz x min(tgtlen, maxlen + 1) x vocab_size
             lprobs = torch.stack(lprobs, dim=1)
-            if model.decoder.need_attn:
+            if getattr(model.decoder, 'need_attn', False):
                 # bsz x (maxlen + 1) x (length of encoder_out)
                 attn = torch.stack(attn, dim=1)
         # word error stats code starts
