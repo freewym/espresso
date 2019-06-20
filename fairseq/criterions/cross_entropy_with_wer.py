@@ -159,7 +159,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                     # if it is a dummy batch (e.g., a "padding" batch in a sharded
                     # dataset), id might exceeds the dataset size; in that case we
                     # just skip it
-                    if id < len( self.valid_tgt_dataset):
+                    if id < len(self.valid_tgt_dataset):
                         ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
                         pred_tokens = dict.string(pred.data[i])
                         self.scorer.add_evaluation(utt_id, ref_tokens,

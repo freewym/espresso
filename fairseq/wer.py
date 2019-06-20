@@ -35,11 +35,11 @@ class Scorer(object):
                     if line.startswith('#!') or line == '':
                         continue
                     elif line.startswith('s/'):
-                        m = re.match(r's/(\S+)/(\w*)/g', line)
+                        m = re.match(r's/(.+)/(.*)/g', line)
                         assert m is not None
                         self.word_filters.append([m.group(1), m.group(2)])
                     elif line.startswith('s:'):
-                        m = re.match(r's:(\S+):(\w*):g', line)
+                        m = re.match(r's:(.+):(.*):g', line)
                         assert m is not None
                         self.word_filters.append([m.group(1), m.group(2)])
                     else:
