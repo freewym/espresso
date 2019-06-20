@@ -384,7 +384,7 @@ class ConvBNReLU(nn.Module):
 class SpeechLSTMEncoder(FairseqEncoder):
     """LSTM encoder."""
     def __init__(
-        self, conv_layers_before=None, input_size=80, hidden_size=512,
+        self, conv_layers_before=None, input_size=83, hidden_size=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, bidirectional=False,
         residual=False, left_pad=False, pretrained_embed=None, padding_value=0.,
     ):
@@ -531,7 +531,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             self.additional_fc = Linear(hidden_size + encoder_output_units, out_embed_dim)
         if adaptive_softmax_cutoff is not None:
             # setting adaptive_softmax dropout to dropout_out for now but can be redefined
-            self.adaptive_softmax = AdaptiveSoftmax(num_embeddings, embed_dim, adaptive_softmax_cutoff,
+            self.adaptive_softmax = AdaptiveSoftmax(num_embeddings, hidden_size, adaptive_softmax_cutoff,
                                                     dropout=dropout_out)
         elif not self.share_input_output_embed:
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
@@ -767,21 +767,21 @@ def lstm_lm_wsj(args):
 @register_model_architecture('lstm_lm', 'lstm_lm_librispeech')
 def lstm_lm_librispeech(args):
     args.dropout = getattr(args, 'dropout', 0.0)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 360)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 720)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 800)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 800)
     args.decoder_layers = getattr(args, 'decoder_layers', 4)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 360)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 800)
     args.share_embed = getattr(args, 'share_embed', True)
     base_lm_architecture(args)
 
 
 @register_model_architecture('lstm_lm', 'lstm_wordlm_wsj')
 def lstm_wordlm_wsj(args):
-    args.dropout = getattr(args, 'dropout', 0.3)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1024)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1024)
-    args.decoder_layers = getattr(args, 'decoder_layers', 1)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1024)
+    args.dropout = getattr(args, 'dropout', 0.35)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1200)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1200)
+    args.decoder_layers = getattr(args, 'decoder_layers', 3)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1200)
     args.share_embed = getattr(args, 'share_embed', True)
     args.is_wordlm = True
     base_lm_architecture(args)

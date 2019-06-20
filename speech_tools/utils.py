@@ -248,7 +248,7 @@ def aligned_print(ref, hyp, steps):
 
     counter = Counter(steps)
     wer = float(counter['sub'] + counter['ins'] + counter['del']) / len(ref) \
-        * 100
+        * 100 if len(ref) > 0 else 0.
     out_str += 'WER: ' + '{:.2f}%'.format(wer) + '\n'
     out_str += '\n'
 
