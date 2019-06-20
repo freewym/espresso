@@ -174,8 +174,8 @@ if [ ${stage} -le 5 ]; then
     --log-interval 8000 --log-format simple \
     --num-workers 0 --max-tokens 30720 --max-sentences 1024 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
-    --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
-    --max-epoch 25 --optimizer adam --lr 0.001 --clip-norm 1.0 \
+    --distributed-world-size $ngpus --distributed-port 100 \
+    --max-epoch 30 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
     --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 8000 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
@@ -211,7 +211,7 @@ if [ ${stage} -le 7 ]; then
     --log-interval 4000 --log-format simple --print-training-sample-interval 2000 \
     --num-workers 0 --max-tokens 26000 --max-sentences 24 \
     --valid-subset $valid_subset --max-sentences-valid 48 \
-    --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
+    --distributed-world-size $ngpus --distributed-port 100 \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 3000 \
@@ -243,7 +243,7 @@ if [ ${stage} -le 8 ]; then
       --test-feat-files $feat --test-text-files $text \
       --dict $dict --remove-bpe sentencepiece \
       --max-source-positions 9999 --max-target-positions 999 \
-      --path $path --beam 25 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
+      --path $path --beam 20 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
       --results-path $dir/decode_$dataset${decode_affix:+_${decode_affix}} $opts \
       2>&1 | tee $dir/logs/decode_$dataset${decode_affix:+_${decode_affix}}.log
 
