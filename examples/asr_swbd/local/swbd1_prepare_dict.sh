@@ -1,0 +1,1 @@
+../../../speech_tools/kaldi/egs/swbd/s5c/local/swbd1_prepare_dict.sh
