@@ -10,7 +10,7 @@
 set -e -o pipefail
 
 stage=0
-ngpus=1 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
+ngpus=2 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
 free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned if on CLSP grid
 
 # E2E model related
@@ -26,7 +26,7 @@ validate_on_train_subset=false # for monitoring E2E model training
 lm_affix=
 lm_checkpoint=checkpoint_best.pt
 lm_shallow_fusion=true # no LM fusion if false
-sentencepiece_vocabsize=5000
+sentencepiece_vocabsize=1000
 sentencepiece_type=unigram
 
 # data related
@@ -139,19 +139,34 @@ lmdatadir=data/lm_text
 if [ $stage -le 2 ]; then
   echo "Stage 2: Dictionary Preparation and Text Tokenization"
   mkdir -p data/lang
+  mkdir -p $lmdatadir
 
   echo "Making a non-linguistic symbol list..."
   train_text=data/$train_set/text
   cut -f 2- $train_text | tr " " "\n" | sort | uniq | grep "\[" > $nlsyms
   cat $nlsyms
 
+  echo "Preparing extra corpus for subword LM training..."
+  if [ -f $lmdatadir/fisher_text0 ]; then
+    rm -rf $lmdatadir/fisher_text0
+  fi
+  for x in $fisher_dirs; do
+    [ ! -d $x/data/trans ] \
+      && "Cannot find transcripts in Fisher directory $x" && exit 1;
+    cat $x/data/trans/*/*.txt | \
+      grep -v ^# | grep -v ^$ | cut -d' ' -f4- >> $lmdatadir/fisher_text0
+  done
+  cat $lmdatadir/fisher_text0 | local/fisher_map_words.pl | \
+    sed 's/^[ \t]*//'> $lmdatadir/fisher_text
+
   echo "Training sentencepiece model..."
-  cut -f 2- -d" " data/$train_set/text > data/lang/input
+  cut -f 2- -d" " data/$train_set/text | \
+    cat - $lmdatadir/fisher_text > data/lang/input
   spm_train --bos_id=-1 --pad_id=0 --eos_id=1 --unk_id=2 --input=data/lang/input \
     --vocab_size=$((sentencepiece_vocabsize+3)) --character_coverage=1.0 \
     --model_type=$sentencepiece_type --model_prefix=$sentencepiece_model \
     --input_sentence_size=10000000 \
-    --user_defined_symbols=$(cut -f 2- $train_text | tr " " "\n" | sort | uniq | grep "<" | tr "\n" ",")
+    --user_defined_symbols=$(cut -f 2- $train_text | tr " " "\n" | sort | uniq | grep "\[" | tr "\n" "," | sed 's/,$//')
 
   echo "Making a dictionary and tokenizing text for train/valid/test sets..."
   for dataset in $train_set $test_sets; do  # validation is included in tests
@@ -175,12 +190,6 @@ if [ $stage -le 2 ]; then
   done
 
   echo "Preparing extra corpus for subword LM training..." 
-  for x in $fisher_dirs; do
-    [ ! -d $x/data/trans ] \
-      && "Cannot find transcripts in Fisher directory $x" && exit 1;
-    cat $x/data/trans/*/*.txt |\
-      grep -v ^# | grep -v ^$ | cut -d' ' -f4- >> $lmdatadir/fisher_text
-  done
   cat $lmdatadir/fisher_text |\
     spm_encode --model=${sentencepiece_model}.model --output_format=piece |\
     cat $lmdatadir/$train_set.tokens - > $lmdatadir/train.tokens
@@ -218,13 +227,13 @@ if [ $stage -le 4 ]; then
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
-    --log-interval 8000 --log-format simple \
+    --log-interval 500 --log-format simple \
     --num-workers 0 --max-tokens 30720 --max-sentences 1024 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
     --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
     --max-epoch 25 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 8000 \
+    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 500 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_lm_librispeech --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
 fi
@@ -259,13 +268,13 @@ if [ $stage -le 6 ]; then
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
-    --log-interval 4000 --log-format simple --print-training-sample-interval 2000 \
+    --log-interval 1500 --log-format simple --print-training-sample-interval 2000 \
     --num-workers 0 --max-tokens 26000 --max-sentences 24 \
     --valid-subset $valid_subset --max-sentences-valid 48 \
     --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
-    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 3000 \
+    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 1500 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
     --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_with_wer \
     --label-smoothing 0.1 --smoothing-type uniform \
@@ -287,13 +296,14 @@ if [ $stage -le 7 ]; then
     opts="$opts --lm-weight 0.3 --coverage-weight 0.0"
     decode_affix=shallow_fusion
   fi
+  [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
   for dataset in $test_sets; do
     feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
     text=data/$dataset/token_text
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
       --max-tokens 16000 --max-sentences 24 --num-shards 1 --shard-id 0 \
       --test-feat-files $feat --test-text-files $text \
-      --dict $dict --remove-bpe sentencepiece \
+      --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 30 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
       --results-path $dir/decode_$dataset${decode_affix:+_${decode_affix}} $opts \
