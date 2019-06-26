@@ -139,7 +139,7 @@ def main(args):
                         print('T-{}\t{}'.format(utt_id, target_sent))
 
                 # Process top predictions
-                for i, hypo in enumerate(hypos[i][:min(len(hypos), args.nbest)]):
+                for j, hypo in enumerate(hypos[i][:min(len(hypos), args.nbest)]):
                     hypo_str = dict.string(hypo['tokens'].int().cpu()) # not removing bpe at this point
                     if not args.quiet or i == 0:
                         hypo_sent = dict.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
@@ -148,7 +148,7 @@ def main(args):
                         print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, hypo['score']))
 
                     # Score and obtain attention only the top hypothesis
-                    if i == 0:
+                    if j == 0:
                         # src_len x tgt_len
                         attention = hypo['attention'].float().cpu() \
                             if hypo['attention'] is not None else None
