@@ -110,12 +110,12 @@ if [ $stage -le 1 ]; then
   # dump features for training
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $train_feat_dir/storage ]; then
   utils/create_split_dir.pl \
-    /export/b{10,11,12,13}/$USER/espnet-data/egs/swbd/asr1/dump/$train_set/delta${do_delta}/storage \
+    /export/b{14,15,16,17}/$USER/espnet-data/egs/swbd/asr1/dump/$train_set/delta${do_delta}/storage \
     $train_feat_dir/storage
   fi
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $valid_feat_dir/storage ]; then
   utils/create_split_dir.pl \
-    /export/b{10,11,12,13}/$USER/espnet-data/egs/swbd/asr1/dump/$valid_set/delta${do_delta}/storage \
+    /export/b{14,15,16,17}/$USER/espnet-data/egs/swbd/asr1/dump/$valid_set/delta${do_delta}/storage \
     $valid_feat_dir/storage
   fi
   dump.sh --cmd "$train_cmd" --nj 32 --do_delta $do_delta \
@@ -268,7 +268,7 @@ if [ $stage -le 6 ]; then
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
-    --log-interval 1500 --log-format simple --print-training-sample-interval 2000 \
+    --log-interval 1500 --log-format simple --print-training-sample-interval 2000 --ddp-backend "no_c10d" \
     --num-workers 0 --max-tokens 26000 --max-sentences 24 \
     --valid-subset $valid_subset --max-sentences-valid 48 \
     --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
