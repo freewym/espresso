@@ -14,7 +14,15 @@ from fairseq.data import Dictionary, data_utils
 class TokenDictionary(Dictionary):
     """A mapping from symbols to consecutive integers"""
 
-    def __init__(self, pad='<pad>', eos='</s>', unk='<unk>', bos='<s>', space='<space>'):
+    def __init__(
+        self,
+        pad='<pad>',
+        eos='</s>',
+        unk='<unk>',
+        bos='<s>',
+        space='<space>',
+        extra_special_symbols=None,
+    ):
         self.unk_word, self.pad_word, self.eos_word, self.bos_word, self.space_word = \
             unk, pad, eos, bos, space
         self.symbols = []
@@ -23,6 +31,9 @@ class TokenDictionary(Dictionary):
         self.pad_index = self.add_symbol(pad, n=0)
         self.eos_index = self.add_symbol(eos, n=0)
         self.unk_index = self.add_symbol(unk, n=0)
+        if extra_special_symbols:
+            for s in extra_special_symbols:
+                self.add_symbol(s, n=0)
         self.nspecial = len(self.symbols)
         self.non_lang_syms = None
 
