@@ -215,7 +215,7 @@ if [ ${stage} -le 7 ]; then
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 3000 \
-    --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
+    --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
     --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_with_wer \
     --label-smoothing 0.1 --smoothing-type uniform \
     --scheduled-sampling-probs 1.0 --start-scheduled-sampling-epoch 1 \
@@ -232,18 +232,18 @@ if [ ${stage} -le 8 ]; then
   decode_affix=
   if $lm_shallow_fusion; then
     path="$path:$lmdir/$lm_checkpoint"
-    opts="$opts --lm-weight 0.35 --coverage-weight 0.0"
+    opts="$opts --lm-weight 0.4 --coverage-weight 0.015"
     decode_affix=shallow_fusion
   fi
   for dataset in $test_set; do
     feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
     text=data/$dataset/token_text
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
-      --max-tokens 16000 --max-sentences 24 --num-shards 1 --shard-id 0 \
+      --max-tokens 15000 --max-sentences 24 --num-shards 1 --shard-id 0 \
       --test-feat-files $feat --test-text-files $text \
       --dict $dict --remove-bpe sentencepiece \
       --max-source-positions 9999 --max-target-positions 999 \
-      --path $path --beam 20 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
+      --path $path --beam 35 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
       --results-path $dir/decode_$dataset${decode_affix:+_${decode_affix}} $opts \
       2>&1 | tee $dir/logs/decode_$dataset${decode_affix:+_${decode_affix}}.log
 

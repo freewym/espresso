@@ -275,7 +275,7 @@ if [ ${stage} -le 8 ]; then
     --max-epoch 30 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 11 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 400 \
-    --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
+    --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
     --arch speech_conv_lstm_wsj --criterion label_smoothed_cross_entropy_with_wer \
     --label-smoothing 0.05 --smoothing-type temporal \
     --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6 \

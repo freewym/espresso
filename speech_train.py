@@ -45,7 +45,7 @@ def main(args, init_distributed=False):
 
     # Load valid dataset (we load training data below, based on the latest checkpoint)
     for valid_sub_split in args.valid_subset.split(','):
-        task.load_dataset(valid_sub_split, combine=True, epoch=0)
+        task.load_dataset(valid_sub_split, combine=False, epoch=0)
 
     # Build model and criterion
     model = task.build_model(args)
@@ -78,23 +78,30 @@ def main(args, init_distributed=False):
     lr = trainer.get_lr()
     train_meter = StopwatchMeter()
     train_meter.start()
-    valid_losses, valid_wers = [None], [None]
+    valid_losses = [None]
     valid_subsets = args.valid_subset.split(',')
-    while (lr > args.min_lr or trainer.get_num_updates() <= getattr(args, 'warmup_updates', 0)) and \
-        (epoch_itr.epoch < max_epoch or (epoch_itr.epoch == max_epoch and \
-        epoch_itr._next_epoch_itr is not None)) and trainer.get_num_updates() < max_update:
+    while (
+        (lr > args.min_lr or trainer.get_num_updates() <= getattr(args, 'warmup_updates', 0))
+        and (
+            epoch_itr.epoch < max_epoch or (
+                epoch_itr.epoch == max_epoch
+                and epoch_itr._next_epoch_itr is not None
+            )
+        )
+        and trainer.get_num_updates() < max_update
+    ):
         # train for one epoch
         train(args, trainer, task, epoch_itr)
 
         if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
-            valid_losses, valid_wers = validate(args, trainer, task, epoch_itr, valid_subsets)
+            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
 
         # only use first validation wer to update the learning rate
-        lr = trainer.lr_step(epoch_itr.epoch, valid_wers[0])
+        lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
 
         # save checkpoint
         if epoch_itr.epoch % args.save_interval == 0:
-            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_wers[0])
+            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
         if len(args.train_feat_files) > 1:
             # sharded data: get train iterator for next epoch
@@ -156,8 +163,8 @@ def train(args, trainer, task, epoch_itr):
             and num_updates % args.save_interval_updates == 0
             and num_updates > 0
         ):
-            valid_losses, valid_wers = validate(args, trainer, task, epoch_itr, valid_subsets)
-            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_wers[0])
+            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
         if num_updates >= max_update:
             break
@@ -205,12 +212,11 @@ def get_training_stats(trainer):
 def validate(args, trainer, task, epoch_itr, subsets):
     """Evaluate the model on the validation set(s) and return the losses."""
     valid_losses = []
-    valid_wers = []
     for subset in subsets:
         # Initialize data iterator
         itr = task.get_batch_iterator(
             dataset=task.dataset(subset),
-            max_tokens=args.max_tokens,
+            max_tokens=args.max_tokens_valid,
             max_sentences=args.max_sentences_valid,
             max_positions=utils.resolve_max_positions(
                 task.max_positions(),
@@ -260,14 +266,16 @@ def validate(args, trainer, task, epoch_itr, subsets):
         # log validation stats
         stats = get_valid_stats(trainer)
         for k, meter in extra_meters.items():
-            stats[k] = meter.avg
+            stats[k] = meter if k == 'wer' or k == 'cer' else meter.avg
         if hasattr(checkpoint_utils.save_checkpoint, 'best'):
-            stats['best_wer'] = min(checkpoint_utils.save_checkpoint.best, stats['wer'])
+            stats['best_' + args.best_checkpoint_metric] = min(
+                checkpoint_utils.save_checkpoint.best,
+                stats[args.best_checkpoint_metric].avg,
+            )
         progress.print(stats, tag=subset, step=trainer.get_num_updates())
 
-        valid_losses.append(stats['loss'].avg)
-        valid_wers.append(stats['wer'])
-    return valid_losses, valid_wers
+        valid_losses.append(stats[args.best_checkpoint_metric].avg)
+    return valid_losses
 
 
 def get_valid_stats(trainer):
