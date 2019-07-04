@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # Copyright (c) 2019-present, Hang Lyu
+#               2019-present, Yiming Wang
 # All rights reserved.
 #
 # This source code is licensed under the license found in the LICENSE file in
@@ -10,7 +11,7 @@
 set -e -o pipefail
 
 stage=0
-ngpus=2 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
+ngpus=1 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
 free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned if on CLSP grid
 
 # E2E model related
@@ -19,8 +20,6 @@ train_set=train_nodup
 valid_set=train_dev
 test_sets="train_dev eval2000 rt03"
 checkpoint=checkpoint_best.pt
-
-validate_on_train_subset=false # for monitoring E2E model training
 
 # LM related
 lm_affix=
@@ -42,8 +41,6 @@ if [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
   rt03_dir=/export/corpora/LDC/LDC2007S10
   fisher_dirs="/export/corpora3/LDC/LDC2004T19/fe_03_p1_tran/ /export/corpora3/LDC/LDC2005T19/fe_03_p2_tran/"
 fi
-train_subset_size=500 # for validation if validate_on_train_subset is set to true
-kaldi_scoring=true
 
 # feature configuration
 do_delta=false
@@ -85,7 +82,6 @@ if [ $stage -le 0 ]; then
   echo "Succeeded in formatting data."
 fi
 
-
 train_feat_dir=$dumpdir/$train_set/delta${do_delta}; mkdir -p $train_feat_dir
 valid_feat_dir=$dumpdir/$valid_set/delta${do_delta}; mkdir -p $valid_feat_dir
 if [ $stage -le 1 ]; then
@@ -110,12 +106,12 @@ if [ $stage -le 1 ]; then
   # dump features for training
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $train_feat_dir/storage ]; then
   utils/create_split_dir.pl \
-    /export/b{14,15,16,17}/$USER/espnet-data/egs/swbd/asr1/dump/$train_set/delta${do_delta}/storage \
+    /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$train_set/delta${do_delta}/storage \
     $train_feat_dir/storage
   fi
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $valid_feat_dir/storage ]; then
   utils/create_split_dir.pl \
-    /export/b{14,15,16,17}/$USER/espnet-data/egs/swbd/asr1/dump/$valid_set/delta${do_delta}/storage \
+    /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$valid_set/delta${do_delta}/storage \
     $valid_feat_dir/storage
   fi
   dump.sh --cmd "$train_cmd" --nj 32 --do_delta $do_delta \
@@ -130,7 +126,6 @@ if [ $stage -le 1 ]; then
   done
   echo "Succeeded in generating features for train_nodup, train_dev, eval2000 and rt03"
 fi
-
 
 dict=data/lang/${train_set}_${sentencepiece_type}${sentencepiece_vocabsize}_units.txt
 sentencepiece_model=data/lang/${train_set}_${sentencepiece_type}${sentencepiece_vocabsize}
@@ -154,7 +149,7 @@ if [ $stage -le 2 ]; then
     [ ! -d $x/data/trans ] \
       && "Cannot find transcripts in Fisher directory $x" && exit 1;
     cat $x/data/trans/*/*.txt | \
-      grep -v ^# | grep -v ^$ | cut -d' ' -f4- >> $lmdatadir/fisher_text0
+      grep -v '^#' | grep -v '^$' | cut -d' ' -f4- >> $lmdatadir/fisher_text0
   done
   cat $lmdatadir/fisher_text0 | local/fisher_map_words.pl | \
     sed 's/^[ \t]*//'> $lmdatadir/fisher_text
@@ -168,18 +163,12 @@ if [ $stage -le 2 ]; then
     --input_sentence_size=10000000 \
     --user_defined_symbols=$(cut -f 2- $train_text | tr " " "\n" | sort | uniq | grep "\[" | tr "\n" "," | sed 's/,$//')
 
-  echo "Making a dictionary and tokenizing text for train/valid/test sets..."
+  echo "Tokenizing text for train/valid/test sets..."
   for dataset in $train_set $test_sets; do  # validation is included in tests
     text=data/$dataset/text
     token_text=data/$dataset/token_text
     spm_encode --model=${sentencepiece_model}.model --output_format=piece \
       <(cut -f 2- -d' ' $text) | paste -d" " <(cut -f 1 -d' ' $text) - > $token_text
-    # prepare dict with train_set
-    if [ "$dataset" == "$train_set" ]; then
-      cut -f 2- -d" " $token_text | tr " " "\n" | grep -v -e '^\s*$' | sort | \
-        uniq -c | awk '{print $2,$1}' > $dict
-      wc -l $dict
-    fi
   done
 
   echo "Preparing text for subword LM..."
@@ -193,8 +182,12 @@ if [ $stage -le 2 ]; then
   cat $lmdatadir/fisher_text |\
     spm_encode --model=${sentencepiece_model}.model --output_format=piece |\
     cat $lmdatadir/$train_set.tokens - > $lmdatadir/train.tokens
-fi
 
+  echo "Making a dictionary with swbd+fisher text"
+  cat $lmdatadir/train.tokens | tr " " "\n" | grep -v -e '^\s*$' | sort | \
+    uniq -c | awk '{print $2,$1}' > $dict
+  wc -l $dict
+fi
 
 lmdict=$dict
 if [ $stage -le 3 ]; then
@@ -211,13 +204,11 @@ if [ $stage -le 3 ]; then
       --destdir $lmdatadir   
 fi
 
-
 [ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
   echo "Unable to get $ngpus GPUs"
 [ -z "$free_gpu" ] && echo "$0: please specify --free-gpu" && exit 1;
 [ $(echo $free_gpu | sed 's/,/ /g' | awk '{print NF}') -ne "$ngpus" ] && \
   echo "number of GPU ids in --free-gpu=$free_gpu does not match --ngpus=$ngpus" && exit 1;
-
 
 if [ $stage -le 4 ]; then
   echo "Stage 4: subword LM Training"
@@ -235,9 +226,8 @@ if [ $stage -le 4 ]; then
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
     --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 500 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
-    --arch lstm_lm_librispeech --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
+    --arch lstm_lm_swbd --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
 fi
-
 
 if [ $stage -le 5 ]; then
   echo "Stage 5: subword LM Evaluation"
@@ -247,13 +237,12 @@ if [ $stage -le 5 ]; then
   test_set_array=($test_sets)
   for i in $(seq 0 $num); do
     log_file=$lmdir/logs/evaluation_${test_set_array[$i]}.log
-    python3 ../../eval_lm.py $lmdatadir --cpu \
+    python3 ../../eval_lm.py $lmdatadir \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
       --max-tokens 40960 --max-sentences 1536 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
   done
 fi
-
 
 train_feat=$train_feat_dir/feats.scp
 train_token_text=data/$train_set/token_text
@@ -268,26 +257,26 @@ if [ $stage -le 6 ]; then
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
-    --log-interval 1500 --log-format simple --print-training-sample-interval 2000 --ddp-backend "no_c10d" \
-    --num-workers 0 --max-tokens 26000 --max-sentences 24 \
-    --valid-subset $valid_subset --max-sentences-valid 48 \
-    --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
-    --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
+    --log-interval 1500 --log-format simple --print-training-sample-interval 2000 \
+    --num-workers 0 --max-tokens 26000 --max-sentences 48 \
+    --valid-subset $valid_subset --max-sentences-valid 64 \
+    --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 --ddp-backend no_c10d \
+    --max-epoch 40 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 1500 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
-    --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_with_wer \
+    --arch speech_conv_lstm_swbd --criterion label_smoothed_cross_entropy_with_wer \
     --label-smoothing 0.1 --smoothing-type uniform \
-    --scheduled-sampling-probs 1.0 --start-scheduled-sampling-epoch 1 \
+    --scheduled-sampling-probs 0.9,0.8,0.7,0.6 --start-scheduled-sampling-epoch 6 \
     --train-feat-files $train_feat --train-text-files $train_token_text \
     --valid-feat-files $valid_feat --valid-text-files $valid_token_text \
     --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms \
     --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
 fi
 
-
 if [ $stage -le 7 ]; then
   echo "Stage 7: Decoding"
+  [ ! -d $KALDI_ROOT ] && echo "Expected $KALDI_ROOT to exist" && exit 1;
   opts=""
   path=$dir/$checkpoint
   decode_affix=
@@ -298,21 +287,31 @@ if [ $stage -le 7 ]; then
   fi
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
   for dataset in $test_sets; do
-    feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
-    text=data/$dataset/token_text
+    decode_dir=$dir/decode_${dataset}${decode_affix:+_${decode_affix}}
+    # only score train_dev with built-in scorer
+    text_opt= && [ "$dataset" == "train_dev" ] && text_opt="--test-text-files data/$dataset/token_text"
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
-      --max-tokens 16000 --max-sentences 24 --num-shards 1 --shard-id 0 \
-      --test-feat-files $feat --test-text-files $text \
+      --max-tokens 24000 --max-sentences 48 --num-shards 1 --shard-id 0 \
+      --test-feat-files ${dumpdir}/$dataset/delta${do_delta}/feats.scp $text_opt \
       --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms \
       --max-source-positions 9999 --max-target-positions 999 \
-      --path $path --beam 30 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
-      --results-path $dir/decode_$dataset${decode_affix:+_${decode_affix}} $opts \
+      --path $path --beam 35 --max-len-a 0.1 --max-len-b 0 --lenpen 1.0 \
+      --results-path $decode_dir $opts \
       2>&1 | tee $dir/logs/decode_$dataset${decode_affix:+_${decode_affix}}.log
+
+    echo "Scoring with kaldi..."
+    local/score.sh data/$dataset $decode_dir
+    if [ "$dataset" == "train_dev" ]; then
+      echo -n "tran_dev: " && cat $decode_dir/scoring/wer | grep WER
+    elif [ "$dataset" == "eval2000" ] || [ "$dataset" == "rt03" ]; then
+      echo -n "$dataset: " && grep Sum $decode_dir/scoring/$dataset.ctm.filt.sys | \
+        awk '{print "WER="$11"%, Sub="$8"%, Ins="$10"%, Del="$9"%"}' | tee $decode_dir/wer
+      echo -n "swbd subset: " && grep Sum $decode_dir/scoring/$dataset.ctm.swbd.filt.sys | \
+        awk '{print "WER="$11"%, Sub="$8"%, Ins="$10"%, Del="$9"%"}' | tee $decode_dir/wer_swbd
+      subset=callhm && [ "$dataset" == "rt03" ] && subset=fsh
+      echo -n "$subset subset: " && grep Sum $decode_dir/scoring/$dataset.ctm.$subset.filt.sys | \
+        awk '{print "WER="$11"%, Sub="$8"%, Ins="$10"%, Del="$9"%"}' | tee $decode_dir/wer_$subset
+      echo "WERs saved in $decode_dir/wer*"
+    fi
   done
-  if $kaldi_scoring; then
-    echo "verify WER by scoring with kaldi..."
-    # The word level results are stored in decode_dir/decoded_results.txt
-    local/score_sclite.sh data/eval2000 $dir/decode_eval2000${decode_affix:+_${decode_affix}}
-    local/score_sclite.sh data/rt03 $dir/decode_rt03${decode_affix:+_${decode_affix}}
-  fi
 fi
