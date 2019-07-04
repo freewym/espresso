@@ -139,7 +139,7 @@ def main(args):
                         print('T-{}\t{}'.format(utt_id, target_sent))
 
                 # Process top predictions
-                for j, hypo in enumerate(hypos[i][:min(len(hypos), args.nbest)]):
+                for j, hypo in enumerate(hypos[i][:args.nbest]):
                     hypo_str = dict.string(hypo['tokens'].int().cpu()) # not removing bpe at this point
                     if not args.quiet or i == 0:
                         hypo_sent = dict.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)

@@ -2,46 +2,6 @@
 s:\[noise\]::g
 s:\[laughter\]::g
 s:\[vocalized-noise\]::g
-s:^uh ::g
-s: uh$::g
-s: uh : :g
-s:^um ::g
-s: um$::g
-s: um : :g
-s:^eh ::g
-s: eh$::g
-s: eh : :g
-s:^mm ::g
-s: mm$::g
-s: mm : :g
-s:^hm ::g
-s: hm$::g
-s: hm : :g
-s:^ah ::g
-s: ah$::g
-s: ah : :g
-s:^huh ::g
-s: huh$::g
-s: huh : :g
-s:^ha ::g
-s: ha$::g
-s: ha : :g
-s:^er ::g
-s: er$::g
-s: er : :g
-s:^oof ::g
-s: oof$::g
-s: oof : :g
-s:^hee ::g
-s: hee$::g
-s: hee : :g
-s:^ach ::g
-s: ach$::g
-s: ach : :g
-s:^eee ::g
-s: eee$::g
-s: eee : :g
-s:^ew ::g
-s: ew$::g
-s: ew : :g
+s:<unk>::g
+s:%hesitation::g
 

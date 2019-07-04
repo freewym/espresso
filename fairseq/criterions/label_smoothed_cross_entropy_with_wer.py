@@ -17,6 +17,36 @@ from . import FairseqCriterion, register_criterion
 from .label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
 
 
+def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True,
+    smoothing_type='uniform', prob_mask=None, unigram_tensor=None):
+    if target.dim() == lprobs.dim() - 1:
+        target = target.unsqueeze(-1)
+    nll_loss = -lprobs.gather(dim=-1, index=target)
+    if smoothing_type == 'temporal':
+        assert torch.is_tensor(prob_mask)
+        smooth_loss = -lprobs.mul(prob_mask).sum(-1, keepdim=True)
+    elif smoothing_type == 'unigram':
+        assert torch.is_tensor(unigram_tensor)
+        smooth_loss = -lprobs.matmul(unigram_tensor.to(lprobs))
+    elif smoothing_type == 'uniform':
+        smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
+    else:
+        raise ValueError('Unsupported smoothing type: {}'.format(smoothing_type))
+    if ignore_index is not None:
+        non_pad_mask = target.ne(ignore_index)
+        nll_loss = nll_loss[non_pad_mask]
+        smooth_loss = smooth_loss[non_pad_mask]
+    else:
+        nll_loss = nll_loss.squeeze(-1)
+        smooth_loss = smooth_loss.squeeze(-1)
+    if reduce:
+        nll_loss = nll_loss.sum()
+        smooth_loss = smooth_loss.sum()
+    eps_i = epsilon / lprobs.size(-1) if smoothing_type == 'uniform' else epsilon
+    loss = (1. - epsilon) * nll_loss + eps_i * smooth_loss
+    return loss, nll_loss
+
+
 @register_criterion('label_smoothed_cross_entropy_with_wer')
 class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriterion):
 
@@ -30,6 +60,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         self.valid_tgt_dataset = None
         self.num_updates = -1
         self.epoch = 0
+        self.unigram_tensor = None
         if args.smoothing_type == 'unigram':
             self.unigram_tensor = torch.cuda.FloatTensor(dict.count).unsqueeze(-1) \
                 if torch.cuda.is_available() and not args.cpu \
@@ -188,6 +219,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                 print('| sample REF: ' + ref_one)
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends
+        prob_mask = None
         if self.args.smoothing_type == 'temporal':
             # see https://arxiv.org/pdf/1612.02695.pdf
             # prob_mask.dtype=int for deterministic behavior of Tensor.scatter_add_()
@@ -206,26 +238,16 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
             prob_mask[:, :, self.padding_idx] = 0 # clear cumulative count on <pad>
             prob_mask = prob_mask.float() # convert to float
             sum_prob = prob_mask.sum(-1, keepdim=True)
-            sum_prob[sum_prob.squeeze(-1).eq(0.)] = 1. # deal with "divided by 0" problem
+            sum_prob[sum_prob.squeeze(-1).eq(0.)] = 1. # to deal with the "division by 0" problem
             prob_mask = prob_mask.div_(sum_prob).view(-1, prob_mask.size(-1))
 
         lprobs = lprobs.view(-1, lprobs.size(-1))
         target = target.view(-1, 1)
-        non_pad_mask = target.ne(self.padding_idx)
-        nll_loss = -lprobs.gather(dim=-1, index=target)[non_pad_mask]
-        if self.args.smoothing_type == 'temporal':
-            smooth_loss = -lprobs.mul(prob_mask).sum(-1, keepdim=True)[non_pad_mask]
-        elif self.args.smoothing_type == 'unigram':
-            smooth_loss = -lprobs.matmul(self.unigram_tensor.to(lprobs))[non_pad_mask]
-        elif self.args.smoothing_type == 'uniform':
-            smooth_loss = -lprobs.sum(dim=-1, keepdim=True)[non_pad_mask]
-        else:
-            raise ValueError('Unsupported smoothing type: {}'.format(self.args.smoothing_type))
-        if reduce:
-            nll_loss = nll_loss.sum()
-            smooth_loss = smooth_loss.sum()
-        eps_i = self.eps / lprobs.size(-1) if self.args.smoothing_type == 'uniform' else self.eps
-        loss = (1. - self.eps) * nll_loss + eps_i * smooth_loss
+        loss, nll_loss = label_smoothed_nll_loss(
+            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
+            smoothing_type=self.args.smoothing_type, prob_mask=prob_mask,
+            unigram_tensor=self.unigram_tensor,
+        )
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
@@ -263,10 +285,8 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         decoder_out[0] = decoder_out[0][:, -1:, :]
         attn = decoder_out[1]
         if type(attn) is dict:
-            attn = attn['attn']
+            attn = attn.get('attn', None)
         if attn is not None:
-            if type(attn) is dict:
-                attn = attn['attn']
             attn = attn[:, -1, :]
         probs = model.get_normalized_probs(decoder_out, log_probs=True)
         probs = probs[:, -1, :]

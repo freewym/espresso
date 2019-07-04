@@ -211,7 +211,7 @@ if [ ${stage} -le 7 ]; then
     --log-interval 4000 --log-format simple --print-training-sample-interval 2000 \
     --num-workers 0 --max-tokens 26000 --max-sentences 24 \
     --valid-subset $valid_subset --max-sentences-valid 48 \
-    --distributed-world-size $ngpus --distributed-port 100 \
+    --distributed-world-size $ngpus --distributed-port 100 --ddp-backend no_c10d \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 3000 \
