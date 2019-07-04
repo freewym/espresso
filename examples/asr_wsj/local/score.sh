@@ -1,11 +1,8 @@
 #!/bin/bash
 
-# Copyright (c) 2019-present, Yiming Wang
-# All rights reserved.
-#
-# This source code is licensed under the license found in the LICENSE file in
-# the root directory of this source tree. An additional grant of patent rights
-# can be found in the PATENTS file in the same directory.
+# Copyright (c) 2012-2014,    Johns Hopkins University (Author: Daniel Povey, Yenda Trmal)
+#               2019-present, Yiming Wang
+# Apache 2.0
 
 
 # begin configuration section.
@@ -43,3 +40,4 @@ $cmd $dir/scoring_kaldi/log/score.log \
   compute-wer --text --mode=present \
   ark:$dir/scoring_kaldi/test_filt.txt ark,p:- ">&" $dir/scoring_kaldi/wer || exit 1;
 
+exit 0
