@@ -793,10 +793,8 @@ class LMFusionModel(EnsembleModel):
             decoder_out[0].div_(temperature)
         attn = decoder_out[1]
         if type(attn) is dict:
-            attn = attn['attn']
+            attn = attn.get('attn', None)
         if attn is not None:
-            if type(attn) is dict:
-                attn = attn['attn']
             attn = attn[:, -1, :]
         if use_raw_out:
             return decoder_out[0][:, -1, :], attn
