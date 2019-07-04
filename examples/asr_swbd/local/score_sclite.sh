@@ -1,5 +1,8 @@
 #!/bin/bash
-# Copyright 2019-present Hang Lyu
+# Copyright (c) 2012,         Johns Hopkins University (Author: Daniel Povey)
+#               2019-present, Hang Lyu
+#               2019-present, Yiming Wang
+# Apache 2.0
 
 # begin configuration section.
 cmd=run.pl
@@ -34,7 +37,7 @@ mkdir -p $dir/scoring/log
 
 if [ $stage -le 0 ]; then
   # prepare the $name.ctm files for test set
-  python3 local/prepare_ctm.py $dir/decoded_results.txt $dir/scoring/$name.ctm
+  local/prepare_ctm.py $dir/decoded_results.txt $dir/scoring/$name.ctm
 fi
 
 if [ $stage -le 1 ]; then
