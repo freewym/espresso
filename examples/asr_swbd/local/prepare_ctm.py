@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-
 # CopyRight (c) 2019-present, Hang Lyu
+#               2019-present, Yiming Wang
+# All rights reserved.
 #
 # This source code is licensed under the license found in the LICENSE file in
 # the root directory of this source tree. An additional grant of patent rights
@@ -16,65 +17,70 @@ import math
 import re
 import sys
 
-def main():
-    args = get_args()
-    convert(args)
 
-
-def get_args():
+def get_parser():
     parser = argparse.ArgumentParser(
         description="""Transform the word level results to ctm format""")
+    # fmt: off
     parser.add_argument('ori_result', type=str,
-                        help="The input--word level results.")
+                        help='The input: original decoded results.')
     parser.add_argument('ctm_result', type=str,
-                        help="The output--ctm format result.")
-    print(' '.join(sys.argv))
-    print(sys.argv)
+                        help='The output: transformed results in ctm format.')
+    # fmt: on
 
-    args = parser.parse_args()
-    return args
+    return parser
 
 
-def convert(args):
+def main(args):
     # read in word level results
-    with open(args.ori_result, 'r', encoding="utf-8") as f:
+    with open(args.ori_result, 'r', encoding='utf-8') as f:
         content = f.readlines()
     # convert each line
     split_content = []  # store ctm results
     for i, line in enumerate(content):
-        elements = line.strip().split(' ')
+        elements = line.strip().split()
       
         # The first field contains the information of the utterance
         utt_info = elements[0]
-        infos = re.split("[-_]", utt_info)
-        utt_id = infos[0] + "_" + infos[1]
+        infos = re.split('[-_]', utt_info)
+        utt_id = infos[0] + '_' + infos[1]
         channel = infos[2]
-        start_time = round((int(infos[3])/100.0), 2)
-        end_time = round((int(infos[4])/100.0), 2)
+        start_time = round((int(infos[3]) / 100.0), 2)
+        end_time = round((int(infos[4]) / 100.0), 2)
 
         # generate ctm format results for each word
         time_diff = int(infos[4]) - int(infos[3])
-        time_step = round((float(time_diff) / (len(elements) - 1) / 100), 2)
+        time_step = round((float(time_diff) / (len(elements) - 1) / 100), 2) \
+            if len(elements) > 1 else 0
         for j, word in enumerate(elements):
-            start_time_tmp = start_time + time_step * (j - 1)
+            start_time_cur = start_time + time_step * (j - 1)
             duration = 0.0
             if j == 0:
                 continue
             elif j == len(elements) - 1:
-                duration = end_time - start_time_tmp
-                split_content.append(" ".join([utt_id, channel,
-                                              str(round(start_time_tmp,2)),
-                                              str(round(duration,2)), word]))
+                duration = end_time - start_time_cur
+                split_content.append(
+                    ' '.join([utt_id, channel, str(round(start_time_cur, 2)),
+                    str(round(duration, 2)), word])
+                )
             else:
                 duration = time_step 
-                split_content.append(" ".join([utt_id, channel,
-                                               str(round(start_time_tmp,2)),
-                                               str(round(duration,2)), word]))
-    # print
+                split_content.append(
+                    ' '.join([utt_id, channel, str(round(start_time_cur, 2)),
+                    str(round(duration, 2)), word])
+                )
+        if j == 0:
+            split_content.append(
+                ' '.join([utt_id, channel, str(round(start_time, 2)),
+                    str(round(time_diff, 2)), '[noise]'])
+            )
+
     with open(args.ctm_result, 'w', encoding='utf-8') as f:
         for line in split_content:
-            print(line, file=f)
+            f.write(line + '\n')
       
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    parser = get_parser()
+    args = parser.parse_args()
+    main(args)

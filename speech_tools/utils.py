@@ -189,6 +189,11 @@ def aligned_print(ref, hyp, steps):
     assert isinstance(ref, list) and isinstance(hyp, list)
     assert isinstance(steps, list)
 
+    if len(steps) == 0:  # in case both ref and hyp are empty
+        assert len(ref) == 0 and len(hyp) == 0
+        out_str = 'REF: \nHYP: \nSTP: \nWER: {:.2f}%\n\n'.format(0.)
+        return out_str
+
     out_str = 'REF: '
     for i in range(len(steps)):
         delim = ' ' if i < len(steps) - 1 else '\n'
