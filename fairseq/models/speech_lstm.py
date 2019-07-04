@@ -418,6 +418,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
 
     def forward(self, src_tokens, src_lengths):
         if self.left_pad:
+            # nn.utils.rnn.pack_padded_sequence requires right-padding;
             # convert left-padding to right-padding
             src_tokens = speech_utils.convert_padding_direction(
                 src_tokens,
@@ -775,6 +776,17 @@ def lstm_lm_librispeech(args):
     base_lm_architecture(args)
 
 
+@register_model_architecture('lstm_lm', 'lstm_lm_swbd')
+def lstm_lm_swbd(args):
+    args.dropout = getattr(args, 'dropout', 0.3)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1800)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1800)
+    args.decoder_layers = getattr(args, 'decoder_layers', 3)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1800)
+    args.share_embed = getattr(args, 'share_embed', True)
+    base_lm_architecture(args)
+
+
 @register_model_architecture('lstm_lm', 'lstm_wordlm_wsj')
 def lstm_wordlm_wsj(args):
     args.dropout = getattr(args, 'dropout', 0.35)
@@ -836,4 +848,19 @@ def speech_conv_lstm_librispeech(args):
     args.decoder_rnn_residual = getattr(args, 'decoder_rnn_residual', True)
     args.attention_type = getattr(args, 'attention_type', 'bahdanau')
     args.attention_dim = getattr(args, 'attention_dim', 512)
+    base_architecture(args)
+
+
+@register_model_architecture('speech_lstm', 'speech_conv_lstm_swbd')
+def speech_conv_lstm_swbd(args):
+    args.dropout = getattr(args, 'dropout', 0.5)
+    args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 600)
+    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 3)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 600)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 600)
+    args.decoder_layers = getattr(args, 'decoder_layers', 3)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1800)
+    args.decoder_rnn_residual = getattr(args, 'decoder_rnn_residual', True)
+    args.attention_type = getattr(args, 'attention_type', 'bahdanau')
+    args.attention_dim = getattr(args, 'attention_dim', 600)
     base_architecture(args)
