@@ -150,8 +150,8 @@ class SpeechFConvEncoder(FConvEncoder):
     Args:
         conv_layers_before (~fairseq.speech_lstm.ConvBNReLU): convolutions befoe
             fconv layers
-        input_size (int, optional): dim of input to the transformer before being
-            projected to embed_dim
+        input_size (int, optional): dimension of the input to the transformer
+            before being projected to embed_dim
         embed_dim (int, optional): embedding dimension
         max_positions (int, optional): maximum supported input sequence length
         convolutions (list, optional): the convolutional layer structure. Each
@@ -294,17 +294,6 @@ class SpeechFConvEncoder(FConvEncoder):
             'encoder_out': (x, y),
             'encoder_padding_mask': encoder_padding_mask,  # B x T
         }
-
-    def reorder_encoder_out(self, encoder_out, new_order):
-        if encoder_out['encoder_out'] is not None:
-            encoder_out['encoder_out'] = (
-                encoder_out['encoder_out'][0].index_select(0, new_order),
-                encoder_out['encoder_out'][1].index_select(0, new_order),
-            )
-        if encoder_out['encoder_padding_mask'] is not None:
-            encoder_out['encoder_padding_mask'] = \
-                encoder_out['encoder_padding_mask'].index_select(0, new_order)
-        return encoder_out
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""

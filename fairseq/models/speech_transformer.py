@@ -162,10 +162,10 @@ class SpeechTransformerEncoder(TransformerEncoder):
 
     Args:
         args (argparse.Namespace): parsed command-line arguments
-        conv_layers_before (~fairseq.speech_lstm.ConvBNReLU): convolutions befoe
+        conv_layers_before (~fairseq.speech_lstm.ConvBNReLU): convolutions before
             transformer layers
-        input_size (int, optional): dim of input to the transformer before being
-            projected to args.encoder_embed_dim
+        input_size (int, optional): dimension of the input to the transformer
+            before being projected to args.encoder_embed_dim
     """
 
     def __init__(self, args, conv_layers_before=None, input_size=83):
@@ -238,25 +238,6 @@ class SpeechTransformerEncoder(TransformerEncoder):
             'encoder_out': x,  # T x B x C
             'encoder_padding_mask': encoder_padding_mask,  # B x T
         }
-
-    def reorder_encoder_out(self, encoder_out, new_order):
-        """
-        Reorder encoder output according to *new_order*.
-
-        Args:
-            encoder_out: output from the ``forward()`` method
-            new_order (LongTensor): desired order
-
-        Returns:
-            *encoder_out* rearranged according to *new_order*
-        """
-        if encoder_out['encoder_out'] is not None:
-            encoder_out['encoder_out'] = \
-                encoder_out['encoder_out'].index_select(1, new_order)
-        if encoder_out['encoder_padding_mask'] is not None:
-            encoder_out['encoder_padding_mask'] = \
-                encoder_out['encoder_padding_mask'].index_select(0, new_order)
-        return encoder_out
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""
