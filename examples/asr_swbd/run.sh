@@ -18,7 +18,7 @@ free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically 
 affix=
 train_set=train_nodup
 valid_set=train_dev
-test_sets="train_dev eval2000 rt03"
+test_set="train_dev eval2000 rt03"
 checkpoint=checkpoint_best.pt
 
 # LM related
@@ -118,7 +118,7 @@ if [ $stage -le 1 ]; then
     data/$train_set/feats.scp data/$train_set/cmvn.ark exp/dump_feats/train $train_feat_dir
   dump.sh --cmd "$train_cmd" --nj 10 --do_delta $do_delta \
     data/$valid_set/feats.scp data/$train_set/cmvn.ark exp/dump_feats/dev $valid_feat_dir
-  for rtask in $test_sets; do
+  for rtask in $test_set; do
     test_feat_dir=$dumpdir/$rtask/delta${do_delta}; mkdir -p $test_feat_dir
     dump.sh --cmd "$train_cmd" --nj 10 --do_delta $do_delta \
       data/$rtask/feats.scp data/$train_set/cmvn.ark exp/dump_feats/recog/$rtask \
@@ -164,7 +164,7 @@ if [ $stage -le 2 ]; then
     --user_defined_symbols=$(cut -f 2- $train_text | tr " " "\n" | sort | uniq | grep "\[" | tr "\n" "," | sed 's/,$//')
 
   echo "Tokenizing text for train/valid/test sets..."
-  for dataset in $train_set $test_sets; do  # validation is included in tests
+  for dataset in $train_set $test_set; do  # validation is included in tests
     text=data/$dataset/text
     token_text=data/$dataset/token_text
     spm_encode --model=${sentencepiece_model}.model --output_format=piece \
@@ -173,7 +173,7 @@ if [ $stage -le 2 ]; then
 
   echo "Preparing text for subword LM..."
   mkdir -p $lmdatadir
-  for dataset in $train_set $test_sets; do
+  for dataset in $train_set $test_set; do
     token_text=data/$dataset/token_text
     cut -f 2- -d" " $token_text > $lmdatadir/$dataset.tokens
   done
@@ -193,7 +193,7 @@ lmdict=$dict
 if [ $stage -le 3 ]; then
   echo "Stage 3: Text Binarization for subword LM Training"
   mkdir -p $lmdatadir/logs
-  for dataset in $test_sets; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
+  for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
   ${decode_cmd} $lmdatadir/logs/preprocess.log \
     python3 ../../preprocess.py --task language_modeling_for_asr \
@@ -232,9 +232,9 @@ fi
 if [ $stage -le 5 ]; then
   echo "Stage 5: subword LM Evaluation"
   gen_set_array=(test)
-  num=$(echo $test_sets | awk '{print NF-1}')
+  num=$(echo $test_set | awk '{print NF-1}')
   for i in $(seq $num); do gen_set_array[$i]="test$i"; done  #gen_set_array=(test test1 test2)
-  test_set_array=($test_sets)
+  test_set_array=($test_set)
   for i in $(seq 0 $num); do
     log_file=$lmdir/logs/evaluation_${test_set_array[$i]}.log
     python3 ../../eval_lm.py $lmdatadir \
@@ -258,10 +258,10 @@ if [ $stage -le 6 ]; then
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
     --log-interval 1500 --log-format simple --print-training-sample-interval 2000 \
-    --num-workers 0 --max-tokens 26000 --max-sentences 48 \
+    --num-workers 0 --max-tokens 26000 --max-sentences 48 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 \
     --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 --ddp-backend no_c10d \
-    --max-epoch 40 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
+    --max-epoch 35 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 1500 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
@@ -282,11 +282,11 @@ if [ $stage -le 7 ]; then
   decode_affix=
   if $lm_shallow_fusion; then
     path="$path:$lmdir/$lm_checkpoint"
-    opts="$opts --lm-weight 0.3 --coverage-weight 0.0"
+    opts="$opts --lm-weight 0.25 --coverage-weight 0.0"
     decode_affix=shallow_fusion
   fi
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
-  for dataset in $test_sets; do
+  for dataset in $test_set; do
     decode_dir=$dir/decode_${dataset}${decode_affix:+_${decode_affix}}
     # only score train_dev with built-in scorer
     text_opt= && [ "$dataset" == "train_dev" ] && text_opt="--test-text-files data/$dataset/token_text"
