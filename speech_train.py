@@ -12,7 +12,6 @@ Train a new model on one or across multiple GPUs.
 
 import collections
 import math
-import os
 import random
 
 import torch
@@ -36,6 +35,9 @@ def main(args, init_distributed=False):
     torch.manual_seed(args.seed)
     if init_distributed:
         args.distributed_rank = distributed_utils.distributed_init(args)
+
+    if distributed_utils.is_master(args):
+        checkpoint_utils.verify_checkpoint_directory(args.save_dir)
 
     # Print args
     print(args)
@@ -81,7 +83,7 @@ def main(args, init_distributed=False):
     valid_losses = [None]
     valid_subsets = args.valid_subset.split(',')
     while (
-        (lr > args.min_lr or trainer.get_num_updates() <= getattr(args, 'warmup_updates', 0))
+        (lr >= args.min_lr or trainer.get_num_updates() <= getattr(args, 'warmup_updates', 0))
         and (
             epoch_itr.epoch < max_epoch or (
                 epoch_itr.epoch == max_epoch
@@ -145,7 +147,7 @@ def train(args, trainer, task, epoch_itr):
         for k, v in log_output.items():
             if k in ['loss', 'nll_loss', 'ntokens', 'nsentences', 'sample_size']:
                 continue  # these are already logged above
-            if 'loss' in k:
+            if 'loss' in k or k == 'accuracy':
                 extra_meters[k].update(v, log_output['sample_size'])
             else:
                 extra_meters[k].update(v)
@@ -264,21 +266,20 @@ def validate(args, trainer, task, epoch_itr, subsets):
                     extra_meters[k].update(v)
 
         # log validation stats
-        stats = get_valid_stats(trainer)
+        stats = get_valid_stats(trainer, args, extra_meters)
         for k, meter in extra_meters.items():
-            stats[k] = meter if k == 'wer' or k == 'cer' else meter.avg
-        if hasattr(checkpoint_utils.save_checkpoint, 'best'):
-            stats['best_' + args.best_checkpoint_metric] = min(
-                checkpoint_utils.save_checkpoint.best,
-                stats[args.best_checkpoint_metric].avg,
-            )
+            stats[k] = meter.avg
         progress.print(stats, tag=subset, step=trainer.get_num_updates())
 
-        valid_losses.append(stats[args.best_checkpoint_metric].avg)
+        valid_losses.append(
+            stats[args.best_checkpoint_metric].avg
+            if args.best_checkpoint_metric == 'loss'
+            else stats[args.best_checkpoint_metric]
+        )
     return valid_losses
 
 
-def get_valid_stats(trainer):
+def get_valid_stats(trainer, args, extra_meters=None):
     stats = collections.OrderedDict()
     stats['loss'] = trainer.get_meter('valid_loss')
     if trainer.get_meter('valid_nll_loss').count > 0:
@@ -288,6 +289,24 @@ def get_valid_stats(trainer):
         nll_loss = stats['loss']
     stats['ppl'] = utils.get_perplexity(nll_loss.avg)
     stats['num_updates'] = trainer.get_num_updates()
+    if hasattr(checkpoint_utils.save_checkpoint, 'best'):
+        key = 'best_{0}'.format(args.best_checkpoint_metric)
+        best_function = max if args.maximize_best_checkpoint_metric else min
+
+        current_metric = None
+        if args.best_checkpoint_metric == 'loss':
+            current_metric = stats['loss'].avg
+        elif args.best_checkpoint_metric in extra_meters:
+            current_metric = extra_meters[args.best_checkpoint_metric].avg
+        elif args.best_checkpoint_metric in stats:
+            current_metric = stats[args.best_checkpoint_metric]
+        else:
+            raise ValueError("best_checkpoint_metric not found in logs")
+
+        stats[key] = best_function(
+            checkpoint_utils.save_checkpoint.best,
+            current_metric,
+        )
     return stats
 
 

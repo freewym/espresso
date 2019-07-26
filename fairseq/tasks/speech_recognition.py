@@ -231,7 +231,6 @@ class SpeechRecognitionTask(FairseqTask):
             max_len_a=getattr(args, 'max_len_a', 0),
             max_len_b=getattr(args, 'max_len_b', 200),
             min_len=getattr(args, 'min_len', 1),
-            stop_early=(not getattr(args, 'no_early_stop', False)),
             normalize_scores=(not getattr(args, 'unnormalized', False)),
             len_penalty=getattr(args, 'lenpen', 1),
             unk_penalty=getattr(args, 'unkpen', 0),

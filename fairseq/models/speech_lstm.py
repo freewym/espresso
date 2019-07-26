@@ -18,9 +18,15 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
+from fairseq.models.lstm import (
+    AttentionLayer,
+    Embedding,
+    LSTM,
+    LSTMCell,
+    Linear,
+)
 from fairseq.modules import AdaptiveSoftmax, speech_attention
-
-from .lstm import AttentionLayer, Embedding, LSTM, LSTMCell, Linear
+from fairseq.tasks.speech_recognition import SpeechRecognitionTask
 
 import speech_tools.utils as speech_utils
 
@@ -287,9 +293,12 @@ class LSTMLanguageModel(FairseqLanguageModel):
             utils.print_embed_overlap(embed_dict, dictionary)
             return utils.load_embedding(embed_dict, dictionary, embed_tokens)
 
-        dictionary = task.word_dictionary \
-            if args.is_wordlm and hasattr(task, 'word_dictionary') \
-            else task.target_dictionary
+        if args.is_wordlm and hasattr(task, 'word_dictionary'):
+            dictionary = task.word_dictionary
+        elif isinstance(task, SpeechRecognitionTask):
+            dictionary = task.target_dictionary
+        else:
+            dictionary = task.source_dictionary
 
         # separate decoder input embeddings
         pretrained_decoder_embed = None
@@ -854,13 +863,13 @@ def speech_conv_lstm_librispeech(args):
 @register_model_architecture('speech_lstm', 'speech_conv_lstm_swbd')
 def speech_conv_lstm_swbd(args):
     args.dropout = getattr(args, 'dropout', 0.5)
-    args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 600)
-    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 3)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 600)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 600)
+    args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 640)
+    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 4)
+    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 640)
+    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 640)
     args.decoder_layers = getattr(args, 'decoder_layers', 3)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1800)
+    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1920)
     args.decoder_rnn_residual = getattr(args, 'decoder_rnn_residual', True)
     args.attention_type = getattr(args, 'attention_type', 'bahdanau')
-    args.attention_dim = getattr(args, 'attention_dim', 600)
+    args.attention_dim = getattr(args, 'attention_dim', 640)
     base_architecture(args)
