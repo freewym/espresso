@@ -1,12 +1,8 @@
 #!/bin/bash
-
-# Copyright (c) 2019-present, Hang Lyu
-#               2019-present, Yiming Wang
-# All rights reserved.
+# Copyright (c) Hang Lyu, Yiming Wang
 #
-# This source code is licensed under the license found in the LICENSE file in
-# the root directory of this source tree. An additional grant of patent rights
-# can be found in the PATENTS file in the same directory.
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 
 set -e -o pipefail
 
