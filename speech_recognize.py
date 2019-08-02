@@ -223,6 +223,9 @@ def cli_main():
                         help='coverage weight in log-prob space, mostly to '
                         'reduce deletion errors while using the pretrained '
                         'external LM for decoding')
+    parser.add_argument('--eos-factor', default=None, type=float, metavar='F',
+                        help='only consider emitting EOS if its score is no less '
+                        'than the specified factor of the best candidate score')
     parser.add_argument('--lm-weight', default=0.0, type=float, metavar='W',
                         help='LM weight in log-prob space, assuming the pretrained '
                         'external LM is specified as the second one in --path')

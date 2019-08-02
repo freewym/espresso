@@ -229,7 +229,7 @@ if [ ${stage} -le 8 ]; then
   decode_affix=
   if $lm_shallow_fusion; then
     path="$path:$lmdir/$lm_checkpoint"
-    opts="$opts --lm-weight 0.4 --coverage-weight 0.015"
+    opts="$opts --lm-weight 0.4 --coverage-weight 0.0 --eos-factor 1.5"
     decode_affix=shallow_fusion
   fi
   for dataset in $test_set; do
