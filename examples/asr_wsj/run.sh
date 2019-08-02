@@ -294,7 +294,7 @@ if [ ${stage} -le 9 ]; then
       decode_affix=shallow_fusion
     else
       path="$path:$wordlmdir/$lm_checkpoint"
-      opts="$opts --word-dict $wordlmdict --lm-weight 0.8 --oov-penalty 1e-8 --coverage-weight 0.01"
+      opts="$opts --word-dict $wordlmdict --lm-weight 0.8 --oov-penalty 1e-8 --coverage-weight 0.005 --eos-factor 1.5"
       decode_affix=shallow_fusion_wordlm
     fi
   fi
