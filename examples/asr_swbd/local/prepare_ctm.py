@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-# CopyRight (c) 2019-present, Hang Lyu
-#               2019-present, Yiming Wang
-# All rights reserved.
+# Copyright (c) Hang Lyu, Yiming Wang
 #
-# This source code is licensed under the license found in the LICENSE file in
-# the root directory of this source tree. An additional grant of patent rights
-# can be found in the PATENTS file in the same directory.
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
 
 # This script is use to transform the word level results to ctm format
 # The start_time and end_time of each word is fake
