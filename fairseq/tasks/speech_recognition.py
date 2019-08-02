@@ -241,6 +241,7 @@ class SpeechRecognitionTask(FairseqTask):
             match_source_len=getattr(args, 'match_source_len', False),
             no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
             coverage_weight=getattr(args, 'coverage_weight', 0.0),
+            eos_factor=getattr(args, 'eos_factor', None),
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
