@@ -34,7 +34,8 @@ class SequenceGenerator(object):
         diverse_beam_strength=0.5,
         match_source_len=False,
         no_repeat_ngram_size=0,
-        coverage_weight=0.01,
+        coverage_weight=0.0,
+        eos_factor=None,
     ):
         """Generates translations of a given source sentence.
 
@@ -86,10 +87,12 @@ class SequenceGenerator(object):
         self.match_source_len = match_source_len
         self.no_repeat_ngram_size = no_repeat_ngram_size
         self.coverage_weight = coverage_weight
+        self.eos_factor = eos_factor
 
         assert sampling_topk < 0 or sampling, '--sampling-topk requires --sampling'
         assert sampling_topp < 0 or sampling, '--sampling-topp requires --sampling'
         assert temperature > 0, '--temperature must be greater than 0'
+        assert eos_factor is None or eos_factor >= 1.0, '--eos-factor must be >= 1.0 if set'
 
         if sampling:
             self.search = search.Sampling(tgt_dict, sampling_topk, sampling_topp)
@@ -314,6 +317,11 @@ class SequenceGenerator(object):
                 lprobs[:, self.eos + 1:] = -math.inf
             elif step < self.min_len:
                 lprobs[:, self.eos] = -math.inf
+            elif self.eos_factor is not None:
+                # only consider EOS if its score is no less than a specified
+                # factor of the best candidate score
+                disallow_eos_mask = lprobs[:, self.eos] < self.eos_factor * lprobs.max(dim=1)[0]
+                lprobs[disallow_eos_mask, self.eos] = -math.inf
 
             # handle prefix tokens (possibly with different lengths)
             if prefix_tokens is not None and step < prefix_tokens.size(1):
