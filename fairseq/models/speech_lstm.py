@@ -808,7 +808,7 @@ def lstm_wordlm_wsj(args):
 
 @register_model_architecture('speech_lstm', 'speech_lstm')
 def base_architecture(args):
-    args.dropout = getattr(args, 'dropout', 0.3)
+    args.dropout = getattr(args, 'dropout', 0.4)
     args.encoder_conv_channels = getattr(args, 'encoder_conv_channels',
         '[64, 64, 128, 128]')
     args.encoder_conv_kernel_sizes = getattr(args, 'encoder_conv_kernel_sizes',
