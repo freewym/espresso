@@ -41,7 +41,8 @@ class LookAheadWordLanguageModel(FairseqLanguageModel):
 class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
     """Look-ahead word language model decoder for end-to-end ASR. It is intended
     to be used for beam search decoding. See https://arxiv.org/abs/1808.02608
-    for details.
+    for details. We modify the original algorithm a little bit to adapt it to
+    the case where each tokenized sentence ends with <space> before <eos>.
     """
     def __init__(self, wordlm, subword_dict, oov_penalty=1e-4, open_vocab=True):
         super().__init__(wordlm.decoder.dictionary)
@@ -98,9 +99,10 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             assert (prev_output_tokens == self.subword_eos_idx).all(), \
                 'expecting the input to the first time step to be <eos>'
             w = prev_output_tokens.new_full([bsz, 1], self.word_eos_idx)
-            lm_out = self.lm_decoder(w, incremental_state=incremental_state)
-            cumsum_probs = torch.cumsum(self.lm_decoder.get_normalized_probs(
-                lm_out, log_probs=False, sample=None), dim=-1) # B x 1 x V
+            lm_probs = self.lm_decoder.get_normalized_probs(
+                self.lm_decoder(w, incremental_state=incremental_state),
+                log_probs=False, sample=None)  # B x 1 x V
+            cumsum_probs = torch.cumsum(lm_probs, dim=-1)  # B x 1 x V
             nodes = [self.lexroot] * bsz
         else:
             cumsum_probs = utils.get_incremental_state(
@@ -112,16 +114,15 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
                 self.word_unk_idx for node in nodes
             ]).unsqueeze(-1) # B x 1
             old_cached_state = _clone_cached_state(cached_state)
-            lm_out = self.lm_decoder(w, incremental_state=incremental_state)
-            self.lm_decoder.masked_copy_incremental_state(incremental_state,
-                old_cached_state, batch_space_mask)
             # recompute cumsum_probs from inter-word transition probabilities
             # only for those whose prev_output_token is <space>
-            cumsum_probs[batch_space_mask] = torch.cumsum(
-                self.lm_decoder.get_normalized_probs(lm_out, log_probs=False,
-                sample=None),
-                dim=-1,
-            )[batch_space_mask]
+            lm_probs = self.lm_decoder.get_normalized_probs(
+                self.lm_decoder(w, incremental_state=incremental_state),
+                log_probs=False, sample=None)  # B x 1 x V
+            self.lm_decoder.masked_copy_incremental_state(incremental_state,
+                old_cached_state, batch_space_mask)  # restore those not masked
+            cumsum_probs[batch_space_mask] = \
+                torch.cumsum(lm_probs, dim=-1)[batch_space_mask]
             tokens_list = prev_output_tokens.squeeze(-1).tolist()
             for i in range(bsz):
                 if tokens_list[i] == self.subword_space_idx:
@@ -144,12 +145,13 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
                 cumsum_probs[:, :, self.word_unk_idx] - \
                 cumsum_probs[:, :, self.word_unk_idx - 1]
             ).unsqueeze(-1).repeat(1, 1, self.subword_vocab_size)
-            # set the probability of emitting <space> or <eos> to 0 if
-            # prev_output_tokens is <space> or <eos>
+            # set the probability of emitting <space> to 0 if prev_output_tokens
+            # is <space> or <eos>, and that of emitting <eos> to 0 if
+            # prev_output_tokens is not <space>
             batch_space_eos_mask = batch_space_mask | \
                 prev_output_tokens.squeeze(-1).eq(self.subword_eos_idx)
             out_probs[batch_space_eos_mask, :, self.subword_space_idx] = self.zero
-            out_probs[batch_space_eos_mask, :, self.subword_eos_idx] = self.zero
+            out_probs[~batch_space_mask, :, self.subword_eos_idx] = self.zero
             # set transition probability to 1 for those whose node is out of the
             # tree, i.e. node is None (case 4 in Eqn. 15)
             batch_node_none_mask = []
@@ -206,7 +208,7 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
         out_probs.scatter_(-1, subword_idx, cumsum_probs_children)
         out_probs[:, :, self.subword_pad_idx] = self.zero
 
-        # apply word-level probabilies for <space> and <eos> (case 1 in Eqn. 15)
+        # apply word-level probabilies for <space> (case 1 in Eqn. 15)
         word_idx, batch_node_word_end_mask = [], []
         for node in nodes:
             if node is not None and node.word_idx >= 0:
@@ -225,26 +227,13 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
                 ).squeeze(-1).div_(sum_probs[batch_node_word_end_mask]),
             ) # b x 1
             out_probs[batch_node_word_end_mask, :, self.subword_space_idx] = word_probs
-            out_probs[batch_node_word_end_mask, :, self.subword_eos_idx] = word_probs
 
         # take log of probs and clip it from below to avoid log(0)
         out_logprobs = torch.max(out_probs, out_probs.new([self.zero])).log_()
 
-        # add log-probs of emitting word <eos> to that of emitting subword <eos>
-        cached_state = _clone_cached_state(utils.get_incremental_state(
-            self.lm_decoder, incremental_state, 'cached_state')) # for restore later
-        w = prev_output_tokens.new([
-            node.word_idx if node is not None and node.word_idx >= 0 else \
-            self.word_unk_idx for node in nodes
-        ]).unsqueeze(-1) # B x 1
-        word_eos_logprobs = self.lm_decoder.get_normalized_probs(
-            self.lm_decoder(w, incremental_state=incremental_state),
-            log_probs=True,
-            sample=None,
-        )[:, :, self.word_eos_idx]
-        utils.set_incremental_state(self.lm_decoder, incremental_state,
-            'cached_state', cached_state) # restore decoder's state
-        out_logprobs[:, :, self.subword_eos_idx] += word_eos_logprobs
+        # assign log-probs of emitting word <eos> to that of emitting subword <eos>
+        out_logprobs[batch_space_mask, :, self.subword_eos_idx] = \
+            lm_probs.log_()[batch_space_mask, :, self.word_eos_idx]
 
         # note that here we return log-probs rather than logits, and the second
         # element is None, which is usually a tensor of attention weights in
@@ -291,7 +280,9 @@ class MultiLevelLanguageModel(FairseqLanguageModel):
 class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
     """Multi-level (subword/word) language model decoder for end-to-end ASR.
     It is intended to be used for beam search decoding.
-    See https://ieeexplore.ieee.org/document/8268948 for details.
+    See https://ieeexplore.ieee.org/document/8268948 for details. We modify the
+    original algorithm a little bit to adapt it to the case where each tokenized
+    sentence ends with <space> before <eos>.
     """
     def __init__(self, wordlm, subwordlm, subwordlm_weight=0.8, oov_penalty=1.0,
         open_vocab=True):
@@ -380,7 +371,7 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
                 sample=None,
             )[batch_space_mask]
             self.wordlm_decoder.masked_copy_incremental_state(incremental_state,
-                old_wordlm_cached_state, batch_space_mask)
+                old_wordlm_cached_state, batch_space_mask)  # restore those not masked
 
             tokens_list = prev_output_tokens.squeeze(-1).tolist()
             token_idx, batch_is_child_mask = [], []
@@ -427,7 +418,7 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
             subword_cumlogprobs)
         utils.set_incremental_state(self, incremental_state, 'nodes', nodes)
 
-        # apply word-level probabilies for emitting <space> or <eos>
+        # apply word-level probabilies for emitting <space>
         w = prev_output_tokens.new([
             node.word_idx if node is not None and node.word_idx >= 0 else \
             self.word_unk_idx for node in nodes
@@ -437,29 +428,21 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
         word_logprobs += torch.where(batch_word_end_mask,
             -subword_cumlogprobs, word_logprobs.new([self.log_oov_penalty]))
         out_logprobs[:, :, self.subword_space_idx] = word_logprobs
-        out_logprobs[:, :, self.subword_eos_idx] = word_logprobs
 
-        # set the probability of emitting <space> or <eos> to 0 if
-        # prev_output_tokens is <space> or <eos>
+        # set the probability of emitting <space> to 0 if prev_output_tokens is
+        # <space> or <eos>, and that of emitting <eos> to 0 if prev_output_tokens
+        # is not <space>
         batch_space_eos_mask = batch_space_mask | \
             prev_output_tokens.squeeze(-1).eq(self.subword_eos_idx)
         out_logprobs[batch_space_eos_mask, :, self.subword_space_idx] = self.logzero
-        out_logprobs[batch_space_eos_mask, :, self.subword_eos_idx] = self.logzero
+        out_logprobs[~batch_space_mask, :, self.subword_eos_idx] = self.logzero
 
         # add log-probs of emitting word <eos> to that of emitting subword <eos>
-        cached_state = _clone_cached_state(utils.get_incremental_state(
-            self.wordlm_decoder, incremental_state, 'cached_state')) # for restore later
-        word_eos_logprobs = self.wordlm_decoder.get_normalized_probs(
-            self.wordlm_decoder(w, incremental_state=incremental_state),
-            log_probs=True,
-            sample=None,
-        )[:, :, self.word_eos_idx]
-        out_logprobs[:, :, self.subword_eos_idx] += word_eos_logprobs
+        out_logprobs[batch_space_mask, :, self.subword_eos_idx] += \
+            wordlm_logprobs[batch_space_mask, :, self.word_eos_idx]
 
         utils.set_incremental_state(self, incremental_state, 'out_logprobs',
             out_logprobs)
-        utils.set_incremental_state(self.wordlm_decoder, incremental_state,
-            'cached_state', cached_state) # restore decoder's state
 
         # note that here we return log-probs rather than logits, and the second
         # element is None, which is usually a tensor of attention weights in
