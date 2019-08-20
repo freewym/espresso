@@ -14,7 +14,7 @@ from fairseq.tasks import register_task
 from .language_modeling import LanguageModelingTask
 
 
-@register_task('language_modeling_for_asr')
+@register_task("language_modeling_for_asr")
 class LanguageModelingForASRTask(LanguageModelingTask):
     """
     Train a language model.
@@ -96,29 +96,31 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         dictionary = None
         output_dictionary = None
         if args.data:
-            paths = args.data.split(':')
+            paths = args.data.split(":")
             assert len(paths) > 0
-            dict_path = os.path.join(paths[0], 'dict.txt') if args.dict is None \
+            dict_path = os.path.join(paths[0], "dict.txt") if args.dict is None \
                 else args.dict
             dictionary = TokenDictionary.load(dict_path)
-            print('| dictionary: {} types'.format(len(dictionary)))
+            print("| dictionary: {} types".format(len(dictionary)))
             output_dictionary = dictionary
             if args.output_dictionary_size >= 0:
-                output_dictionary = TruncatedDictionary(dictionary, args.output_dictionary_size)
+                output_dictionary = TruncatedDictionary(
+                    dictionary, args.output_dictionary_size
+                )
 
         # upgrade old checkpoints
-        if hasattr(args, 'exclude_self_target'):
+        if hasattr(args, "exclude_self_target"):
             args.self_target = not args.exclude_self_target
 
         targets = []
-        if getattr(args, 'self_target', False):
-            targets.append('self')
-        if getattr(args, 'future_target', False):
-            targets.append('future')
-        if getattr(args, 'past_target', False):
-            targets.append('past')
+        if getattr(args, "self_target", False):
+            targets.append("self")
+        if getattr(args, "future_target", False):
+            targets.append("future")
+        if getattr(args, "past_target", False):
+            targets.append("past")
         if len(targets) == 0:
             # standard language modeling
-            targets = ['future']
+            targets = ["future"]
 
         return cls(args, dictionary, output_dictionary, targets=targets)
