@@ -12,6 +12,7 @@ import collections
 import math
 import random
 
+import numpy as np
 import torch
 
 from fairseq import checkpoint_utils, distributed_utils, options, progress_bar, tasks, utils
@@ -30,6 +31,7 @@ def main(args, init_distributed=False):
     # Initialize CUDA and distributed training
     if torch.cuda.is_available() and not args.cpu:
         torch.cuda.set_device(args.device_id)
+    np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     if init_distributed:
         args.distributed_rank = distributed_utils.distributed_init(args)
@@ -78,7 +80,6 @@ def main(args, init_distributed=False):
     lr = trainer.get_lr()
     train_meter = StopwatchMeter()
     train_meter.start()
-    valid_losses = [None]
     valid_subsets = args.valid_subset.split(',')
     while (
         (lr >= args.min_lr or trainer.get_num_updates() <= getattr(args, 'warmup_updates', 0))
