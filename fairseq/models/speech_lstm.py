@@ -847,7 +847,7 @@ def conv_lstm_wsj(args):
 def speech_conv_lstm_librispeech(args):
     args.dropout = getattr(args, 'dropout', 0.3)
     args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 1024)
-    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 3)
+    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 4)
     args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
     args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1024)
     args.decoder_layers = getattr(args, 'decoder_layers', 3)

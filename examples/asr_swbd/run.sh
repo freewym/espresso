@@ -132,12 +132,12 @@ if [ $stage -le 2 ]; then
   mkdir -p data/lang
   mkdir -p $lmdatadir
 
-  echo "Making a non-linguistic symbol list..."
+  echo "$0: making a non-linguistic symbol list..."
   train_text=data/$train_set/text
   cut -f 2- $train_text | tr " " "\n" | sort | uniq | grep "\[" > $nlsyms
   cat $nlsyms
 
-  echo "Preparing extra corpus for subword LM training..."
+  echo "$0: preparing extra corpus for subword LM training..."
   if [ -f $lmdatadir/fisher_text0 ]; then
     rm -rf $lmdatadir/fisher_text0
   fi
@@ -145,42 +145,36 @@ if [ $stage -le 2 ]; then
     [ ! -d $x/data/trans ] \
       && "Cannot find transcripts in Fisher directory $x" && exit 1;
     cat $x/data/trans/*/*.txt | \
-      grep -v '^#' | grep -v '^$' | cut -d' ' -f4- >> $lmdatadir/fisher_text0
+      grep -v "^#" | grep -v "^$" | cut -d" " -f4- >> $lmdatadir/fisher_text0
   done
   cat $lmdatadir/fisher_text0 | local/fisher_map_words.pl | \
     sed 's/^[ \t]*//'> $lmdatadir/fisher_text
 
-  echo "Training sentencepiece model..."
-  cut -f 2- -d" " data/$train_set/text | \
-    cat - $lmdatadir/fisher_text > data/lang/input
-  spm_train --bos_id=-1 --pad_id=0 --eos_id=1 --unk_id=2 --input=data/lang/input \
+  echo "$0: training sentencepiece model..."
+  cut -f 2- -d" " data/$train_set/text | cat - $lmdatadir/fisher_text > data/lang/input
+  python3 ../../scripts/spm_train.py --bos_id=-1 --pad_id=0 --eos_id=1 --unk_id=2 --input=data/lang/input \
     --vocab_size=$((sentencepiece_vocabsize+3)) --character_coverage=1.0 \
     --model_type=$sentencepiece_type --model_prefix=$sentencepiece_model \
     --input_sentence_size=10000000 \
-    --user_defined_symbols=$(cut -f 2- $train_text | tr " " "\n" | sort | uniq | grep "\[" | tr "\n" "," | sed 's/,$//')
+    --user_defined_symbols=$(cat $nlsyms | tr "\n" "," | sed 's/,$//')
 
-  echo "Tokenizing text for train/valid/test sets..."
+  echo "$0: tokenizing text for train/valid/test sets..."
   for dataset in $train_set $test_set; do  # validation is included in tests
     text=data/$dataset/text
     token_text=data/$dataset/token_text
-    spm_encode --model=${sentencepiece_model}.model --output_format=piece \
-      <(cut -f 2- -d' ' $text) | paste -d" " <(cut -f 1 -d' ' $text) - > $token_text
-  done
-
-  echo "Preparing text for subword LM..."
-  mkdir -p $lmdatadir
-  for dataset in $train_set $test_set; do
-    token_text=data/$dataset/token_text
+    cut -f 2- -d" " $text | \
+      python3 ../../scripts/spm_encode.py --model=${sentencepiece_model}.model --output_format=piece | \
+      paste -d" " <(cut -f 1 -d" " $text) - > $token_text
     cut -f 2- -d" " $token_text > $lmdatadir/$dataset.tokens
   done
 
-  echo "Preparing extra corpus for subword LM training..." 
-  cat $lmdatadir/fisher_text |\
-    spm_encode --model=${sentencepiece_model}.model --output_format=piece |\
+  echo "$0: tokenizing extra corpus for subword LM training..."
+  cat $lmdatadir/fisher_text | \
+    python3 ../../scripts/spm_encode.py --model=${sentencepiece_model}.model --output_format=piece | \
     cat $lmdatadir/$train_set.tokens - > $lmdatadir/train.tokens
 
-  echo "Making a dictionary with swbd+fisher text"
-  cat $lmdatadir/train.tokens | tr " " "\n" | grep -v -e '^\s*$' | sort | \
+  echo "$0: making a dictionary with swbd+fisher text"
+  cat $lmdatadir/train.tokens | tr " " "\n" | grep -v -e "^\s*$" | sort | \
     uniq -c | awk '{print $2,$1}' > $dict
   wc -l $dict
 fi
@@ -197,7 +191,7 @@ if [ $stage -le 3 ]; then
       --trainpref $lmdatadir/train.tokens \
       --validpref $lmdatadir/$valid_set.tokens \
       --testpref $test_paths \
-      --destdir $lmdatadir   
+      --destdir $lmdatadir
 fi
 
 [ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
@@ -215,7 +209,7 @@ if [ $stage -le 4 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval 500 --log-format simple \
-    --num-workers 0 --max-tokens 30720 --max-sentences 1024 \
+    --num-workers 0 --max-tokens 25600 --max-sentences 1024 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
     --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
     --max-epoch 25 --optimizer adam --lr 0.001 --clip-norm 1.0 \

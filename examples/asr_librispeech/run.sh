@@ -107,7 +107,7 @@ if [ ${stage} -le 3 ]; then
   mkdir -p data/lang
   cut -f 2- -d" " data/${train_set}/text > data/lang/input
   echo "$0: training sentencepiece model..."
-  spm_train --bos_id=-1 --pad_id=0 --eos_id=1 --unk_id=2 --input=data/lang/input \
+  python3 ../../scripts/spm_train.py --bos_id=-1 --pad_id=0 --eos_id=1 --unk_id=2 --input=data/lang/input \
     --vocab_size=$((sentencepiece_vocabsize+3)) --character_coverage=1.0 \
     --model_type=$sentencepiece_type --model_prefix=$sentencepiece_model \
     --input_sentence_size=10000000
@@ -115,8 +115,9 @@ if [ ${stage} -le 3 ]; then
   for dataset in $train_set $valid_set $test_set; do
     text=data/$dataset/text
     token_text=data/$dataset/token_text
-    spm_encode --model=${sentencepiece_model}.model --output_format=piece \
-      <(cut -f 2- -d" " $text) | paste -d" " <(cut -f 1 -d" " $text) - > $token_text
+    cut -f 2- -d" " $text | \
+      python3 ../../scripts/spm_encode.py --model=${sentencepiece_model}.model --output_format=piece | \
+      paste -d" " <(cut -f 1 -d" " $text) - > $token_text
     if [ "$dataset" == "$train_set" ]; then
       cut -f 2- -d" " $token_text | tr ' ' '\n' | sort | uniq -c | \
         awk '{print $2,$1}' | sort > $dict
@@ -135,7 +136,7 @@ if [ ${stage} -le 3 ]; then
   fi
   echo "$0: preparing extra corpus for subword LM training..."
   zcat $lmdatadir/librispeech-lm-norm.txt.gz | \
-    spm_encode --model=${sentencepiece_model}.model --output_format=piece | \
+    python3 ../../scripts/spm_encode.py --model=${sentencepiece_model}.model --output_format=piece | \
     cat $lmdatadir/$train_set.tokens - > $lmdatadir/train.tokens
 fi
 
@@ -169,7 +170,7 @@ if [ ${stage} -le 5 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval 8000 --log-format simple \
-    --num-workers 0 --max-tokens 30720 --max-sentences 1024 \
+    --num-workers 0 --max-tokens 30720 --max-sentences 1024 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
     --distributed-world-size $ngpus --distributed-port 100 \
     --max-epoch 30 --optimizer adam --lr 0.001 --clip-norm 1.0 \
@@ -206,10 +207,10 @@ if [ ${stage} -le 7 ]; then
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
     --log-interval 4000 --log-format simple --print-training-sample-interval 2000 \
-    --num-workers 0 --max-tokens 26000 --max-sentences 24 \
+    --num-workers 0 --max-tokens 26000 --max-sentences 24 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 48 \
     --distributed-world-size $ngpus --distributed-port 100 --ddp-backend no_c10d \
-    --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
+    --max-epoch 30 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 3000 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
@@ -229,7 +230,7 @@ if [ ${stage} -le 8 ]; then
   decode_affix=
   if $lm_shallow_fusion; then
     path="$path:$lmdir/$lm_checkpoint"
-    opts="$opts --lm-weight 0.4 --coverage-weight 0.0 --eos-factor 1.5"
+    opts="$opts --lm-weight 0.45 --coverage-weight 0.0 --eos-factor 1.5"
     decode_affix=shallow_fusion
   fi
   for dataset in $test_set; do
