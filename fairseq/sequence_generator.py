@@ -9,6 +9,7 @@ import torch
 
 from fairseq import search
 from fairseq.models import external_language_model as extlm
+from fairseq.models import tensorized_lookahead_language_model as tlm
 from fairseq.models import FairseqIncrementalDecoder
 
 from speech_tools.utils import sequence_mask
@@ -684,7 +685,7 @@ class LMFusionModel(EnsembleModel):
                 self.incremental_states,
                 log_probs=True,
                 temperature=temperature,
-                use_raw_out=isinstance(model, (extlm.LookAheadWordLanguageModel, extlm.MultiLevelLanguageModel)),
+                use_raw_out=isinstance(model, (tlm.TensorizedLookaheadLanguageModel, extlm.MultiLevelLanguageModel)),
             )
             if i == 1 and self.lm_weight != 1.0: # assuming LM is the last model
                 probs.mul_(self.lm_weight)

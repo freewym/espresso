@@ -165,7 +165,7 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
                 self.zero)
 
         # compute parent probabilities for those whose node is not None
-        sum_probs = cumsum_probs.new_full([bsz, 1], 1.) # default for root node
+        sum_probs = cumsum_probs.new_full([bsz, 1], 1.)  # default for root node
         left_ranges, right_ranges, batch_node_not_root_mask = [], [], []
         for node in nodes:
             if node is not None and node.word_set is not None:
