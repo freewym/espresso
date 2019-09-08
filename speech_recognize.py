@@ -15,7 +15,8 @@ import torch
 from fairseq import wer, checkpoint_utils, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.models import FairseqLanguageModel
-from fairseq.models.external_language_model import LookAheadWordLanguageModel, MultiLevelLanguageModel
+from fairseq.models.external_language_model import MultiLevelLanguageModel
+from fairseq.models.tensorized_lookahead_language_model import TensorizedLookaheadLanguageModel
 from fairseq.utils import import_user_module
 from speech_tools.utils import plot_attention
 
@@ -58,7 +59,7 @@ def main(args):
                 del models[i]
                 print('| LM fusion with Multi-level LM')
             else:
-                models[i] = LookAheadWordLanguageModel(m, dict,
+                models[i] = TensorizedLookaheadLanguageModel(m, dict,
                     oov_penalty=args.oov_penalty,
                     open_vocab=not args.disable_open_vocab)
                 print('| LM fusion with Look-ahead Word LM')
