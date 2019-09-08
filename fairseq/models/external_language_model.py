@@ -28,9 +28,18 @@ def _clone_cached_state(cached_state):
     return tuple(map(clone_state, cached_state))
 
 
-class LookAheadWordLanguageModel(FairseqLanguageModel):
-    """A :class:`fairseq.models.FairseqLanguageModel` wrapper for
-    :class:`_LookAheadWordLanguageModelDecoder`.
+class RawOutExternalLanguageModelBase(FairseqLanguageModel):
+    """Base class for all external language models for ASR whose raw forward output
+    will be directly used by the caller (rather than, for example, doing normalization
+    by the caller).
+    """
+    def __init__(self, decoder):
+        super().__init__(decoder)
+
+
+class LookAheadWordLanguageModel(RawOutExternalLanguageModelBase):
+    """A :class:`fairseq.models.external_language_model.RawOutExternalLanguageModelBase`
+    wrapper for :class:`_LookAheadWordLanguageModelDecoder`.
     """
     def __init__(self, wordlm, subword_dict, oov_penalty=1e-4, open_vocab=True):
         decoder = _LookAheadWordLanguageModelDecoder(wordlm, subword_dict,
@@ -266,9 +275,9 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
         return int(1e5)  # an arbitrary large number
 
 
-class MultiLevelLanguageModel(FairseqLanguageModel):
-    """A :class:`fairseq.models.FairseqLanguageModel` wrapper for
-    :class:`_MultiLevelLanguageModel`.
+class MultiLevelLanguageModel(RawOutExternalLanguageModelBase):
+    """A :class:`fairseq.external_language_model.RawOutExternalLanguageModelBase`
+    wrapper for :class:`_MultiLevelLanguageModel`.
     """
     def __init__(self, wordlm, subwordlm, subwordlm_weight=0.8, oov_penalty=1.0,
         open_vocab=True):

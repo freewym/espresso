@@ -6,10 +6,12 @@
 import os, re
 import numpy as np
 from collections import Counter
+from typing import Callable, List
 
 import torch
 
 from fairseq import utils
+from fairseq.data import TokenDictionary
 
 
 def tokenize(sent, space='<space>', non_lang_syms=None):
@@ -257,7 +259,11 @@ def aligned_print(ref, hyp, steps):
 
     return out_str
 
-def lexical_prefix_tree(word_dict, subword_dict, subword_tokenizer=None):
+def lexical_prefix_tree(
+    word_dict: TokenDictionary,
+    subword_dict: TokenDictionary,
+    subword_tokenizer: Callable[[str], List[str]] = None
+):
     """Build a lexical prefix tree for words.
 
     Args:
