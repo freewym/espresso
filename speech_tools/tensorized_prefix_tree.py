@@ -79,9 +79,9 @@ class TensorizedPrefixTree:
         # Construct the tree
         num_nodes = len(nodes)
         children = np.full([num_nodes, max_num_children], 0, dtype=np.int64)
-        prev_subword_idx = np.full([num_nodes], -1, dtype=np.int64)
+        prev_subword_idx = np.full([num_nodes], subword_dict.pad(), dtype=np.int64)
         word_idx = np.full([num_nodes], -1, dtype=np.int64)
-        word_set_idx = np.full([num_nodes, 2], 0, dtype=np.int64)
+        word_set_idx = np.full([num_nodes, 2], word_dict.pad(), dtype=np.int64)
 
         for node_id in range(1, len(nodes)):  # skip 0, which is `None`
             node = nodes[node_id]

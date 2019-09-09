@@ -685,7 +685,7 @@ class LMFusionModel(EnsembleModel):
                 self.incremental_states,
                 log_probs=True,
                 temperature=temperature,
-                use_raw_out=isinstance(model, (tlm.TensorizedLookaheadLanguageModel, extlm.MultiLevelLanguageModel)),
+                use_raw_out=isinstance(model, (tlm.TensorizedLookaheadLanguageModel, extlm.LookAheadWordLanguageModel, extlm.MultiLevelLanguageModel)),
             )
             if i == 1 and self.lm_weight != 1.0: # assuming LM is the last model
                 probs.mul_(self.lm_weight)
