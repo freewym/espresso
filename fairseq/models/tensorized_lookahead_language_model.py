@@ -1,11 +1,17 @@
+# Copyright (c) Tongfei Chen, Yiming Wang
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
 from typing import *
 import torch
 
-from speech_tools.tensorized_prefix_tree import TensorizedPrefixTree
 from fairseq.models import FairseqLanguageModel, FairseqIncrementalDecoder
+from fairseq.models.external_language_model import RawOutExternalLanguageModelBase
 from fairseq.data import TokenDictionary
 from fairseq import utils
 
+from speech_tools.tensorized_prefix_tree import TensorizedPrefixTree
 from speech_tools.utils import tokenize
 
 
@@ -21,8 +27,10 @@ def _clone_cached_state(cached_state):
     return tuple(map(clone_state, cached_state))
 
 
-class TensorizedLookaheadLanguageModel(FairseqLanguageModel):
-
+class TensorizedLookaheadLanguageModel(RawOutExternalLanguageModelBase):
+    """A :class:`fairseq.models.external_language_model.RawOutExternalLanguageModelBase`
+    wrapper for :class:`_TensorizedLookaheadLanguageModelDecoder`.
+    """
     def __init__(self,
                  word_lm: FairseqLanguageModel,
                  subword_dict: TokenDictionary,
@@ -38,7 +46,11 @@ class TensorizedLookaheadLanguageModel(FairseqLanguageModel):
 
 
 class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
-
+    """Look-ahead word language model decoder for end-to-end ASR. It is intended
+    to be used for beam search decoding. See https://arxiv.org/abs/1808.02608
+    for details. We modify the original algorithm a little bit to adapt it to
+    the case where each tokenized sentence ends with <space> before <eos>.
+    """
     def __init__(self,
                  word_lm: FairseqLanguageModel,
                  subword_dict: TokenDictionary,
@@ -53,7 +65,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
 
         self.oov_penalty = oov_penalty
         self.open_vocab = open_vocab
-        self.zero = 1e-10
+        self.zero = 1e-10  # a sufficiently small value to avoid the log(0) issue
 
         word_dict: TokenDictionary = self.lm_decoder.dictionary
         self.word_pad_idx = word_dict.pad()
@@ -83,10 +95,8 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         if prev_output_tokens.device != self.tree.word_idx.device:
             self.tree.to_cuda(device=prev_output_tokens.device)
 
-        batch_range = torch.arange(0, bsz, device=prev_output_tokens.device)
-
         # Move the batched state to the next state according to the automaton
-        batch_space_mask = prev_output_tokens.squeeze(-1).eq(self.subword_space_idx)
+        batch_space_mask = prev_output_tokens.squeeze(-1).eq(self.subword_space_idx)  # B[Batch]
         cached_state = utils.get_incremental_state(self.lm_decoder, incremental_state, 'cached_state')
 
         if cached_state is None:  # First step
@@ -105,7 +115,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
                 self, incremental_state, 'cumsum_probs')  # R[Batch, 1, Vocab]
             nodes: torch.Tensor = utils.get_incremental_state(self, incremental_state, 'nodes')  # Z_NodeId[Batch]
             assert nodes.size(0) == bsz
-            w: torch.Tensor = self.tree.word_idx[nodes].unsqueeze(dim=1)  # Z[Batch, Len=1]
+            w: torch.Tensor = self.tree.word_idx[nodes].unsqueeze(1)  # Z[Batch, Len=1]
             w[w < 0] = self.word_unk_idx
 
             old_cached_state = _clone_cached_state(cached_state)
@@ -133,6 +143,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         # Compute probabilities
         # initialize out_probs [Batch, 1, Vocab]
         if self.open_vocab:
+            # set out_probs to oov_penalty * P(<unk>|h) (case 3 in Eqn. 15)
             out_probs = self.oov_penalty * (
                 cumsum_probs[:, :, self.word_unk_idx] - \
                 cumsum_probs[:, :, self.word_unk_idx - 1]
@@ -145,10 +156,10 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
                 prev_output_tokens.squeeze(-1).eq(self.subword_eos_idx)
             out_probs[batch_space_eos_mask, :, self.subword_space_idx] = self.zero
             out_probs[~batch_space_mask, :, self.subword_eos_idx] = self.zero
+
             # set transition probability to 1 for those whose node is out of the
             # tree, i.e. node is None (case 4 in Eqn. 15)
-
-            batch_node_none_mask = (nodes == self.tree.none_id)  # B[Batch]
+            batch_node_none_mask = nodes.eq(self.tree.none_id)  # B[Batch]
             out_probs[batch_node_none_mask] = 1.
         else:
             # set out_probs to 0
@@ -157,42 +168,46 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         # compute parent probabilities for those whose node is not None
         left_ranges = self.tree.word_set_idx[nodes, 0]  # Z[Batch]
         right_ranges = self.tree.word_set_idx[nodes, 1]  # Z[Batch]
-        batch_node_not_root_mask = (nodes != self.tree.root_id) & (nodes != self.tree.none_id)  # B[Batch]
-
+        batch_node_not_root_mask = nodes.ne(self.tree.none_id) & nodes.ne(self.tree.root_id)  # B[Batch]
         sum_probs = torch.where(
             batch_node_not_root_mask,
-            cumsum_probs.squeeze(dim=1)[batch_range, right_ranges] -
-            cumsum_probs.squeeze(dim=1)[batch_range, left_ranges],
+            (cumsum_probs.squeeze(1).gather(-1, right_ranges.unsqueeze(-1)) -
+            cumsum_probs.squeeze(1).gather(-1, left_ranges.unsqueeze(-1))).squeeze(-1),
             cumsum_probs.new([1.0])
         )  # R[Batch]
 
         # compute transition probabilities to child nodes (case 2 in Eqn. 15)
         left_ranges_of_all_children = self.tree.word_set_idx[all_children, 0]  # Z[Batch, PossibleChildren]
         right_ranges_of_all_children = self.tree.word_set_idx[all_children, 1]  # Z[Batch, PossibleChildren]
-
         cumsum_probs_of_all_children = (
-            cumsum_probs.squeeze(dim=1).gather(-1, right_ranges_of_all_children) -
-            cumsum_probs.squeeze(dim=1).gather(-1, left_ranges_of_all_children)
-        ) / sum_probs.unsqueeze(dim=1)  # R[Batch, PossibleChildren]
-        cumsum_probs_of_all_children[sum_probs < self.zero, :] = self.zero
+            cumsum_probs.squeeze(1).gather(-1, right_ranges_of_all_children) -
+            cumsum_probs.squeeze(1).gather(-1, left_ranges_of_all_children)
+        ).unsqueeze(1) / sum_probs.unsqueeze(-1).unsqueeze(-1)  # R[Batch, 1, PossibleChildren]
+        cumsum_probs_of_all_children[sum_probs < self.zero, :, :] = self.zero
         next_possible_tokens = self.tree.prev_subword_idx[all_children]  # Z[Batch, PossibleChildren]
-        out_probs.scatter_(-1, next_possible_tokens.unsqueeze(dim=1), cumsum_probs_of_all_children.unsqueeze(dim=1))
+        out_probs.scatter_(
+            -1,
+            next_possible_tokens.unsqueeze(1),
+            cumsum_probs_of_all_children
+        )
+        # assume self.subword_pad_idx is the padding index in self.tree.prev_subword_idx
         out_probs[:, :, self.subword_pad_idx] = self.zero
 
         # apply word-level probabilities for <space> (case 1 in Eqn. 15)
         word_idx = self.tree.word_idx[nodes]  # Z[Batch]
-        batch_node_word_end_mask = word_idx >= 0  # B[Batch]
-        word_idx[word_idx < 0] = self.word_pad_idx  # get rid of -1's (word idx of root or non-terminal states)
-
+        batch_node_word_end_mask = word_idx.ge(0)  # B[Batch]
+        # get rid of -1's (word idx of root or non-terminal states). It doesn't
+        # matter what the "dummy" index it would be replaced with (as it will
+        # always be masked out by batch_node_word_end_mask), as long as it is > 0
+        word_idx[word_idx < 0] = 1
         word_probs = torch.where(
             sum_probs < self.zero,
             cumsum_probs.new([self.zero]),
             (
-                cumsum_probs.squeeze(dim=1)[batch_range, word_idx] - \
-                cumsum_probs.squeeze(dim=1)[batch_range, word_idx - 1]
-            ) / sum_probs
+                cumsum_probs.squeeze(1).gather(-1, word_idx.unsqueeze(-1)) - \
+                cumsum_probs.squeeze(1).gather(-1, word_idx.unsqueeze(-1) - 1)
+            ).squeeze(-1) / sum_probs
         )  # R[Batch]
-
         out_probs[batch_node_word_end_mask, 0, self.subword_space_idx] = \
             word_probs[batch_node_word_end_mask]
 
