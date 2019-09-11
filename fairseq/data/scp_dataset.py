@@ -8,7 +8,10 @@ import os
 import numpy as np
 import torch
 
-import speech_tools.kaldi_io as kaldi_io
+try:
+    import kaldi_io
+except ImportError:
+    raise ImportError('Please install kaldi_io with: pip install kaldi_io')
 
 
 class ScpDataset(torch.utils.data.Dataset):
