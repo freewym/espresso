@@ -18,7 +18,7 @@ def get_parser():
                         help='skip first n columns')
     parser.add_argument('--space', default='<space>', type=str,
                         help='space symbol')
-    parser.add_argument('--endswithspace', default=True, type=bool,
+    parser.add_argument('--ends-with-space', default=True, type=bool,
                         help='Whether to append <space> to the end of each '
                         'tokenized sentence.')
     parser.add_argument('--non-lang-syms', default=None, type=str,
@@ -42,12 +42,12 @@ def main(args):
             tokenized = tokenize(' '.join(entry[args.skip_ncols:]),
                 space=args.space, non_lang_syms=nls)
             if args.skip_ncols > 0:
-                if args.endswithspace:
+                if args.ends_with_space:
                     print(' '.join(entry[:args.skip_ncols]) + ' ' + tokenized + ' ' + args.space)
                 else:
                     print(' '.join(entry[:args.skip_ncols]) + ' ' + tokenized)
             else:
-                if args.endswithspace:
+                if args.ends_with_space:
                     print(tokenized + ' ' + args.space)
                 else:
                     print(tokenized)

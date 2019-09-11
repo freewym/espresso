@@ -2,12 +2,7 @@ KALDI =
 
 .PHONY: all clean
 
-all: kaldi kaldi-io-for-python
-
-kaldi-io-for-python:
-	rm -rf kaldi-io-for-python
-	git clone https://github.com/vesis84/kaldi-io-for-python.git
-	ln -sf kaldi-io-for-python/kaldi_io/kaldi_io.py kaldi_io.py
+all: kaldi
 
 ifneq ($(strip $(KALDI)),)
 kaldi:
@@ -20,4 +15,4 @@ kaldi:
 endif
 
 clean:
-		rm -rf kaldi kaldi-io-for-python kaldi_io.py
+		rm -rf kaldi
