@@ -14,7 +14,10 @@ from fairseq.data import (
         SpeechDataset, TokenDictionary, TokenTextDataset, ScpCachedDataset,
         ScpInMemoryDataset)
 
-import speech_tools.kaldi_io as kaldi_io
+try:
+    import kaldi_io
+except ImportError:
+    raise ImportError('Please install kaldi_io with: pip install kaldi_io')
 
 
 class TestSpeechDataset(unittest.TestCase):
