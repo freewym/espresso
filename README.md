@@ -9,6 +9,10 @@ We provide state-of-the-art training recipes for the following speech datasets:
  - [LibriSpeech](https://github.com/freewym/espresso/tree/master/examples/asr_librispeech)
  - [Switchboard](https://github.com/freewym/espresso/tree/master/examples/asr_swbd)
 
+### What's New:
+
+- September 2019: We are in an effort of isolating Espresso from fairseq, resulting in a standalone package that can be directly `pip install`ed.
+
 # Requirements and Installation
 
 * [PyTorch](http://pytorch.org/) version >= 1.2.0
