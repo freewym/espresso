@@ -104,9 +104,9 @@ def main(args, init_distributed=False):
         if epoch_itr.epoch % args.save_interval == 0:
             checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
-        if len(args.train_feat_files) > 1:
-            # sharded data: get train iterator for next epoch
-            epoch_itr = trainer.get_train_iterator(epoch_itr.epoch)
+        reload_dataset = len(args.train_feat_files) > 1
+        # sharded data: get train iterator for next epoch
+        epoch_itr = trainer.get_train_iterator(epoch_itr.epoch, load_dataset=reload_dataset)
     train_meter.stop()
     print('| done training in {:.1f} seconds'.format(train_meter.sum))
 
