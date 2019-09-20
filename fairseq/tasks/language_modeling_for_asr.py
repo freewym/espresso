@@ -56,6 +56,10 @@ class LanguageModelingForASRTask(LanguageModelingTask):
     def __init__(self, args, dictionary, output_dictionary=None, targets=None):
         super().__init__(args, dictionary, output_dictionary, targets=targets)
         torch.backends.cudnn.deterministic = True
+        # Compansate for the removal of :func:`torch.rand()` from
+        # :func:`fairseq.distributed_utils.distributed_init()` by fairseq,
+        # to make previous experiments reproducible.
+        torch.rand(1)
 
     @classmethod
     def load_dictionary(cls, filename):
