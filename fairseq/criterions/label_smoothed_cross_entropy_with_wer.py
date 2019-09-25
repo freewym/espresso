@@ -63,6 +63,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
             self.unigram_tensor = torch.cuda.FloatTensor(dict.count).unsqueeze(-1) \
                 if torch.cuda.is_available() and not args.cpu \
                 else torch.FloatTensor(dict.count).unsqueeze(-1)
+            self.unigram_tensor += args.unigram_pseudo_count  # for further backoff
             self.unigram_tensor.div_(self.unigram_tensor.sum())
 
     @staticmethod
@@ -77,6 +78,9 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         parser.add_argument('--smoothing-type', type=str, default='uniform',
                             choices=['uniform', 'unigram', 'temporal'],
                             help='label smoothing type. Default: uniform')
+        parser.add_argument('--unigram-pseudo-count', type=float, default=1.0,
+                            metavar='C', help='pseudo count for unigram label '
+                            'smoothing. Only relevant if --smoothing-type=unigram')
         parser.add_argument('--scheduled-sampling-probs', type=lambda p: eval_str_list(p),
                             metavar='P_1,P_2,...,P_N', default=1.0,
                             help='scheduled sampling probabilities of sampling the truth '
