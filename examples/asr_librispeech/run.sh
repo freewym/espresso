@@ -170,7 +170,7 @@ if [ ${stage} -le 5 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval 8000 --log-format simple \
-    --num-workers 0 --max-tokens 30720 --max-sentences 1024 --curriculum 1 \
+    --num-workers 0 --max-tokens 32000 --max-sentences 1024 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
     --distributed-world-size $ngpus --distributed-port 100 \
     --max-epoch 30 --optimizer adam --lr 0.001 --clip-norm 1.0 \
@@ -230,7 +230,7 @@ if [ ${stage} -le 8 ]; then
   decode_affix=
   if $lm_shallow_fusion; then
     path="$path:$lmdir/$lm_checkpoint"
-    opts="$opts --lm-weight 0.42 --coverage-weight 0.0 --eos-factor 1.5"
+    opts="$opts --lm-weight 0.47 --coverage-weight 0.0 --eos-factor 1.5"
     decode_affix=shallow_fusion
   fi
   for dataset in $test_set; do
@@ -241,7 +241,7 @@ if [ ${stage} -le 8 ]; then
       --test-feat-files $feat --test-text-files $text \
       --dict $dict --remove-bpe sentencepiece \
       --max-source-positions 9999 --max-target-positions 999 \
-      --path $path --beam 40 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
+      --path $path --beam 60 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
       --results-path $dir/decode_$dataset${decode_affix:+_${decode_affix}} $opts \
       2>&1 | tee $dir/logs/decode_$dataset${decode_affix:+_${decode_affix}}.log
 
