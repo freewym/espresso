@@ -51,8 +51,10 @@ class TokenDictionary(Dictionary):
             else:
                 return self[i]
 
-        sent = ' '.join(token_string(i) for i in tensor if i != self.eos() and \
-            i != self.pad())
+        if hasattr(self, 'bos_index'):
+            sent = ' '.join(token_string(i) for i in tensor if (i != self.eos()) and (i != self.bos()) and (i != self.pad()))
+        else:
+            sent = ' '.join(token_string(i) for i in tensor if i != self.eos() and i != self.pad())
         return data_utils.process_bpe_symbol(sent, bpe_symbol)
 
     def bos(self):
