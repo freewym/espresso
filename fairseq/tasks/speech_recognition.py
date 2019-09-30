@@ -174,8 +174,8 @@ class SpeechRecognitionTask(FairseqTask):
         assert len(feat_files) > 0 and len(feat_files) == len(text_files)
         file_pairs = zip(feat_files, text_files)
         for feat, text in file_pairs:
-            assert ScpCachedDataset.exists(feat)
-            assert text is None or TokenTextDataset.exists(text)
+            assert ScpCachedDataset.exists(feat), feat + ' does not exists'
+            assert text is None or TokenTextDataset.exists(text), text + ' does not exists'
             src_datasets.append(ScpCachedDataset(feat, ordered_prefetch=True))
             print('| {} {} examples'.format(feat, len(src_datasets[-1])))
             if text is not None:
