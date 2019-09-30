@@ -12,8 +12,6 @@ from fairseq.data import data_utils
 from fairseq.models.external_language_model import RawOutExternalLanguageModelBase
 from fairseq.models import FairseqIncrementalDecoder
 
-from speech_tools.utils import sequence_mask
-
 
 class SequenceGenerator(object):
     def __init__(
@@ -786,9 +784,17 @@ class LMFusionModel(EnsembleModel):
         temperature=1., use_raw_out=False,
     ):
         if self.incremental_states is not None:
-            decoder_out = list(model.decoder(tokens, encoder_out, incremental_state=self.incremental_states[model]))
+            decoder_out = list(model.forward_decoder(
+                tokens, encoder_out=encoder_out, incremental_state=self.incremental_states[model],
+            ) if hasattr(model, 'forward_decoder') else model.decoder(
+                tokens, encoder_out=encoder_out, incremental_state=self.incremental_states[model],
+            ))
         else:
-            decoder_out = list(model.decoder(tokens, encoder_out))
+            decoder_out = list(model.forward_decoder(
+                tokens, encoder_out=encoder_out,
+            ) if hasattr(model, 'forward_decoder') else model.decoder(
+                tokens, encoder_out=encoder_out,
+            ))
         decoder_out[0] = decoder_out[0][:, -1:, :]
         if temperature != 1.:
             decoder_out[0].div_(temperature)
