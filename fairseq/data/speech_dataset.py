@@ -145,12 +145,13 @@ class SpeechDataset(FairseqDataset):
     def __getitem__(self, index):
         tgt_item = self.tgt[index] if self.tgt is not None else None
         src_item = self.src[index]
-        return {
+        example = {
             'id': index,
             'utt_id': self.src.utt_ids[index],
             'source': src_item,
             'target': tgt_item,
         }
+        return example
 
     def __len__(self):
         return len(self.src)

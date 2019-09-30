@@ -18,7 +18,7 @@ from fairseq.models import FairseqLanguageModel
 from fairseq.models.external_language_model import MultiLevelLanguageModel
 from fairseq.models.tensorized_lookahead_language_model import TensorizedLookaheadLanguageModel
 from fairseq.utils import import_user_module
-from speech_tools.utils import plot_attention
+from speech_tools.utils import plot_attention, sequence_mask
 
 
 def main(args):
@@ -125,6 +125,13 @@ def main(args):
             num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
             gen_timer.stop(num_generated_tokens)
 
+            # obtain nonpad mask of encoder output to plot attentions
+            if args.print_alignment:
+                net_input = sample['net_input']
+                src_tokens = net_input['src_tokens']
+                output_lengths = models[0].encoder.output_lengths(net_input['src_lengths'])
+                nonpad_idxs = sequence_mask(output_lengths, models[0].encoder.output_lengths(src_tokens.size(1)))
+
             for i, sample_id in enumerate(sample['id'].tolist()):
                 has_target = sample['target'] is not None
                 utt_id = sample['utt_id'][i]
@@ -149,8 +156,8 @@ def main(args):
                     # Score and obtain attention only the top hypothesis
                     if j == 0:
                         # src_len x tgt_len
-                        attention = hypo['attention'].float().cpu() \
-                            if hypo['attention'] is not None else None
+                        attention = hypo['attention'][nonpad_idxs[i]].float().cpu() \
+                            if args.print_alignment and hypo['attention'] is not None else None
                         if args.print_alignment and attention is not None:
                             save_dir = os.path.join(args.results_path, 'attn_plots')
                             os.makedirs(save_dir, exist_ok=True)
