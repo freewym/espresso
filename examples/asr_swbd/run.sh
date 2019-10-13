@@ -211,7 +211,7 @@ if [ $stage -le 4 ]; then
     --log-interval 500 --log-format simple \
     --num-workers 0 --max-tokens 25600 --max-sentences 1024 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
-    --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 \
+    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 25 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
     --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 500 \
@@ -249,8 +249,8 @@ if [ $stage -le 6 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
     --log-interval 1500 --log-format simple --print-training-sample-interval 2000 \
     --num-workers 0 --max-tokens 26000 --max-sentences 48 --curriculum 2 \
-    --valid-subset $valid_subset --max-sentences-valid 64 \
-    --distributed-world-size $ngpus --distributed-rank 0 --distributed-port 100 --ddp-backend no_c10d \
+    --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
+    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 35 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 1500 \
