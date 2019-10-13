@@ -197,7 +197,7 @@ if [ ${stage} -le 4 ] && ! $use_wordlm; then
     --log-interval 2000 --log-format simple \
     --num-workers 0 --max-tokens 25600 --max-sentences 128 \
     --valid-subset $valid_subset --max-sentences-valid 256 \
-    --distributed-world-size $ngpus --distributed-port 100 \
+    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 5e-06 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
     --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 2000 \
@@ -227,7 +227,7 @@ if [ ${stage} -le 6 ] && $use_wordlm; then
     --log-interval 2000 --log-format simple \
     --num-workers 0 --max-tokens 6400 --max-sentences 256 \
     --valid-subset $valid_subset --max-sentences-valid 512 \
-    --distributed-world-size $ngpus --distributed-port 100 \
+    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
     --save-dir $wordlmdir --restore-file checkpoint_last.pt --save-interval-updates 2000 \
@@ -267,8 +267,8 @@ if [ ${stage} -le 8 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
     --log-interval 400 --log-format simple --print-training-sample-interval 1000 \
     --num-workers 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
-    --valid-subset $valid_subset --max-sentences-valid 64 \
-    --distributed-world-size $ngpus --distributed-port 100 --ddp-backend no_c10d \
+    --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
+    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 35 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 11 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 400 \
