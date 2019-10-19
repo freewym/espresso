@@ -211,7 +211,7 @@ if [ ${stage} -le 7 ]; then
     --valid-subset $valid_subset --max-sentences-valid 48 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 30 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
-    --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --min-lr 1e-5 --start-reduce-lr-epoch 10 \
+    --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 3000 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
     --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_with_wer \
