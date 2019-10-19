@@ -793,15 +793,9 @@ class LMFusionModel(EnsembleModel):
         if self.incremental_states is not None:
             decoder_out = list(model.forward_decoder(
                 tokens, encoder_out=encoder_out, incremental_state=self.incremental_states[model],
-            ) if hasattr(model, 'forward_decoder') else model.decoder(
-                tokens, encoder_out=encoder_out, incremental_state=self.incremental_states[model],
             ))
         else:
-            decoder_out = list(model.forward_decoder(
-                tokens, encoder_out=encoder_out,
-            ) if hasattr(model, 'forward_decoder') else model.decoder(
-                tokens, encoder_out=encoder_out,
-            ))
+            decoder_out = list(model.forward_decoder(tokens, encoder_out=encoder_out))
         decoder_out[0] = decoder_out[0][:, -1:, :]
         if temperature != 1.:
             decoder_out[0].div_(temperature)
