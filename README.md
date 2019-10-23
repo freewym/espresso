@@ -22,7 +22,7 @@ We provide state-of-the-art training recipes for the following speech datasets:
 
 Currently Espresso only support installing from source.
 
-To install fairseq from source and develop locally:
+To install Espresso from source and develop locally:
 ```bash
 git clone https://github.com/freewym/espresso
 cd espresso
