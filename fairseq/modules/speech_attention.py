@@ -7,6 +7,7 @@ import math
 import torch
 from torch import nn
 from torch.nn import Parameter
+import torch.nn.functional as F
 
 from fairseq import utils
 
@@ -68,15 +69,14 @@ class BahdanauAttention(BaseAttention):
             attn_scores = (normed_v * torch.tanh(projected_query + key + \
                 self.b)).sum(dim=2) # len x bsz
         else:
-            attn_scores = v * torch.tanh(projected_query + key).sum(dim=2)
+            attn_scores = self.v * torch.tanh(projected_query + key).sum(dim=2)
 
         if key_padding_mask is not None:
             attn_scores = attn_scores.float().masked_fill_(
                 key_padding_mask, float('-inf'),
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
-        attn_scores = utils.softmax(attn_scores, dim=0,
-            onnx_trace=self.onnx_trace).type_as(attn_scores)  # len x bsz
+        attn_scores = F.softmax(attn_scores, dim=0) # srclen x bsz
 
         # sum weighted value. context: bsz x value_dim
         context = (attn_scores.unsqueeze(2) * value).sum(dim=0)
@@ -115,8 +115,7 @@ class LuongAttention(BaseAttention):
                 key_padding_mask, float('-inf'),
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
-        attn_scores = utils.softmax(attn_scores, dim=0,
-            onnx_trace=self.onnx_trace).type_as(attn_scores)  # len x bsz
+        attn_scores = F.softmax(attn_scores, dim=0) # srclen x bsz
 
         # sum weighted value. context: bsz x value_dim
         context = (attn_scores.unsqueeze(2) * value).sum(dim=0)
