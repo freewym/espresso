@@ -21,20 +21,9 @@ from fairseq.trainer import Trainer
 from fairseq.meters import AverageMeter, StopwatchMeter
 from fairseq.utils import import_user_module
 
-fb_pathmgr_registerd = False
-
 
 def main(args, init_distributed=False):
     utils.import_user_module(args)
-
-    try:
-        from fairseq.fb_pathmgr import fb_pathmgr
-        global fb_pathmgr_registerd
-        if not fb_pathmgr_registerd:
-            fb_pathmgr.register()
-            fb_pathmgr_registerd = True
-    except (ModuleNotFoundError, ImportError):
-        pass
 
     assert args.max_tokens is not None or args.max_sentences is not None, \
         'Must specify batch size either with --max-tokens or --max-sentences'
@@ -103,6 +92,8 @@ def main(args, init_distributed=False):
 
         if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
             valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+        else:
+            valid_losses = [None]
 
         # only use first validation wer to update the learning rate
         lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
