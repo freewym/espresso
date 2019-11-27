@@ -559,11 +559,13 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 - the decoder's output of shape `(batch, tgt_len, vocab)`
                 - attention weights of shape `(batch, tgt_len, src_len)`
         """
-        x, extra = self.extract_features(prev_output_tokens, encoder_out, incremental_state)
-        x = self.output_layer(x)
-        return x, extra
+        x, attn_scores = self.extract_features(
+            prev_output_tokens, encoder_out, incremental_state
+        )
+        return self.output_layer(x), attn_scores
 
-    def extract_features(self, prev_output_tokens, encoder_out=None, incremental_state=None, **unused):
+    def extract_features(
+        self, prev_output_tokens, encoder_out=None, incremental_state=None, **unused):
         """
         Similar to *forward* but only return features.
 
@@ -660,6 +662,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         # T x B x C -> B x T x C
         x = x.transpose(1, 0)
 
+        if hasattr(self, 'additional_fc') and self.adaptive_softmax is None:
+            x = self.additional_fc(x)
+            x = F.dropout(x, p=self.dropout_out, training=self.training)
+
         # srclen x tgtlen x bsz -> bsz x tgtlen x srclen
         if not self.training and self.attention is not None and self.need_attn:
             attn_scores = attn_scores.transpose(0, 2)
@@ -669,12 +675,9 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         return x, attn_scores
 
     def output_layer(self, features, **kwargs):
-        """ project features to the vocabulary size."""
+        """Project features to the vocabulary size."""
         if self.adaptive_softmax is None:
             # project back to size of vocabulary
-            if hasattr(self, 'additional_fc'):
-                features = self.additional_fc(features)
-                features = F.dropout(features, p=self.dropout_out, training=self.training)
             if self.share_input_output_embed:
                 return F.linear(features, self.embed_tokens.weight)
             else:
