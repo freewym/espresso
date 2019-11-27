@@ -66,7 +66,7 @@ class TokenDictionary(Dictionary):
         return self.space_index
 
     @classmethod
-    def load(cls, f, f_non_lang_syms=None, ignore_utf_errors=False):
+    def load(cls, f, f_non_lang_syms=None):
         """Loads the dictionary from a text file with the format:
 
         ```
@@ -81,14 +81,13 @@ class TokenDictionary(Dictionary):
         Loads non_lang_syms from another text file, if it exists, with one
         symbol per line
         """
-        d = super().load(f, ignore_utf_errors)
+        d = super().load(f)
         d.space_index = d.indices.get(d.space_word, -1)
 
         if f_non_lang_syms is not None:
             assert isinstance(f_non_lang_syms, str)
             try:
-                with open(f_non_lang_syms, 'r', encoding='utf-8',
-                    errors='ignore' if ignore_utf_errors else None) as fd:
+                with open(f_non_lang_syms, 'r', encoding='utf-8') as fd:
                     non_lang_syms = [x.rstrip() for x in fd.readlines()]
             except FileNotFoundError as fnfe:
                 raise fnfe
