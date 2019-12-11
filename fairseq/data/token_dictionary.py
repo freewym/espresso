@@ -4,9 +4,9 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
-
-from fairseq.tokenizer import tokenize_line
 from fairseq.data import Dictionary, data_utils
+from fairseq.file_io import PathManager
+from fairseq.tokenizer import tokenize_line
 
 
 class TokenDictionary(Dictionary):
@@ -14,11 +14,11 @@ class TokenDictionary(Dictionary):
 
     def __init__(
         self,
-        pad='<pad>',
-        eos='</s>',
-        unk='<unk>',
-        bos='<s>',
-        space='<space>',
+        pad="<pad>",
+        eos="</s>",
+        unk="<unk>",
+        bos="<s>",
+        space="<space>",
         extra_special_symbols=None,
     ):
         self.unk_word, self.pad_word, self.eos_word, self.bos_word, self.space_word = \
@@ -43,7 +43,7 @@ class TokenDictionary(Dictionary):
         We overwrite this since we would like to also ignore <pad>.
         """
         if torch.is_tensor(tensor) and tensor.dim() == 2:
-            return '\n'.join(self.string(t, bpe_symbol, escape_unk) for t in tensor)
+            return "\n".join(self.string(t, bpe_symbol, escape_unk) for t in tensor)
 
         def token_string(i):
             if i == self.unk():
@@ -51,10 +51,18 @@ class TokenDictionary(Dictionary):
             else:
                 return self[i]
 
-        if hasattr(self, 'bos_index'):
-            sent = ' '.join(token_string(i) for i in tensor if (i != self.eos()) and (i != self.bos()) and (i != self.pad()))
+        if hasattr(self, "bos_index"):
+            sent = " ".join(
+                token_string(i)
+                for i in tensor
+                if (i != self.eos()) and (i != self.bos()) and (i != self.pad())
+            )
         else:
-            sent = ' '.join(token_string(i) for i in tensor if i != self.eos() and i != self.pad())
+            sent = " ".join(
+                token_string(i)
+                for i in tensor
+                if (i != self.eos()) and (i != self.pad())
+            )
         return data_utils.process_bpe_symbol(sent, bpe_symbol)
 
     def bos(self):
@@ -87,17 +95,19 @@ class TokenDictionary(Dictionary):
         if f_non_lang_syms is not None:
             assert isinstance(f_non_lang_syms, str)
             try:
-                with open(f_non_lang_syms, 'r', encoding='utf-8') as fd:
+                with PathManager.open(f_non_lang_syms, "r", encoding="utf-8") as fd:
                     non_lang_syms = [x.rstrip() for x in fd.readlines()]
             except FileNotFoundError as fnfe:
                 raise fnfe
             except UnicodeError:
-                raise Exception("Incorrect encoding detected in {}, please "
-                                "rebuild the dataset".format(f))
+                raise Exception(
+                    "Incorrect encoding detected in {}, please "
+                    "rebuild the dataset".format(f)
+                )
 
             for sym in non_lang_syms:
                 assert d.index(sym) != d.unk(), \
-                '{} in {} is not in the dictionary'.format(sym, f_non_lang_syms)
+                "{} in {} is not in the dictionary".format(sym, f_non_lang_syms)
             d.non_lang_syms = non_lang_syms
 
         return d
