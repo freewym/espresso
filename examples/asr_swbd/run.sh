@@ -173,7 +173,7 @@ if [ $stage -le 2 ]; then
     python3 ../../scripts/spm_encode.py --model=${sentencepiece_model}.model --output_format=piece | \
     cat $lmdatadir/$train_set.tokens - > $lmdatadir/train.tokens
 
-  echo "$0: making a dictionary with swbd+fisher text"
+  echo "$0: making a subword dictionary with swbd+fisher text"
   cat $lmdatadir/train.tokens | tr " " "\n" | grep -v -e "^\s*$" | sort | \
     uniq -c | awk '{print $2,$1}' > $dict
   wc -l $dict
@@ -183,7 +183,7 @@ lmdict=$dict
 if [ $stage -le 3 ]; then
   echo "Stage 3: Text Binarization for subword LM Training"
   mkdir -p $lmdatadir/logs
-  for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
+  test_paths= && for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
   ${decode_cmd} $lmdatadir/logs/preprocess.log \
     python3 ../../preprocess.py --task language_modeling_for_asr \
