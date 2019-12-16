@@ -12,13 +12,15 @@ import os
 
 import torch
 
-from fairseq import wer, checkpoint_utils, options, progress_bar, tasks, utils
+from fairseq import checkpoint_utils, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.models import FairseqLanguageModel
-from fairseq.models.external_language_model import MultiLevelLanguageModel
-from fairseq.models.tensorized_lookahead_language_model import TensorizedLookaheadLanguageModel
 from fairseq.utils import import_user_module
-from speech_tools.utils import plot_attention, sequence_mask
+
+from espresso.models.external_language_model import MultiLevelLanguageModel
+from espresso.models.tensorized_lookahead_language_model import TensorizedLookaheadLanguageModel
+from espresso.tools import wer
+from espresso.tools.utils import plot_attention, sequence_mask
 
 
 def main(args):
