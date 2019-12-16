@@ -1,4 +1,4 @@
-<img src="espresso_logo.png" align="right" style="padding-left: 20px" height="160px" />
+<img src="espresso/espresso_logo.png" align="right" style="padding-left: 20px" height="160px" />
 
 # Espresso
 

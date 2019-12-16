@@ -7,6 +7,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from espresso.modules import speech_attention
+from espresso.tasks.speech_recognition import SpeechRecognitionTask
+import espresso.tools.utils as speech_utils
+
 from fairseq import options, utils, checkpoint_utils
 from fairseq.models import (
     FairseqEncoder,
@@ -23,10 +27,7 @@ from fairseq.models.lstm import (
     LSTMCell,
     Linear,
 )
-from fairseq.modules import AdaptiveSoftmax, speech_attention
-from fairseq.tasks.speech_recognition import SpeechRecognitionTask
-
-import speech_tools.utils as speech_utils
+from fairseq.modules import AdaptiveSoftmax
 
 
 @register_model('speech_lstm')

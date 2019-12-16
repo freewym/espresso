@@ -5,48 +5,21 @@
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
-from fairseq import utils, wer
+from espresso.tools import wer
+
+from fairseq import utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
 from fairseq.options import eval_str_list
 
-from . import FairseqCriterion, register_criterion
-from .label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
+from fairseq.criterions import FairseqCriterion, register_criterion
+from fairseq.criterions.cross_entropy import CrossEntropyCriterion
 
 
-def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True,
-    smoothing_type='uniform', prob_mask=None, unigram_tensor=None):
-    if target.dim() == lprobs.dim() - 1:
-        target = target.unsqueeze(-1)
-    nll_loss = -lprobs.gather(dim=-1, index=target)
-    if smoothing_type == 'temporal':
-        assert torch.is_tensor(prob_mask)
-        smooth_loss = -lprobs.mul(prob_mask).sum(-1, keepdim=True)
-    elif smoothing_type == 'unigram':
-        assert torch.is_tensor(unigram_tensor)
-        smooth_loss = -lprobs.matmul(unigram_tensor.to(lprobs))
-    elif smoothing_type == 'uniform':
-        smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
-    else:
-        raise ValueError('Unsupported smoothing type: {}'.format(smoothing_type))
-    if ignore_index is not None:
-        non_pad_mask = target.ne(ignore_index)
-        nll_loss = nll_loss[non_pad_mask]
-        smooth_loss = smooth_loss[non_pad_mask]
-    else:
-        nll_loss = nll_loss.squeeze(-1)
-        smooth_loss = smooth_loss.squeeze(-1)
-    if reduce:
-        nll_loss = nll_loss.sum()
-        smooth_loss = smooth_loss.sum()
-    eps_i = epsilon / lprobs.size(-1) if smoothing_type == 'uniform' else epsilon
-    loss = (1. - epsilon) * nll_loss + eps_i * smooth_loss
-    return loss, nll_loss
-
-
-@register_criterion('label_smoothed_cross_entropy_with_wer')
-class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriterion):
+@register_criterion('cross_entropy_with_wer')
+class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
 
     def __init__(self, args, task):
         super().__init__(args, task)
@@ -58,37 +31,23 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         self.valid_tgt_dataset = None
         self.num_updates = -1
         self.epoch = 0
-        self.unigram_tensor = None
-        if args.smoothing_type == 'unigram':
-            self.unigram_tensor = torch.cuda.FloatTensor(dict.count).unsqueeze(-1) \
-                if torch.cuda.is_available() and not args.cpu \
-                else torch.FloatTensor(dict.count).unsqueeze(-1)
-            self.unigram_tensor += args.unigram_pseudo_count  # for further backoff
-            self.unigram_tensor.div_(self.unigram_tensor.sum())
 
     @staticmethod
     def add_args(parser):
         """Add criterion-specific arguments to the parser."""
         # fmt: off
-        LabelSmoothedCrossEntropyCriterion.add_args(parser)
         parser.add_argument('--print-training-sample-interval', type=int,
                             metavar='N', dest='print_interval', default=500,
                             help='print a training sample (reference + '
                                  'prediction) every this number of updates')
-        parser.add_argument('--smoothing-type', type=str, default='uniform',
-                            choices=['uniform', 'unigram', 'temporal'],
-                            help='label smoothing type. Default: uniform')
-        parser.add_argument('--unigram-pseudo-count', type=float, default=1.0,
-                            metavar='C', help='pseudo count for unigram label '
-                            'smoothing. Only relevant if --smoothing-type=unigram')
         parser.add_argument('--scheduled-sampling-probs', type=lambda p: eval_str_list(p),
                             metavar='P_1,P_2,...,P_N', default=1.0,
-                            help='scheduled sampling probabilities of sampling the truth '
+                            help='schedule sampling probabilities of sampling the truth '
                             'labels for N epochs starting from --start-schedule-sampling-epoch; '
                             'all later epochs using P_N')
         parser.add_argument('--start-scheduled-sampling-epoch', type=int,
                             metavar='N', default=1,
-                            help='start scheduled sampling from the specified epoch')
+                            help='start schedule sampling from the specified epoch')
         # fmt: on
 
     def forward(self, model, sample, reduce=True):
@@ -131,7 +90,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                         feed_tokens = tokens[:, step:step + 1]
                     log_probs, _ = self._decode(feed_tokens,
                         model, encoder_out, incremental_states)
-                    pred = log_probs.argmax(-1, keepdim=True)
+                    pred = log_probs.argmax(-1,keepdim=True)
                     lprobs.append(log_probs)
                 lprobs = torch.stack(lprobs, dim=1)
             else:
@@ -221,39 +180,17 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                 print('| sample REF: ' + ref_one)
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends
-        prob_mask = None
-        if self.args.smoothing_type == 'temporal':
-            # see https://arxiv.org/pdf/1612.02695.pdf
-            # prob_mask.dtype=int for deterministic behavior of Tensor.scatter_add_()
-            prob_mask = torch.zeros_like(lprobs, dtype=torch.int) # bsz x tgtlen x vocab_size
-            idx_tensor = target.new_full(target.size(), self.padding_idx).unsqueeze(-1) # bsz x tgtlen x 1
-            # hard-code the remaining probabilty mass distributed symmetrically
-            # over neighbors at distance ±1 and ±2 with a 5 : 2 ratio
-            idx_tensor[:, 2:, 0] = target[:, :-2] # two neighbors to the left
-            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
-            idx_tensor.fill_(self.padding_idx)[:, 1:, 0] = target[:, :-1]
-            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
-            idx_tensor.fill_(self.padding_idx)[:, :-2, 0] = target[:, 2:] # two neighbors to the right
-            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
-            idx_tensor.fill_(self.padding_idx)[:, :-1, 0] = target[:, 1:]
-            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
-            prob_mask[:, :, self.padding_idx] = 0 # clear cumulative count on <pad>
-            prob_mask = prob_mask.float() # convert to float
-            sum_prob = prob_mask.sum(-1, keepdim=True)
-            sum_prob[sum_prob.squeeze(-1).eq(0.)] = 1. # to deal with the "division by 0" problem
-            prob_mask = prob_mask.div_(sum_prob).view(-1, prob_mask.size(-1))
-
         lprobs = lprobs.view(-1, lprobs.size(-1))
-        target = target.view(-1, 1)
-        loss, nll_loss = label_smoothed_nll_loss(
-            lprobs, target, self.eps, ignore_index=self.padding_idx, reduce=reduce,
-            smoothing_type=self.args.smoothing_type, prob_mask=prob_mask,
-            unigram_tensor=self.unigram_tensor,
+        loss = F.nll_loss(
+            lprobs,
+            target.view(-1),
+            ignore_index=self.padding_idx,
+            reduction='sum' if reduce else 'none',
         )
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
-            'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
+            'nll_loss': utils.item(loss.data) if reduce else loss.data,
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
@@ -268,7 +205,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
     @staticmethod
     def aggregate_logging_outputs(logging_outputs):
         """Aggregate logging outputs from data parallel training."""
-        agg_output = LabelSmoothedCrossEntropyCriterion.aggregate_logging_outputs(logging_outputs)
+        agg_output = CrossEntropyCriterion.aggregate_logging_outputs(logging_outputs)
         word_error = sum(log.get('word_error', 0) for log in logging_outputs)
         word_count = sum(log.get('word_count', 0) for log in logging_outputs)
         char_error = sum(log.get('char_error', 0) for log in logging_outputs)

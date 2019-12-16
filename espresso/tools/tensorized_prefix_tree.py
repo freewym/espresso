@@ -8,8 +8,8 @@ import numpy as np
 import torch
 
 from typing import *
-from fairseq.data import TokenDictionary
-from speech_tools.utils import lexical_prefix_tree
+from espresso.data import TokenDictionary
+from espresso.tools.utils import lexical_prefix_tree
 
 
 class TensorizedPrefixTree:

@@ -1,1 +1,1 @@
-../../../speech_tools/kaldi/egs/swbd/s5c/local/swbd1_map_words.pl
+../../../espresso/tools/kaldi/egs/swbd/s5c/local/swbd1_map_words.pl
