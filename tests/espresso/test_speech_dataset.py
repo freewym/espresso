@@ -10,9 +10,13 @@ import os
 
 import torch
 
-from fairseq.data import (
-        SpeechDataset, TokenDictionary, TokenTextDataset, ScpCachedDataset,
-        ScpInMemoryDataset)
+from espresso.data import (
+    ScpCachedDataset,
+    ScpInMemoryDataset,
+    SpeechDataset,
+    TokenDictionary,
+    TokenTextDataset,
+)
 
 try:
     import kaldi_io
