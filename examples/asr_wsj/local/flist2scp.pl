@@ -1,1 +1,1 @@
-../../../speech_tools/kaldi/egs/wsj/s5/local/flist2scp.pl
+../../../espresso/tools/kaldi/egs/wsj/s5/local/flist2scp.pl

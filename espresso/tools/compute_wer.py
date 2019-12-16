@@ -8,7 +8,7 @@ import argparse
 import sys, re
 from collections import Counter
 
-from utils import edit_distance
+from espresso.tools.utils import edit_distance
 
 
 def get_parser():
