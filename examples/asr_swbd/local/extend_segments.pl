@@ -1,1 +1,1 @@
-../../../speech_tools/kaldi/egs/swbd/s5c/local/extend_segments.pl
+../../../espresso/tools/kaldi/egs/swbd/s5c/local/extend_segments.pl
