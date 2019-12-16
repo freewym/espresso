@@ -10,9 +10,9 @@ from collections import Counter
 
 import torch
 
-from fairseq.data import TokenDictionary
+from espresso.data import TokenDictionary
 
-import speech_tools.utils as utils
+import espresso.tools.utils as utils
 
 
 class TestSpeechUtils(unittest.TestCase):
