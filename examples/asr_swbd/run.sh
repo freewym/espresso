@@ -101,14 +101,14 @@ if [ $stage -le 1 ]; then
 
   # dump features for training
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $train_feat_dir/storage ]; then
-  utils/create_split_dir.pl \
-    /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$train_set/delta${do_delta}/storage \
-    $train_feat_dir/storage
+    utils/create_split_dir.pl \
+      /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$train_set/delta${do_delta}/storage \
+      $train_feat_dir/storage
   fi
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $valid_feat_dir/storage ]; then
-  utils/create_split_dir.pl \
-    /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$valid_set/delta${do_delta}/storage \
-    $valid_feat_dir/storage
+    utils/create_split_dir.pl \
+      /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$valid_set/delta${do_delta}/storage \
+      $valid_feat_dir/storage
   fi
   dump.sh --cmd "$train_cmd" --nj 32 --do_delta $do_delta \
     data/$train_set/feats.scp data/$train_set/cmvn.ark exp/dump_feats/train $train_feat_dir
@@ -186,7 +186,7 @@ if [ $stage -le 3 ]; then
   test_paths= && for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
   ${decode_cmd} $lmdatadir/logs/preprocess.log \
-    python3 ../../preprocess.py --task language_modeling_for_asr \
+    python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
       --workers 50 --srcdict $lmdict --only-source \
       --trainpref $lmdatadir/train.tokens \
       --validpref $lmdatadir/$valid_set.tokens \
@@ -206,7 +206,7 @@ if [ $stage -le 4 ]; then
   mkdir -p $lmdir/logs
   log_file=$lmdir/logs/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval 500 --log-format simple \
     --num-workers 0 --max-tokens 25600 --max-sentences 1024 \
@@ -227,7 +227,7 @@ if [ $stage -le 5 ]; then
   test_set_array=($test_set)
   for i in $(seq 0 $num); do
     log_file=$lmdir/logs/evaluation_${test_set_array[$i]}.log
-    python3 ../../eval_lm.py $lmdatadir \
+    python3 ../../eval_lm.py $lmdatadir --user-dir espresso \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
       --max-tokens 40960 --max-sentences 1536 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
@@ -246,7 +246,7 @@ if [ $stage -le 6 ]; then
   mkdir -p $dir/logs
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 --user-dir espresso \
     --log-interval 1500 --log-format simple --print-training-sample-interval 2000 \
     --num-workers 0 --max-tokens 26000 --max-sentences 48 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
@@ -281,7 +281,7 @@ if [ $stage -le 7 ]; then
     # only score train_dev with built-in scorer
     text_opt= && [ "$dataset" == "train_dev" ] && text_opt="--test-text-files data/$dataset/token_text"
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
-      --max-tokens 24000 --max-sentences 48 --num-shards 1 --shard-id 0 \
+      --user-dir espresso --max-tokens 24000 --max-sentences 48 --num-shards 1 --shard-id 0 \
       --test-feat-files ${dumpdir}/$dataset/delta${do_delta}/feats.scp $text_opt \
       --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms \
       --max-source-positions 9999 --max-target-positions 999 \

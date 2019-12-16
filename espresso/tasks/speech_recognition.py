@@ -13,13 +13,16 @@ from fairseq import options
 from fairseq.data import (
     ConcatDataset,
     data_utils,
+)
+
+from fairseq.tasks import FairseqTask, register_task
+
+from espresso.data import (
     ScpCachedDataset,
     SpeechDataset,
     TokenDictionary,
     TokenTextDataset,
 )
-
-from . import FairseqTask, register_task
 
 
 @register_task('speech_recognition')
