@@ -1,1 +1,1 @@
-../../../speech_tools/kaldi/egs/wsj/s5/local/ndx2flist.pl
+../../../espresso/tools/kaldi/egs/wsj/s5/local/ndx2flist.pl

@@ -23,10 +23,11 @@ from fairseq.models.lstm import (
     LSTMCell,
     Linear,
 )
-from fairseq.modules import AdaptiveSoftmax, speech_attention
-from fairseq.tasks.speech_recognition import SpeechRecognitionTask
+from fairseq.modules import AdaptiveSoftmax
 
-import speech_tools.utils as speech_utils
+from espresso.modules import speech_attention
+from espresso.tasks.speech_recognition import SpeechRecognitionTask
+import espresso.tools.utils as speech_utils
 
 
 @register_model('speech_lstm')
