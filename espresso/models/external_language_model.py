@@ -9,11 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from fairseq import options, utils
-from fairseq.data import TokenDictionary
+from fairseq.models import FairseqIncrementalDecoder, FairseqLanguageModel
 
-from . import FairseqIncrementalDecoder, FairseqLanguageModel
-
-from speech_tools.utils import tokenize, lexical_prefix_tree
+from espresso.data import TokenDictionary
+from espresso.tools.utils import tokenize, lexical_prefix_tree
 
 
 def _clone_cached_state(cached_state):

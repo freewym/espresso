@@ -7,7 +7,7 @@ import re
 
 from collections import Counter, OrderedDict
 
-import speech_tools.utils as speech_utils
+import espresso.tools.utils as speech_utils
 
 
 class Scorer(object):

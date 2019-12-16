@@ -13,11 +13,7 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.modules import GradMultiply
-
-from .speech_lstm import ConvBNReLU
-
-from .fconv import (
+from fairseq.models.fconv import (
     ConvTBC,
     FConvModel,
     FConvEncoder,
@@ -25,8 +21,10 @@ from .fconv import (
     Linear,
     extend_conv_spec,
 )
+from fairseq.modules import GradMultiply
 
-import speech_tools.utils as speech_utils
+from espresso.models.speech_lstm import ConvBNReLU
+import espresso.tools.utils as speech_utils
 
 
 @register_model('speech_fconv')

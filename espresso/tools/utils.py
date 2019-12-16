@@ -11,7 +11,8 @@ from typing import Callable, List
 import torch
 
 from fairseq import utils
-from fairseq.data import TokenDictionary
+
+from espresso.data import TokenDictionary
 
 
 def tokenize(sent, space='<space>', non_lang_syms=None):

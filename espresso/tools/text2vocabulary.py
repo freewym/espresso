@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import sys
+import os, sys
 from collections import Counter
 
 
@@ -98,7 +98,7 @@ def main(args):
         print('  OOV rate={:.2f}%'.format(oov_rate * 100), file=sys.stderr)
 
     if args.test_text is not None:
-        for k, path in enumerate(args.test_text.split(':')):
+        for k, path in enumerate(args.test_text.split(os.pathsep)):
             total_count = 0
             invocab_count = 0
             with open(path, 'r', encoding='utf-8') as f:

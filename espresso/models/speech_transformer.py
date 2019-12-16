@@ -14,11 +14,7 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.modules import LayerNorm
-
-from .speech_lstm import ConvBNReLU
-
-from .transformer import (
+from fairseq.models.transformer import (
     Embedding,
     Linear,
     TransformerModel,
@@ -26,8 +22,10 @@ from .transformer import (
     TransformerDecoder,
     TransformerEncoderLayer,
 )
+from fairseq.modules import LayerNorm
 
-import speech_tools.utils as speech_utils
+from espresso.models.speech_lstm import ConvBNReLU
+import espresso.tools.utils as speech_utils
 
 DEFAULT_MAX_SOURCE_POSITIONS = 9999
 DEFAULT_MAX_TARGET_POSITIONS = 999

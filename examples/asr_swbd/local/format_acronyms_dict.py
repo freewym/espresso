@@ -1,1 +1,1 @@
-../../../speech_tools/kaldi/egs/swbd/s5c/local/format_acronyms_dict.py
+../../../espresso/tools/kaldi/egs/swbd/s5c/local/format_acronyms_dict.py

@@ -1,1 +1,1 @@
-../../../speech_tools/kaldi/egs/swbd/s5c/local/map_acronyms_ctm.py
+../../../espresso/tools/kaldi/egs/swbd/s5c/local/map_acronyms_ctm.py

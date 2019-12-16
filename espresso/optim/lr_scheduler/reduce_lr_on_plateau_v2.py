@@ -5,8 +5,8 @@
 
 import torch.optim.lr_scheduler
 
-from . import FairseqLRScheduler, register_lr_scheduler
-from .reduce_lr_on_plateau import ReduceLROnPlateau
+from fairseq.optim.lr_scheduler import FairseqLRScheduler, register_lr_scheduler
+from fairseq.optim.lr_scheduler.reduce_lr_on_plateau import ReduceLROnPlateau
 
 
 @register_lr_scheduler('reduce_lr_on_plateau_v2')
