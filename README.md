@@ -29,7 +29,7 @@ cd espresso
 pip install --editable .
 pip install kaldi_io
 pip install sentencepiece
-cd speech_tools; make KALDI=<path/to/a/compiled/kaldi/directory>
+cd espresso/tools; make KALDI=<path/to/a/compiled/kaldi/directory>
 ```
 add your Python path to `PATH` variable in `examples/asr_<dataset>/path.sh`, the current default is `~/anaconda3/bin`.
 
