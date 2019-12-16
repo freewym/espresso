@@ -147,7 +147,7 @@ if [ ${stage} -le 4 ]; then
   for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
   ${decode_cmd} $lmdatadir/logs/preprocess.log \
-    python3 ../../preprocess.py --task language_modeling_for_asr \
+    python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
       --workers 50 --srcdict $lmdict --only-source \
       --trainpref $lmdatadir/train.tokens \
       --validpref $lmdatadir/$valid_set.tokens \
@@ -167,7 +167,7 @@ if [ ${stage} -le 5 ]; then
   mkdir -p $lmdir/logs
   log_file=$lmdir/logs/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval 8000 --log-format simple \
     --num-workers 0 --max-tokens 32000 --max-sentences 1024 --curriculum 1 \
@@ -188,7 +188,7 @@ if [ ${stage} -le 6 ]; then
   test_set_array=($test_set)
   for i in $(seq 0 $num); do
     log_file=$lmdir/logs/evaluation_${test_set_array[$i]}.log
-    python3 ../../eval_lm.py $lmdatadir --cpu \
+    python3 ../../eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
       --max-tokens 40960 --max-sentences 1536 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
@@ -205,7 +205,7 @@ if [ ${stage} -le 7 ]; then
   mkdir -p $dir/logs
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 --user-dir espresso \
     --log-interval 4000 --log-format simple --print-training-sample-interval 2000 \
     --num-workers 0 --max-tokens 26000 --max-sentences 24 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 48 --ddp-backend no_c10d \
@@ -237,7 +237,7 @@ if [ ${stage} -le 8 ]; then
     feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
     text=data/$dataset/token_text
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
-      --max-tokens 15000 --max-sentences 24 --num-shards 1 --shard-id 0 \
+      --user-dir espresso --max-tokens 15000 --max-sentences 24 --num-shards 1 --shard-id 0 \
       --test-feat-files $feat --test-text-files $text \
       --dict $dict --remove-bpe sentencepiece \
       --max-source-positions 9999 --max-target-positions 999 \

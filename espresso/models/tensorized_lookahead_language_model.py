@@ -7,12 +7,12 @@ from typing import *
 import torch
 
 from fairseq.models import FairseqLanguageModel, FairseqIncrementalDecoder
-from fairseq.models.external_language_model import RawOutExternalLanguageModelBase
-from fairseq.data import TokenDictionary
 from fairseq import utils
 
-from speech_tools.tensorized_prefix_tree import TensorizedPrefixTree
-from speech_tools.utils import tokenize
+from espresso.data import TokenDictionary
+from espresso.models.external_language_model import RawOutExternalLanguageModelBase
+from espresso.tools.tensorized_prefix_tree import TensorizedPrefixTree
+from espresso.tools.utils import tokenize
 
 
 def _clone_cached_state(cached_state):
