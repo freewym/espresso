@@ -34,7 +34,6 @@ class SequenceGenerator(object):
         diverse_beam_strength=0.5,
         match_source_len=False,
         no_repeat_ngram_size=0,
-        coverage_weight=0.0,
         eos_factor=None,
     ):
         """Generates translations of a given source sentence.
@@ -86,7 +85,6 @@ class SequenceGenerator(object):
         self.temperature = temperature
         self.match_source_len = match_source_len
         self.no_repeat_ngram_size = no_repeat_ngram_size
-        self.coverage_weight = coverage_weight
         self.eos_factor = eos_factor
         assert sampling_topk < 0 or sampling, '--sampling-topk requires --sampling'
         assert sampling_topp < 0 or sampling, '--sampling-topp requires --sampling'
@@ -176,7 +174,6 @@ class SequenceGenerator(object):
         tokens_buf = tokens.clone()
         tokens[:, 0] = self.eos if bos_token is None else bos_token
         attn, attn_buf = None, None
-        coverage, coverage_buf = None, None
 
         # The blacklist indicates candidates that should be ignored.
         # For example, suppose we're sampling and have already finalized 2/5
@@ -373,19 +370,10 @@ class SequenceGenerator(object):
                             model.models[0].encoder.output_lengths(src_tokens.size(1))
                         attn = scores.new(bsz * beam_size,
                             max_encoder_output_length, max_len + 2)
-                        coverage = scores.new_full([bsz * beam_size, max_encoder_output_length], 0.)
                     else:
                         attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
-                        coverage = scores.new_full([bsz * beam_size, src_tokens.size(1)], 0.)
                     attn_buf = attn.clone()
-                    coverage_buf = coverage.clone()
                 attn[:, :, step + 1].copy_(avg_attn_scores)
-                if self.coverage_weight > 0:
-                    coverage.add_(avg_attn_scores)
-                    # TODO: hard-code the numbers below for now
-                    frames_covered = (coverage > 0.5).float().sum(1, keepdim=True)
-                    frames_covered -= (torch.where(coverage - 1.0 > 0., coverage - (1.0 - 0.7), coverage.new([0.]))).sum(1, keepdim=True)
-                    lprobs.add_(self.coverage_weight, frames_covered)
 
             scores = scores.type_as(lprobs)
             scores_buf = scores_buf.type_as(lprobs)
@@ -473,9 +461,6 @@ class SequenceGenerator(object):
                 if attn is not None:
                     attn = attn.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, attn.size(1), -1)
                     attn_buf.resize_as_(attn)
-                if coverage is not None:
-                    coverage = coverage.view(bsz, -1)[batch_idxs].view(new_bsz * beam_size, -1)
-                    coverage_buf.resize_as_(coverage)
                 bsz = new_bsz
             else:
                 batch_idxs = None
@@ -542,17 +527,12 @@ class SequenceGenerator(object):
                     attn[:, :, :step + 2], dim=0, index=active_bbsz_idx,
                     out=attn_buf[:, :, :step + 2],
                 )
-            if coverage is not None:
-                torch.index_select(
-                    coverage, dim=0, index=active_bbsz_idx, out=coverage_buf)
 
             # swap buffers
             tokens, tokens_buf = tokens_buf, tokens
             scores, scores_buf = scores_buf, scores
             if attn is not None:
                 attn, attn_buf = attn_buf, attn
-            if coverage is not None:
-                coverage, coverage_buf = coverage_buf, coverage
 
             # reorder incremental state in decoder
             reorder_state = active_bbsz_idx
