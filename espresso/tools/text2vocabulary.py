@@ -5,8 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import os
-import sys
+import os, sys
 from collections import Counter
 
 
