@@ -101,14 +101,14 @@ if [ $stage -le 1 ]; then
 
   # dump features for training
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $train_feat_dir/storage ]; then
-  utils/create_split_dir.pl \
-    /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$train_set/delta${do_delta}/storage \
-    $train_feat_dir/storage
+    utils/create_split_dir.pl \
+      /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$train_set/delta${do_delta}/storage \
+      $train_feat_dir/storage
   fi
   if [[ $(hostname -f) == *.clsp.jhu.edu ]] && [ ! -d $valid_feat_dir/storage ]; then
-  utils/create_split_dir.pl \
-    /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$valid_set/delta${do_delta}/storage \
-    $valid_feat_dir/storage
+    utils/create_split_dir.pl \
+      /export/b1{4,5,6,7}/$USER/fairseq-data/egs/asr_swbd/dump/$valid_set/delta${do_delta}/storage \
+      $valid_feat_dir/storage
   fi
   dump.sh --cmd "$train_cmd" --nj 32 --do_delta $do_delta \
     data/$train_set/feats.scp data/$train_set/cmvn.ark exp/dump_feats/train $train_feat_dir

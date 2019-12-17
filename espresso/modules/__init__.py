@@ -5,6 +5,7 @@
 
 from .speech_attention import BahdanauAttention, LuongAttention
 
+
 __all__ = [
     'BahdanauAttention',
     'LuongAttention',

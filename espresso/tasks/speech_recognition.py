@@ -9,13 +9,6 @@ import itertools
 import os
 import re
 
-from espresso.data import (
-    ScpCachedDataset,
-    SpeechDataset,
-    TokenDictionary,
-    TokenTextDataset,
-)
-
 from fairseq import options
 from fairseq.data import (
     ConcatDataset,
@@ -23,6 +16,13 @@ from fairseq.data import (
 )
 
 from fairseq.tasks import FairseqTask, register_task
+
+from espresso.data import (
+    ScpCachedDataset,
+    SpeechDataset,
+    TokenDictionary,
+    TokenTextDataset,
+)
 
 
 @register_task('speech_recognition')

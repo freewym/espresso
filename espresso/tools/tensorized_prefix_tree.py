@@ -5,9 +5,10 @@
 
 import os, re
 import numpy as np
+from typing import *
+
 import torch
 
-from typing import *
 from espresso.data import TokenDictionary
 from espresso.tools.utils import lexical_prefix_tree
 

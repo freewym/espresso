@@ -8,9 +8,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from espresso.models.speech_lstm import ConvBNReLU
-import espresso.tools.utils as speech_utils
-
 from fairseq import utils
 from fairseq.models import (
     register_model,
@@ -25,6 +22,9 @@ from fairseq.models.fconv import (
     extend_conv_spec,
 )
 from fairseq.modules import GradMultiply
+
+from espresso.models.speech_lstm import ConvBNReLU
+import espresso.tools.utils as speech_utils
 
 
 @register_model('speech_fconv')

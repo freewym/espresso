@@ -6,9 +6,9 @@
 import numpy as np
 import torch
 
-import espresso.tools.utils as speech_utils
-
 from fairseq.data import data_utils, FairseqDataset
+
+import espresso.tools.utils as speech_utils
 
 
 def collate(

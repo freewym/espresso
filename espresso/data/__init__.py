@@ -8,10 +8,10 @@ from .scp_dataset import ScpDataset, ScpCachedDataset, ScpInMemoryDataset, Token
 from .speech_dataset import SpeechDataset
 
 __all__ = [
-    'TokenDictionary',
     'ScpDataset',
     'ScpCachedDataset',
     'ScpInMemoryDataset',
+    'TokenDictionary',
     'TokenTextDataset',
     'SpeechDataset',
 ]

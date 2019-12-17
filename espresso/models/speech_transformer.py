@@ -9,9 +9,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from espresso.models.speech_lstm import ConvBNReLU
-import espresso.tools.utils as speech_utils
-
 from fairseq import utils
 from fairseq.models import (
     register_model,
@@ -26,6 +23,9 @@ from fairseq.models.transformer import (
     TransformerEncoderLayer,
 )
 from fairseq.modules import LayerNorm
+
+from espresso.models.speech_lstm import ConvBNReLU
+import espresso.tools.utils as speech_utils
 
 DEFAULT_MAX_SOURCE_POSITIONS = 9999
 DEFAULT_MAX_TARGET_POSITIONS = 999

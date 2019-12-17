@@ -7,12 +7,12 @@ import torch
 
 import os
 
-from espresso.data import TokenDictionary
-
 from fairseq import tokenizer
 from fairseq.tasks import register_task
 
 from fairseq.tasks.language_modeling import LanguageModelingTask
+
+from espresso.data import TokenDictionary
 
 
 @register_task("language_modeling_for_asr")

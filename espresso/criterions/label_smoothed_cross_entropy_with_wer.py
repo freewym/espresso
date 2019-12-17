@@ -6,8 +6,6 @@
 import numpy as np
 import torch
 
-from espresso.tools import wer
-
 from fairseq import utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
@@ -15,6 +13,8 @@ from fairseq.options import eval_str_list
 
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
+
+from espresso.tools import wer
 
 
 def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True,

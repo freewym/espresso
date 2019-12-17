@@ -7,8 +7,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from espresso.tools import wer
-
 from fairseq import utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
@@ -16,6 +14,8 @@ from fairseq.options import eval_str_list
 
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.criterions.cross_entropy import CrossEntropyCriterion
+
+from espresso.tools import wer
 
 
 @register_criterion('cross_entropy_with_wer')

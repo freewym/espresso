@@ -51,7 +51,7 @@ dir=exp/lstm${affix:+_$affix}
 
 if [ ${stage} -le 0 ]; then
   echo "Stage 0: Data Preparation"
-  local/wsj_data_prep.sh ${wsj0}/??-{?,??}.? ${wsj1}/??-{?,??}.?
+  local/wsj_data_prep.sh ${wsj0}/??-{?,??}.? ${wsj1}/??-{?,??}.? || exit 1;
   echo "Preparing train and test data"
   srcdir=data/local/data
   for x in train_si284 test_eval92 test_eval93 test_dev93 test_eval92_5k test_eval93_5k test_dev93_5k dev_dt_05 dev_dt_20; do
