@@ -10,9 +10,9 @@ from typing import Callable, List
 
 import torch
 
-from espresso.data import TokenDictionary
-
 from fairseq import utils
+
+from espresso.data import TokenDictionary
 
 
 def tokenize(sent, space='<space>', non_lang_syms=None):
