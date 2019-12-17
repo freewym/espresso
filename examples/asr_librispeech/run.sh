@@ -205,7 +205,7 @@ if [ ${stage} -le 7 ]; then
   mkdir -p $dir/logs
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --task speech_recognition --seed 1 --user-dir espresso \
     --log-interval 4000 --log-format simple --print-training-sample-interval 2000 \
     --num-workers 0 --max-tokens 26000 --max-sentences 24 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 48 --ddp-backend no_c10d \
@@ -230,15 +230,15 @@ if [ ${stage} -le 8 ]; then
   decode_affix=
   if $lm_shallow_fusion; then
     path="$path:$lmdir/$lm_checkpoint"
-    opts="$opts --lm-weight 0.47 --coverage-weight 0.0 --eos-factor 1.5"
+    opts="$opts --lm-weight 0.47 --eos-factor 1.5"
     decode_affix=shallow_fusion
   fi
   for dataset in $test_set; do
     feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
     text=data/$dataset/token_text
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
-      --user-dir espresso --max-tokens 15000 --max-sentences 24 --num-shards 1 --shard-id 0 \
-      --test-feat-files $feat --test-text-files $text \
+      --task speech_recognition --user-dir espresso --max-tokens 15000 --max-sentences 24 \
+      --num-shards 1 --shard-id 0 --test-feat-files $feat --test-text-files $text \
       --dict $dict --remove-bpe sentencepiece \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 60 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \

@@ -19,7 +19,6 @@ from fairseq import checkpoint_utils, distributed_utils, options, progress_bar, 
 from fairseq.data import iterators
 from fairseq.trainer import Trainer
 from fairseq.meters import AverageMeter, StopwatchMeter
-from fairseq.utils import import_user_module
 
 
 def main(args, init_distributed=False):
@@ -71,7 +70,7 @@ def main(args, init_distributed=False):
     # corresponding train iterator
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
 
-    if callable(getattr(trainer.criterion, 'set_train_tgt_dataset', None)):
+    if hasattr(trainer.criterion, 'set_train_tgt_dataset'):
         trainer.criterion.set_train_tgt_dataset(task.dataset(args.train_subset).tgt)
 
     # Train until the learning rate gets too small
@@ -111,7 +110,6 @@ def main(args, init_distributed=False):
 
 def train(args, trainer, task, epoch_itr):
     """Train the model for one epoch."""
-
     # Update parameters every N batches
     update_freq = args.update_freq[epoch_itr.epoch - 1] \
         if epoch_itr.epoch <= len(args.update_freq) else args.update_freq[-1]
@@ -129,10 +127,10 @@ def train(args, trainer, task, epoch_itr):
     extra_meters = collections.defaultdict(lambda: AverageMeter())
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
-    if callable(getattr(trainer.criterion, 'set_epoch', None)):
+    if hasattr(trainer.criterion, 'set_epoch'):
         trainer.criterion.set_epoch(epoch_itr.epoch)
     for i, samples in enumerate(progress, start=epoch_itr.iterations_in_epoch):
-        if callable(getattr(trainer.criterion, 'set_num_updates', None)):
+        if hasattr(trainer.criterion, 'set_num_updates'):
             trainer.criterion.set_num_updates(trainer.get_num_updates())
 
         log_output = trainer.train_step(samples)
@@ -228,7 +226,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
                 trainer.get_model().max_positions(),
             ),
             ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-            required_batch_size_multiple=8,
+            required_batch_size_multiple=args.required_batch_size_multiple,
             seed=args.seed,
             num_shards=args.distributed_world_size,
             shard_id=args.distributed_rank,
@@ -247,7 +245,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
                 meter.reset()
         extra_meters = collections.defaultdict(lambda: AverageMeter())
 
-        if callable(getattr(trainer.criterion, 'set_valid_tgt_dataset', None)):
+        if hasattr(trainer.criterion, 'set_valid_tgt_dataset'):
             trainer.criterion.set_valid_tgt_dataset(task.dataset(subset).tgt)
 
         for sample in progress:
