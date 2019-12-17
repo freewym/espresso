@@ -75,7 +75,7 @@ def main(args):
     for model in models:
         model.make_generation_fast_(
             beamable_mm_beam_size=None if args.no_beamable_mm else args.beam,
-            need_attn=args.print_alignment or args.coverage_weight > 0.,
+            need_attn=args.print_alignment,
         )
         if args.fp16:
             model.half()
@@ -229,10 +229,6 @@ def print_options_meaning_changes(args):
 
 def cli_main():
     parser = options.get_generation_parser(default_task='speech_recognition')
-    parser.add_argument('--coverage-weight', default=0.0, type=float, metavar='W',
-                        help='coverage weight in log-prob space, mostly to '
-                        'reduce deletion errors while using the pretrained '
-                        'external LM for decoding')
     parser.add_argument('--eos-factor', default=None, type=float, metavar='F',
                         help='only consider emitting EOS if its score is no less '
                         'than the specified factor of the best candidate score')
