@@ -16,7 +16,7 @@ We provide state-of-the-art training recipes for the following speech datasets:
 # Requirements and Installation
 
 * [PyTorch](http://pytorch.org/) version >= 1.2.0
-* Python version >= 3.5
+* Python version >= 3.6
 * For training new models, you'll also need an NVIDIA GPU and [NCCL](https://github.com/NVIDIA/nccl)
 * **For faster training** install NVIDIA's [apex](https://github.com/NVIDIA/apex) library with the `--cuda_ext` option
 
