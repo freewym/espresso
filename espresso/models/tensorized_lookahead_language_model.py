@@ -3,13 +3,13 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import *
+from typing import Any, Dict, List
 import torch
 
 from fairseq.models import FairseqLanguageModel, FairseqIncrementalDecoder
 from fairseq import utils
 
-from espresso.data import TokenDictionary
+from espresso.data import AsrDictionary
 from espresso.models.external_language_model import RawOutExternalLanguageModelBase
 from espresso.tools.tensorized_prefix_tree import TensorizedPrefixTree
 from espresso.tools.utils import tokenize
@@ -33,7 +33,7 @@ class TensorizedLookaheadLanguageModel(RawOutExternalLanguageModelBase):
     """
     def __init__(self,
                  word_lm: FairseqLanguageModel,
-                 subword_dict: TokenDictionary,
+                 subword_dict: AsrDictionary,
                  oov_penalty: float = 1e-4,
                  open_vocab: bool = True
                  ):
@@ -53,7 +53,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
     """
     def __init__(self,
                  word_lm: FairseqLanguageModel,
-                 subword_dict: TokenDictionary,
+                 subword_dict: AsrDictionary,
                  oov_penalty: float = 1e-4,
                  open_vocab: bool = True):
         super().__init__(word_lm.decoder.dictionary)
@@ -67,7 +67,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         self.open_vocab = open_vocab
         self.zero = 1e-10  # a sufficiently small value to avoid the log(0) issue
 
-        word_dict: TokenDictionary = self.lm_decoder.dictionary
+        word_dict: AsrDictionary = self.lm_decoder.dictionary
         self.word_pad_idx = word_dict.pad()
         self.word_eos_idx = word_dict.eos()
         self.word_unk_idx = word_dict.unk()
@@ -77,8 +77,8 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         self.subword_eos_idx = subword_dict.eos()
         self.subword_vocab_size = len(subword_dict)
 
-        tokenizer: Callable[[str], List[str]] = \
-            lambda x: tokenize(x, non_lang_syms=subword_dict.non_lang_syms).split(' ')
+        def tokenizer(x: str) -> List[str]:
+            return tokenize(x, non_lang_syms=subword_dict.non_lang_syms).split(' ')
         self.tree = TensorizedPrefixTree.build(word_dict, subword_dict, tokenizer)
 
         assert self.tree.max_out_degree() <= self.subword_vocab_size
@@ -145,7 +145,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         if self.open_vocab:
             # set out_probs to oov_penalty * P(<unk>|h) (case 3 in Eqn. 15)
             out_probs = self.oov_penalty * (
-                cumsum_probs[:, :, self.word_unk_idx] - \
+                cumsum_probs[:, :, self.word_unk_idx] -
                 cumsum_probs[:, :, self.word_unk_idx - 1]
             ).unsqueeze(-1).repeat(1, 1, self.subword_vocab_size)
 
@@ -172,7 +172,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         sum_probs = torch.where(
             batch_node_not_root_mask,
             (cumsum_probs.squeeze(1).gather(-1, right_ranges.unsqueeze(-1)) -
-            cumsum_probs.squeeze(1).gather(-1, left_ranges.unsqueeze(-1))).squeeze(-1),
+             cumsum_probs.squeeze(1).gather(-1, left_ranges.unsqueeze(-1))).squeeze(-1),
             cumsum_probs.new([1.0])
         )  # R[Batch]
 
@@ -204,7 +204,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
             sum_probs < self.zero,
             cumsum_probs.new([self.zero]),
             (
-                cumsum_probs.squeeze(1).gather(-1, word_idx.unsqueeze(-1)) - \
+                cumsum_probs.squeeze(1).gather(-1, word_idx.unsqueeze(-1)) -
                 cumsum_probs.squeeze(1).gather(-1, word_idx.unsqueeze(-1) - 1)
             ).squeeze(-1) / sum_probs
         )  # R[Batch]
@@ -232,14 +232,16 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
             self, incremental_state, 'cumsum_probs')
         if cumsum_probs is not None:
             new_cumsum_probs = cumsum_probs.index_select(0, new_order)
-            utils.set_incremental_state(self, incremental_state, 'cumsum_probs',
-                new_cumsum_probs)
+            utils.set_incremental_state(
+                self, incremental_state, 'cumsum_probs', new_cumsum_probs,
+            )
 
         nodes = utils.get_incremental_state(self, incremental_state, 'nodes')
         if nodes is not None:
             new_nodes = nodes.index_select(0, new_order)
-            utils.set_incremental_state(self, incremental_state, 'nodes',
-                new_nodes)
+            utils.set_incremental_state(
+                self, incremental_state, 'nodes', new_nodes,
+            )
 
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""
@@ -254,4 +256,3 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
 
     def output_layer(self, features, **kwargs):
         pass
-
