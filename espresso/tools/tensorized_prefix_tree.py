@@ -3,14 +3,13 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import os, re
 import numpy as np
-from typing import *
+from typing import Callable, List
 
 import torch
 
-from espresso.data import TokenDictionary
-from espresso.tools.utils import lexical_prefix_tree
+from espresso.data import AsrDictionary
+from espresso.tools.lexical_prefix_tree import lexical_prefix_tree
 
 
 class TensorizedPrefixTree:
@@ -43,8 +42,8 @@ class TensorizedPrefixTree:
 
     @staticmethod
     def build(
-            word_dict: TokenDictionary,
-            subword_dict: TokenDictionary,
+            word_dict: AsrDictionary,
+            subword_dict: AsrDictionary,
             subword_tokenizer: Callable[[str], List[str]] = None
     ):
         """
