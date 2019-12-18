@@ -9,8 +9,6 @@ from torch import nn
 from torch.nn import Parameter
 import torch.nn.functional as F
 
-from fairseq import utils
-
 
 class BaseAttention(nn.Module):
     """Base class for attention layers."""
@@ -62,12 +60,13 @@ class BahdanauAttention(BaseAttention):
     def forward(self, query, value, key_padding_mask=None, state=None):
         # projected_query: 1 x bsz x embed_dim
         projected_query = self.query_proj(query).unsqueeze(0)
-        key = self.value_proj(value) # len x bsz x embed_dim
+        key = self.value_proj(value)  # len x bsz x embed_dim
         if self.normalize:
             # normed_v = g * v / ||v||
             normed_v = self.g * self.v / torch.norm(self.v)
-            attn_scores = (normed_v * torch.tanh(projected_query + key + \
-                self.b)).sum(dim=2) # len x bsz
+            attn_scores = (
+                normed_v * torch.tanh(projected_query + key + self.b)
+            ).sum(dim=2)  # len x bsz
         else:
             attn_scores = self.v * torch.tanh(projected_query + key).sum(dim=2)
 
@@ -76,7 +75,7 @@ class BahdanauAttention(BaseAttention):
                 key_padding_mask, float('-inf'),
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
-        attn_scores = F.softmax(attn_scores, dim=0) # srclen x bsz
+        attn_scores = F.softmax(attn_scores, dim=0)  # srclen x bsz
 
         # sum weighted value. context: bsz x value_dim
         context = (attn_scores.unsqueeze(2) * value).sum(dim=0)
@@ -104,7 +103,7 @@ class LuongAttention(BaseAttention):
 
     def forward(self, query, value, key_padding_mask=None, state=None):
         query = query.unsqueeze(1)  # bsz x 1 x query_dim
-        key = self.value_proj(value).transpose(0, 1) # bsz x len x query_dim
+        key = self.value_proj(value).transpose(0, 1)  # bsz x len x query_dim
         attn_scores = torch.bmm(query, key.transpose(1, 2)).squeeze(1)
         attn_scores = attn_scores.transpose(0, 1)  # len x bsz
         if self.scale:
@@ -115,11 +114,10 @@ class LuongAttention(BaseAttention):
                 key_padding_mask, float('-inf'),
             ).type_as(attn_scores)  # FP16 support: cast to float and back
 
-        attn_scores = F.softmax(attn_scores, dim=0) # srclen x bsz
+        attn_scores = F.softmax(attn_scores, dim=0)  # srclen x bsz
 
         # sum weighted value. context: bsz x value_dim
         context = (attn_scores.unsqueeze(2) * value).sum(dim=0)
         next_state = attn_scores
 
         return context, attn_scores, next_state
-

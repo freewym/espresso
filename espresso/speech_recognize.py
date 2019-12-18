@@ -15,7 +15,6 @@ import torch
 from fairseq import checkpoint_utils, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.models import FairseqLanguageModel
-from fairseq.utils import import_user_module
 
 from espresso.models.external_language_model import MultiLevelLanguageModel
 from espresso.models.tensorized_lookahead_language_model import TensorizedLookaheadLanguageModel
@@ -54,16 +53,20 @@ def main(args):
         if hasattr(m, 'is_wordlm') and m.is_wordlm:
             # assume subword LM comes before word LM
             if isinstance(models[i - 1], FairseqLanguageModel):
-                models[i-1] = MultiLevelLanguageModel(m, models[i-1],
+                models[i-1] = MultiLevelLanguageModel(
+                    m, models[i-1],
                     subwordlm_weight=args.subwordlm_weight,
                     oov_penalty=args.oov_penalty,
-                    open_vocab=not args.disable_open_vocab)
+                    open_vocab=not args.disable_open_vocab,
+                )
                 del models[i]
                 print('| LM fusion with Multi-level LM')
             else:
-                models[i] = TensorizedLookaheadLanguageModel(m, dict,
+                models[i] = TensorizedLookaheadLanguageModel(
+                    m, dict,
                     oov_penalty=args.oov_penalty,
-                    open_vocab=not args.disable_open_vocab)
+                    open_vocab=not args.disable_open_vocab,
+                )
                 print('| LM fusion with Look-ahead Word LM')
         # assume subword LM comes after E2E models
         elif i == len(models) - 1 and isinstance(m, FairseqLanguageModel):
@@ -89,8 +92,8 @@ def main(args):
         max_sentences=args.max_sentences,
         max_positions=utils.resolve_max_positions(
             task.max_positions(),
-            *[model.max_positions() if hasattr(model, 'encoder') \
-            else (None, model.max_positions()) for model in models]
+            *[model.max_positions() if hasattr(model, 'encoder')
+              else (None, model.max_positions()) for model in models]
         ),
         ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
         required_batch_size_multiple=8,
@@ -102,7 +105,7 @@ def main(args):
     # Initialize generator
     if args.match_source_len:
         print('| The option match_source_len is not applicable to '
-            'speech recognition. Ignoring it.')
+              'speech recognition. Ignoring it.')
     gen_timer = StopwatchMeter()
     generator = task.build_generator(args)
 
@@ -122,8 +125,9 @@ def main(args):
                 prefix_tokens = sample['target'][:, :args.prefix_size]
 
             gen_timer.start()
-            hypos = task.inference_step(generator, models, sample, prefix_tokens,
-                lm_weight=args.lm_weight)
+            hypos = task.inference_step(
+                generator, models, sample, prefix_tokens, lm_weight=args.lm_weight,
+            )
             num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
             gen_timer.stop(num_generated_tokens)
 
@@ -142,13 +146,14 @@ def main(args):
                 if has_target:
                     target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
                     if not args.quiet:
-                        target_sent = dict.tokens_to_sentence(target_str,
-                            use_unk_sym=False, bpe_symbol=args.remove_bpe)
+                        target_sent = dict.tokens_to_sentence(
+                            target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,
+                        )
                         print('T-{}\t{}'.format(utt_id, target_sent))
 
                 # Process top predictions
                 for j, hypo in enumerate(hypos[i][:args.nbest]):
-                    hypo_str = dict.string(hypo['tokens'].int().cpu()) # not removing bpe at this point
+                    hypo_str = dict.string(hypo['tokens'].int().cpu())  # not removing bpe at this point
                     if not args.quiet or i == 0:
                         hypo_sent = dict.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
 

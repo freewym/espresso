@@ -3,8 +3,6 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import math
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -108,20 +106,17 @@ class SpeechTransformerModel(TransformerModel):
             else:
                 try:
                     return type(x)
-                except:
-                    raise ValueError
+                except TypeError:
+                    raise TypeError
 
-        out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels,
-            type=int)
-        kernel_sizes = eval_str_nested_list_or_tuple(
-            args.encoder_conv_kernel_sizes, type=int)
-        strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides,
-            type=int)
-        print('| input feature dimension: {}, channels: {}'.format(task.feat_dim,
-            task.feat_in_channels))
+        out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
+        kernel_sizes = eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
+        strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
+        print('| input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
         assert task.feat_dim % task.feat_in_channels == 0
-        conv_layers = ConvBNReLU(out_channels, kernel_sizes, strides,
-            in_channels=task.feat_in_channels) if not out_channels is None else None
+        conv_layers = ConvBNReLU(
+            out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,
+        ) if out_channels is not None else None
 
         transformer_encoder_input_size = task.feat_dim // task.feat_in_channels
         if conv_layers is not None:
@@ -135,16 +130,18 @@ class SpeechTransformerModel(TransformerModel):
                 transformer_encoder_input_size = \
                     (transformer_encoder_input_size + s - 1) // s
             transformer_encoder_input_size *= out_channels[-1]
-        
-        encoder = cls.build_encoder(args, conv_layers_before=conv_layers,
-            input_size=transformer_encoder_input_size)
+
+        encoder = cls.build_encoder(
+            args, conv_layers_before=conv_layers, input_size=transformer_encoder_input_size,
+        )
         decoder = cls.build_decoder(args, dict, decoder_embed_tokens)
         return SpeechTransformerModel(encoder, decoder)
 
     @classmethod
     def build_encoder(cls, args, conv_layers_before=None, input_size=83):
-        return SpeechTransformerEncoder(args,
-            conv_layers_before=conv_layers_before, input_size=input_size)
+        return SpeechTransformerEncoder(
+            args, conv_layers_before=conv_layers_before, input_size=input_size,
+        )
 
     @classmethod
     def build_decoder(cls, args, dict, embed_tokens):
@@ -206,8 +203,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
                   padding elements of shape `(batch, src_len)`
         """
         if self.conv_layers_before is not None:
-            x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens,
-                src_lengths)
+            x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens, src_lengths)
         else:
             x, encoder_padding_mask = src_tokens, \
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
@@ -258,14 +254,18 @@ class SpeechTransformerDecoder(TransformerDecoder):
     def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
         pass
 
+
 @register_model_architecture('speech_transformer', 'speech_transformer')
 def base_architecture(args):
-    args.encoder_conv_channels = getattr(args, 'encoder_conv_channels',
-        '[64, 64, 128, 128]')
-    args.encoder_conv_kernel_sizes = getattr(args, 'encoder_conv_kernel_sizes',
-        '[(3, 3), (3, 3), (3, 3), (3, 3)]')
-    args.encoder_conv_strides = getattr(args, 'encoder_conv_strides',
-        '[(1, 1), (2, 2), (1, 1), (2, 2)]')
+    args.encoder_conv_channels = getattr(
+        args, 'encoder_conv_channels', '[64, 64, 128, 128]',
+    )
+    args.encoder_conv_kernel_sizes = getattr(
+        args, 'encoder_conv_kernel_sizes', '[(3, 3), (3, 3), (3, 3), (3, 3)]',
+    )
+    args.encoder_conv_strides = getattr(
+        args, 'encoder_conv_strides', '[(1, 1), (2, 2), (1, 1), (2, 2)]',
+    )
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
     args.encoder_ffn_embed_dim = getattr(args, 'encoder_ffn_embed_dim', 512)
     args.encoder_layers = getattr(args, 'encoder_layers', 6)

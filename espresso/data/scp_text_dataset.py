@@ -27,22 +27,21 @@ class ScpDataset(torch.utils.data.Dataset):
             scp_entries = [line.strip().split(None, 1) for line in f]
         self.utt_ids = [entry[0] for entry in scp_entries]
         self.extended_filenames = [entry[1] for entry in scp_entries]
-        self.size = len(scp_entries) # number of utterances
-        self.sizes=[] # length of each utterance
+        self.size = len(scp_entries)  # number of utterances
+        self.sizes = []  # length of each utterance
         for filename in self.extended_filenames:
             try:
                 feat = kaldi_io.read_mat(filename)
-            except:
+            except Exception:
                 print('Failed to read feature matrix {}.'.format(filename))
                 raise
             assert feat is not None and isinstance(feat, np.ndarray)
             self.sizes.append(feat.shape[0])
         self.sizes = np.array(self.sizes, dtype=np.int32)
-        self.feat_dim = feat.shape[1] # feature dimension
+        self.feat_dim = feat.shape[1]  # feature dimension
 
         assert len(self.utt_ids) == len(self.extended_filenames) and \
             len(self.utt_ids) == len(self.sizes)
-
 
     def check_index(self, i):
         if i < 0 or i >= self.size:
@@ -80,14 +79,13 @@ class ScpCachedDataset(ScpDataset):
         super().__init__(path)
         self.cache = None
         self.cache_index = {}
-        self.cache_size = cache_size # in terms of number of examples
+        self.cache_size = cache_size  # in terms of number of examples
         self.start_search_for_next_pos_start = 0
         self.ordered_indices = list(range(self.size))
-        self.ordered_prefetch = ordered_prefetch # set to True ONLY if examples
-                                                 # are queried in the same order
-                                                 # as self.ordered_indices, and
-                                                 # doing this will speed up
-                                                 # search of the queried index.
+        # set to True ONLY if examples are queried in the same order as
+        # self.ordered_indices, and doing this will speed up search of the
+        # queried index
+        self.ordered_prefetch = ordered_prefetch
 
     @property
     def supports_prefetch(self):
@@ -111,15 +109,19 @@ class ScpCachedDataset(ScpDataset):
                 len(self.ordered_indices), \
                 'Position for next cache starting beyond the end of ordered_indices.'
             try:
-                pos_start = self.ordered_indices.index(i,
-                    self.start_pos_for_next_cache)
+                pos_start = self.ordered_indices.index(
+                    i, self.start_pos_for_next_cache,
+                )
             except ValueError:
-                print('index {} not found in self.ordered_indices. Set '
-                'self.ordered_prefetch to False, and/or call self.prefetch() '
-                'with the full list of indices, and then try again.'.format(i))
+                print(
+                    'index {} not found in self.ordered_indices. Set '
+                    'self.ordered_prefetch to False, and/or call self.prefetch() '
+                    'with the full list of indices, and then try again.'.format(i)
+                )
                 raise
-            pos_end = min(pos_start + self.cache_size,
-                len(self.ordered_indices))
+            pos_end = min(
+                pos_start + self.cache_size, len(self.ordered_indices),
+            )
             self.start_pos_for_next_cache = pos_end \
                 if self.ordered_prefetch else 0
             total_size = 0
@@ -146,11 +148,13 @@ class ScpInMemoryDataset(ScpDataset):
     def __init__(self, path):
         super().__init__(path)
         self.read_data()
- 
+
     def read_data(self):
         self.data_offsets = np.append([0], np.cumsum(self.sizes)[:-1])
-        self.buffer = np.empty((sum(self.sizes), self.feat_dim),
-            dtype=self.dtype)
+        self.buffer = np.empty(
+            (sum(self.sizes), self.feat_dim),
+            dtype=self.dtype,
+        )
         for i in range(len(self.data_offsets)):
             ptx = self.data_offsets[i]
             dst = self.buffer[ptx: ptx + self.sizes[i]]
@@ -167,7 +171,7 @@ class ScpInMemoryDataset(ScpDataset):
         return torch.from_numpy(a).float()
 
 
-class TokenTextDataset(torch.utils.data.Dataset):
+class AsrTextDataset(torch.utils.data.Dataset):
     """Takes a text file as input and binarizes it in memory at instantiation.
     Original lines are also kept in memory. Each line of the text file is in the
     format of 'utt_id tokenized_text'."""
@@ -188,12 +192,13 @@ class TokenTextDataset(torch.utils.data.Dataset):
                 utt_id, tokens = line.strip().split(None, 1)
                 self.utt_ids.append(utt_id)
                 self.tokens_list.append(tokens)
-                tensor = dictionary.encode_line(tokens,
-                    add_if_not_exist=False, append_eos=self.append_eos).long()
+                tensor = dictionary.encode_line(
+                    tokens, add_if_not_exist=False, append_eos=self.append_eos,
+                ).long()
                 self.tensor_list.append(tensor)
                 self.sizes.append(len(self.tensor_list[-1]))
 
-        self.size = len(self.utt_ids) # number of utterances
+        self.size = len(self.utt_ids)  # number of utterances
         self.sizes = np.array(self.sizes, dtype=np.int32)
 
         assert len(self.utt_ids) == len(self.tokens_list) and \
@@ -226,8 +231,9 @@ class TokenTextDataset(torch.utils.data.Dataset):
 
     def get_original_text(self, i, dictionary, bpe_symbol=None):
         self.check_index(i)
-        return dictionary.tokens_to_sentence(self.tokens_list[i],
-            use_unk_sym=False, bpe_symbol=bpe_symbol)
+        return dictionary.tokens_to_sentence(
+            self.tokens_list[i], use_unk_sym=False, bpe_symbol=bpe_symbol,
+        )
 
     def __len__(self):
         return self.size

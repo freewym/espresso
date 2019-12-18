@@ -253,7 +253,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
 
             for k, v in log_output.items():
                 if k in ['loss', 'nll_loss', 'ntokens', 'nsentences',
-                    'sample_size', 'word_count', 'char_count']:
+                         'sample_size', 'word_count', 'char_count']:
                     continue
                 if k == 'word_error':
                     extra_meters['wer'].update(

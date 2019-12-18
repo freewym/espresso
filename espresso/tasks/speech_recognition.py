@@ -3,35 +3,30 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import os
+
 import torch
 
-import itertools
-import os
-import re
-
 from fairseq import options
-from fairseq.data import (
-    ConcatDataset,
-    data_utils,
-)
+from fairseq.data import ConcatDataset
 
 from fairseq.tasks import FairseqTask, register_task
 
 from espresso.data import (
+    AsrDictionary,
+    AsrTextDataset,
     ScpCachedDataset,
     SpeechDataset,
-    TokenDictionary,
-    TokenTextDataset,
 )
 
 
-@register_task('speech_recognition')
-class SpeechRecognitionTask(FairseqTask):
+@register_task('speech_recognition_espresso')
+class SpeechRecognitionEspressoTask(FairseqTask):
     """
     Transcribe from speech (source) to token text (target).
 
     Args:
-        dict (~fairseq.data.TokenDictionary): dictionary for the output tokens
+        dict (~fairseq.data.AsrDictionary): dictionary for the output tokens
 
     .. note::
 
@@ -102,7 +97,7 @@ class SpeechRecognitionTask(FairseqTask):
             filename (str): the filename
             non_lang_syms (str): non_lang_syms filename
         """
-        return TokenDictionary.load(filename, f_non_lang_syms=non_lang_syms)
+        return AsrDictionary.load(filename, f_non_lang_syms=non_lang_syms)
 
     @classmethod
     def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8):
@@ -165,7 +160,7 @@ class SpeechRecognitionTask(FairseqTask):
             text_files = self.args.valid_text_files
         elif split == 'test':
             feat_files = self.args.test_feat_files
-            text_files = self.args.test_text_files # can be empty
+            text_files = self.args.test_text_files  # can be empty
             if text_files is None:
                 text_files = [None] * len(feat_files)
         elif split == 'train_subset':
@@ -178,11 +173,11 @@ class SpeechRecognitionTask(FairseqTask):
         file_pairs = zip(feat_files, text_files)
         for feat, text in file_pairs:
             assert ScpCachedDataset.exists(feat), feat + ' does not exists'
-            assert text is None or TokenTextDataset.exists(text), text + ' does not exists'
+            assert text is None or AsrTextDataset.exists(text), text + ' does not exists'
             src_datasets.append(ScpCachedDataset(feat, ordered_prefetch=True))
             print('| {} {} examples'.format(feat, len(src_datasets[-1])))
             if text is not None:
-                tgt_datasets.append(TokenTextDataset(text, self.dict))
+                tgt_datasets.append(AsrTextDataset(text, self.dict))
                 print('| {} {} examples'.format(text, len(tgt_datasets[-1])))
 
             if not combine:
@@ -228,7 +223,7 @@ class SpeechRecognitionTask(FairseqTask):
         if args.score_reference:
             args.score_reference = False
             print('| --score-reference is not applicable to speech recognition,'
-                ' ignoring it.')
+                  ' ignoring it.')
         from fairseq.sequence_generator import SequenceGenerator
         return SequenceGenerator(
             self.target_dictionary,
@@ -253,11 +248,11 @@ class SpeechRecognitionTask(FairseqTask):
     def build_dataset_for_inference(self, src_tokens, src_lengths):
         return SpeechDataset(src_tokens, src_lengths)
 
-    def inference_step(self, generator, models, sample, prefix_tokens=None,
-        lm_weight=0.0):
+    def inference_step(self, generator, models, sample, prefix_tokens=None, lm_weight=0.0):
         with torch.no_grad():
-            return generator.generate(models, sample, prefix_tokens=prefix_tokens,
-                lm_weight=lm_weight)
+            return generator.generate(
+                models, sample, prefix_tokens=prefix_tokens, lm_weight=lm_weight,
+            )
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
@@ -265,10 +260,10 @@ class SpeechRecognitionTask(FairseqTask):
 
     @property
     def target_dictionary(self):
-        """Return the target :class:`~fairseq.data.TokenDictionary`."""
+        """Return the target :class:`~fairseq.data.AsrDictionary`."""
         return self.dict
 
     @property
     def word_dictionary(self):
-        """Return the target :class:`~fairseq.data.TokenDictionary`."""
+        """Return the target :class:`~fairseq.data.AsrDictionary`."""
         return self.word_dict

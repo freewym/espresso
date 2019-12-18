@@ -264,7 +264,7 @@ if [ ${stage} -le 8 ]; then
   mkdir -p $dir/logs
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --task speech_recognition --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval 400 --log-format simple --print-training-sample-interval 1000 \
     --num-workers 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
@@ -307,7 +307,7 @@ if [ ${stage} -le 9 ]; then
     fi
     text=data/$dataset/token_text
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
-      --task speech_recognition --user-dir espresso --max-tokens 20000 --max-sentences 32 \
+      --task speech_recognition_espresso --user-dir espresso --max-tokens 20000 --max-sentences 32 \
       --num-shards 1 --shard-id 0 --test-feat-files $feat --test-text-files $text \
       --dict $dict --non-lang-syms $nlsyms \
       --max-source-positions 9999 --max-target-positions 999 \

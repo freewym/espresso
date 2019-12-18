@@ -24,10 +24,10 @@ def collate(
                 [s[key] for s in samples], 0.0, left_pad,
             )
         elif key == 'target':
-          return data_utils.collate_tokens(
-              [s[key] for s in samples],
-              pad_idx, eos_idx, left_pad, move_eos_to_beginning,
-          )
+            return data_utils.collate_tokens(
+                [s[key] for s in samples],
+                pad_idx, eos_idx, left_pad, move_eos_to_beginning,
+            )
         else:
             raise ValueError('Invalid key.')
 
@@ -66,8 +66,7 @@ def collate(
         'nsentences': len(samples),
         'ntokens': ntokens,
         'net_input': {
-            'src_tokens': src_frames, # key name kept due to
-                                      # FairseqModel::forward(...,src_tokens,...)
+            'src_tokens': src_frames,
             'src_lengths': src_lengths,
         },
         'target': target,
@@ -129,8 +128,9 @@ class SpeechDataset(FairseqDataset):
         if self.src.utt_ids == self.tgt.utt_ids:
             return
         tgt_utt_ids_set = set(self.tgt.utt_ids)
-        src_indices = [i for i, id in enumerate(self.src.utt_ids) \
-            if id in tgt_utt_ids_set]
+        src_indices = [
+            i for i, id in enumerate(self.src.utt_ids) if id in tgt_utt_ids_set
+        ]
         self.src.filter_and_reorder(src_indices)
         self.src_sizes = np.array(self.src.sizes)
         try:
@@ -220,4 +220,3 @@ class SpeechDataset(FairseqDataset):
     def prefetch(self, indices):
         """Only prefetch src."""
         self.src.prefetch(indices)
-

@@ -39,8 +39,11 @@ def main(args):
     with (open(args.text, 'r', encoding='utf-8') if args.text else sys.stdin) as f:
         for line in f:
             entry = line.rstrip().split()
-            tokenized = tokenize(' '.join(entry[args.skip_ncols:]),
-                space=args.space, non_lang_syms=nls)
+            tokenized = tokenize(
+                ' '.join(entry[args.skip_ncols:]),
+                space=args.space,
+                non_lang_syms=nls,
+            )
             if args.skip_ncols > 0:
                 if args.ends_with_space:
                     print(' '.join(entry[:args.skip_ncols]) + ' ' + tokenized + ' ' + args.space)

@@ -10,9 +10,7 @@
 # The format of output is like "en_4156 A start_time duration oh", and so on
 
 import argparse
-import math
 import re
-import sys
 
 
 def get_parser():
@@ -36,7 +34,7 @@ def main(args):
     split_content = []  # store ctm results
     for i, line in enumerate(content):
         elements = line.strip().split()
-      
+
         # The first field contains the information of the utterance
         utt_info = elements[0]
         infos = re.split('[-_]', utt_info)
@@ -58,24 +56,24 @@ def main(args):
                 duration = end_time - start_time_cur
                 split_content.append(
                     ' '.join([utt_id, channel, str(round(start_time_cur, 2)),
-                    str(round(duration, 2)), word])
+                              str(round(duration, 2)), word])
                 )
             else:
-                duration = time_step 
+                duration = time_step
                 split_content.append(
                     ' '.join([utt_id, channel, str(round(start_time_cur, 2)),
-                    str(round(duration, 2)), word])
+                              str(round(duration, 2)), word])
                 )
         if j == 0:
             split_content.append(
                 ' '.join([utt_id, channel, str(round(start_time, 2)),
-                    str(round(time_diff, 2)), '[noise]'])
+                          str(round(time_diff, 2)), '[noise]'])
             )
 
     with open(args.ctm_result, 'w', encoding='utf-8') as f:
         for line in split_content:
             f.write(line + '\n')
-      
+
 
 if __name__ == '__main__':
     parser = get_parser()
