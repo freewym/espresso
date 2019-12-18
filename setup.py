@@ -192,6 +192,7 @@ def do_setup(package_data):
             'dataclasses; python_version<"3.7"',
             "hydra-core<1.1",
             "omegaconf<2.1",
+            "kaldi_io",
             'numpy<1.20.0; python_version<"3.7"',
             'numpy; python_version>="3.7"',
             "regex",
