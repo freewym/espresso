@@ -182,6 +182,7 @@ def do_setup(package_data):
             "hydra-core>=1.0.7,<1.1",
             "omegaconf<2.1",
             "numpy>=1.21.3",
+            "kaldi_io",
             "regex",
             "sacrebleu>=1.4.12",
             "torch>=1.10",
