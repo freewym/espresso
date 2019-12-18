@@ -136,6 +136,7 @@ setup(
     install_requires=[
         'cffi',
         'cython',
+        'kaldi_io',
         'numpy',
         'regex',
         'sacrebleu',

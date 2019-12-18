@@ -11,14 +11,16 @@ from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
 from fairseq.options import eval_str_list
 
-from fairseq.criterions import FairseqCriterion, register_criterion
+from fairseq.criterions import register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
 
 from espresso.tools import wer
 
 
-def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=None, reduce=True,
-    smoothing_type='uniform', prob_mask=None, unigram_tensor=None):
+def label_smoothed_nll_loss(
+    lprobs, target, epsilon, ignore_index=None, reduce=True,
+    smoothing_type='uniform', prob_mask=None, unigram_tensor=None,
+):
     if target.dim() == lprobs.dim() - 1:
         target = target.unsqueeze(-1)
     nll_loss = -lprobs.gather(dim=-1, index=target)
@@ -54,8 +56,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         super().__init__(args, task)
 
         dict = task.target_dictionary
-        self.scorer = wer.Scorer(dict,
-            wer_output_filter=task.args.wer_output_filter)
+        self.scorer = wer.Scorer(dict, wer_output_filter=task.args.wer_output_filter)
         self.train_tgt_dataset = None
         self.valid_tgt_dataset = None
         self.num_updates = -1
@@ -105,13 +106,15 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         """
         dict = self.scorer.dict
         if model.training:
-            if (len(self.args.scheduled_sampling_probs) > 1 or \
-                self.args.scheduled_sampling_probs[0] < 1.0) and \
-                self.epoch >= self.args.start_scheduled_sampling_epoch:
+            if (
+                (len(self.args.scheduled_sampling_probs) > 1 or
+                 self.args.scheduled_sampling_probs[0] < 1.0) and
+                self.epoch >= self.args.start_scheduled_sampling_epoch
+            ):
                 # scheduled sampling
                 ss_prob = self.args.scheduled_sampling_probs[
                     min(self.epoch - self.args.start_scheduled_sampling_epoch,
-                    len(self.args.scheduled_sampling_probs) - 1)
+                        len(self.args.scheduled_sampling_probs) - 1)
                 ]
                 assert isinstance(model.decoder, FairseqIncrementalDecoder)
                 incremental_states = {}
@@ -123,16 +126,21 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                 target = sample['target']
                 tokens = sample['net_input']['prev_output_tokens']
                 lprobs = []
+                pred = None
                 for step in range(target.size(1)):
                     if step > 0:
-                        sampling_mask = torch.rand([target.size(0), 1],
-                            device=target.device).lt(ss_prob)
-                        feed_tokens = torch.where(sampling_mask,
-                            tokens[:, step:step + 1], pred)
+                        sampling_mask = torch.rand(
+                            [target.size(0), 1],
+                            device=target.device,
+                        ).lt(ss_prob)
+                        feed_tokens = torch.where(
+                            sampling_mask, tokens[:, step:step + 1], pred,
+                        )
                     else:
                         feed_tokens = tokens[:, step:step + 1]
-                    log_probs, _ = self._decode(feed_tokens,
-                        model, encoder_out, incremental_states)
+                    log_probs, _ = self._decode(
+                        feed_tokens, model, encoder_out, incremental_states,
+                    )
                     pred = log_probs.argmax(-1, keepdim=True)
                     lprobs.append(log_probs)
                 lprobs = torch.stack(lprobs, dim=1)
@@ -159,7 +167,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
             attn = [] if getattr(model.decoder, 'need_attn', False) else None
             dummy_log_probs = encoder_out['encoder_out'][0].new_full(
                 [target.size(0), len(dict)], -np.log(len(dict)))
-            for step in range(maxlen + 1): # one extra step for EOS marker
+            for step in range(maxlen + 1):  # one extra step for EOS marker
                 is_eos = tokens[:, step].eq(dict.eos())
                 # if all predictions are finished (i.e., ended with eos),
                 # pad lprobs to target length with dummy log probs,
@@ -169,10 +177,11 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                         lprobs.append(dummy_log_probs)
                     tokens = tokens[:, :step + 1]
                     break
-                log_probs, attn_scores = self._decode(tokens[:, :step + 1],
-                    model, encoder_out, incremental_states)
+                log_probs, attn_scores = self._decode(
+                    tokens[:, :step + 1], model, encoder_out, incremental_states,
+                )
                 tokens[:, step + 1] = log_probs.argmax(-1)
-                if step > 0: # deal with finished predictions
+                if step > 0:  # deal with finished predictions
                     # make log_probs uniform if the previous output token is EOS
                     # and add consecutive EOS to the end of prediction
                     log_probs[is_eos, :] = -np.log(log_probs.size(1))
@@ -187,35 +196,43 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                 # bsz x (maxlen + 1) x (length of encoder_out)
                 attn = torch.stack(attn, dim=1)
         # word error stats code starts
-        if not model.training or (self.num_updates // self.args.print_interval >
-            (self.num_updates - 1) // self.args.print_interval):
+        if (
+            not model.training or
+            (
+                self.num_updates // self.args.print_interval >
+                (self.num_updates - 1) // self.args.print_interval
+            )
+        ):
             pred = lprobs.argmax(-1).cpu() if model.training else \
-                tokens[:, 1:].data.cpu() # bsz x len
+                tokens[:, 1:].data.cpu()  # bsz x len
 
-            if not model.training: # validation step, compute WER stats with scorer
+            if not model.training:  # validation step, compute WER stats with scorer
                 assert pred.size(0) == target.size(0)
                 self.scorer.reset()
                 for i in range(target.size(0)):
                     utt_id = sample['utt_id'][i]
                     id = sample['id'].data[i].item()
-                    #ref_tokens = dict.string(target.data[i])
+                    # ref_tokens = dict.string(target.data[i])
                     # if it is a dummy batch (e.g., a "padding" batch in a sharded
                     # dataset), id might exceeds the dataset size; in that case we
                     # just skip it
                     if id < len(self.valid_tgt_dataset):
                         ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
                         pred_tokens = dict.string(pred.data[i])
-                        self.scorer.add_evaluation(utt_id, ref_tokens,
-                            pred_tokens, bpe_symbol=self.args.remove_bpe)
-            else: # print a randomly sampled result every print_interval updates
+                        self.scorer.add_evaluation(
+                            utt_id, ref_tokens, pred_tokens,
+                            bpe_symbol=self.args.remove_bpe,
+                        )
+            else:  # print a randomly sampled result every print_interval updates
                 assert pred.size() == target.size()
                 with data_utils.numpy_seed(self.num_updates):
                     i = np.random.randint(0, len(sample['id']))
                 id = sample['id'].data[i].item()
                 length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
-                #ref_one = dict.tokens_to_sentence(dict.string(target.data[i]))
-                ref_one = self.train_tgt_dataset.get_original_text(id, dict,
-                    bpe_symbol=self.args.remove_bpe)
+                # ref_one = dict.tokens_to_sentence(dict.string(target.data[i]))
+                ref_one = self.train_tgt_dataset.get_original_text(
+                    id, dict, bpe_symbol=self.args.remove_bpe,
+                )
                 pred_one = dict.tokens_to_sentence(
                     dict.string(pred.data[i][:length]),
                     bpe_symbol=self.args.remove_bpe,
@@ -227,22 +244,22 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         if self.args.smoothing_type == 'temporal':
             # see https://arxiv.org/pdf/1612.02695.pdf
             # prob_mask.dtype=int for deterministic behavior of Tensor.scatter_add_()
-            prob_mask = torch.zeros_like(lprobs, dtype=torch.int) # bsz x tgtlen x vocab_size
-            idx_tensor = target.new_full(target.size(), self.padding_idx).unsqueeze(-1) # bsz x tgtlen x 1
+            prob_mask = torch.zeros_like(lprobs, dtype=torch.int)  # bsz x tgtlen x vocab_size
+            idx_tensor = target.new_full(target.size(), self.padding_idx).unsqueeze(-1)  # bsz x tgtlen x 1
             # hard-code the remaining probabilty mass distributed symmetrically
             # over neighbors at distance ±1 and ±2 with a 5 : 2 ratio
-            idx_tensor[:, 2:, 0] = target[:, :-2] # two neighbors to the left
+            idx_tensor[:, 2:, 0] = target[:, :-2]  # two neighbors to the left
             prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
             idx_tensor.fill_(self.padding_idx)[:, 1:, 0] = target[:, :-1]
             prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
-            idx_tensor.fill_(self.padding_idx)[:, :-2, 0] = target[:, 2:] # two neighbors to the right
+            idx_tensor.fill_(self.padding_idx)[:, :-2, 0] = target[:, 2:]  # two neighbors to the right
             prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
             idx_tensor.fill_(self.padding_idx)[:, :-1, 0] = target[:, 1:]
             prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
-            prob_mask[:, :, self.padding_idx] = 0 # clear cumulative count on <pad>
-            prob_mask = prob_mask.float() # convert to float
+            prob_mask[:, :, self.padding_idx] = 0  # clear cumulative count on <pad>
+            prob_mask = prob_mask.float()  # convert to float
             sum_prob = prob_mask.sum(-1, keepdim=True)
-            sum_prob[sum_prob.squeeze(-1).eq(0.)] = 1. # to deal with the "division by 0" problem
+            sum_prob[sum_prob.squeeze(-1).eq(0.)] = 1.  # to deal with the "division by 0" problem
             prob_mask = prob_mask.div_(sum_prob).view(-1, prob_mask.size(-1))
 
         lprobs = lprobs.view(-1, lprobs.size(-1))
@@ -260,7 +277,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
         }
-        if not model.training: # do not compute word error in training mode
+        if not model.training:  # do not compute word error in training mode
             logging_output['word_error'] = self.scorer.tot_word_error()
             logging_output['word_count'] = self.scorer.tot_word_count()
             logging_output['char_error'] = self.scorer.tot_char_error()
@@ -275,17 +292,18 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         word_count = sum(log.get('word_count', 0) for log in logging_outputs)
         char_error = sum(log.get('char_error', 0) for log in logging_outputs)
         char_count = sum(log.get('char_count', 0) for log in logging_outputs)
-        if word_count > 0: # model.training == False
+        if word_count > 0:  # model.training == False
             agg_output['word_error'] = word_error
             agg_output['word_count'] = word_count
-        if char_count > 0: # model.training == False
+        if char_count > 0:  # model.training == False
             agg_output['char_error'] = char_error
             agg_output['char_count'] = char_count
         return agg_output
 
     def _decode(self, tokens, model, encoder_out, incremental_states):
-        decoder_out = list(model.decoder(tokens, encoder_out,
-            incremental_state=incremental_states))
+        decoder_out = list(model.forward_decoder(
+            tokens, encoder_out=encoder_out, incremental_state=incremental_states,
+        ))
         decoder_out[0] = decoder_out[0][:, -1:, :]
         attn = decoder_out[1]
         if type(attn) is dict:

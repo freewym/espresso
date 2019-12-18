@@ -7,11 +7,11 @@ import math
 
 import torch
 
-from espresso.models.external_language_model import RawOutExternalLanguageModelBase
-
 from fairseq import search, utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
+
+from espresso.models.external_language_model import RawOutExternalLanguageModelBase
 
 
 class SequenceGenerator(object):
@@ -351,8 +351,9 @@ class SequenceGenerator(object):
                     if src_tokens.dim() > 2:
                         max_encoder_output_length = \
                             model.models[0].encoder.output_lengths(src_tokens.size(1))
-                        attn = scores.new(bsz * beam_size,
-                            max_encoder_output_length, max_len + 2)
+                        attn = scores.new(
+                            bsz * beam_size, max_encoder_output_length, max_len + 2,
+                        )
                     else:
                         attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
                     attn_buf = attn.clone()
@@ -752,7 +753,7 @@ class LMFusionModel(EnsembleModel):
                 temperature=temperature,
                 use_raw_out=isinstance(model, RawOutExternalLanguageModelBase),
             )
-            if i == 1 and self.lm_weight != 1.0: # assuming LM is the last model
+            if i == 1 and self.lm_weight != 1.0:  # assuming LM is the last model
                 probs.mul_(self.lm_weight)
             log_probs.append(probs)
             if attn is not None:
@@ -794,6 +795,6 @@ class LMFusionModel(EnsembleModel):
 
     def reorder_encoder_out(self, encoder_outs, new_order):
         return [
-            model.encoder.reorder_encoder_out(encoder_out, new_order) if hasattr(model, 'encoder') else None \
+            model.encoder.reorder_encoder_out(encoder_out, new_order) if hasattr(model, 'encoder') else None
             for model, encoder_out in zip(self.models, encoder_outs)
         ]
