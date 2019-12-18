@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import sys, re
+import re
+import sys
 from collections import Counter
 
 from espresso.tools.utils import edit_distance
@@ -52,8 +53,10 @@ def main(args):
                     assert m is not None
                     word_filters.append([m.group(1), m.group(2)])
                 else:
-                    print('Unsupported pattern: "{}", ignored'.format(line),
-                        file=sys.stderr)
+                    print(
+                        'Unsupported pattern: "{}", ignored'.format(line),
+                        file=sys.stderr,
+                    )
 
     refs = {}
     with open(args.ref_text, 'r', encoding='utf-8') as f:
@@ -68,7 +71,7 @@ def main(args):
             utt_id, text = line.strip().split(None, 1)
             assert utt_id in refs, utt_id
             ref, hyp = refs[utt_id], text
-            
+
             # filter words according to word_filters (support re.sub only)
             for pattern, repl in word_filters:
                 ref = re.sub(pattern, repl, ref)
@@ -82,8 +85,9 @@ def main(args):
             wer_counter += counter
 
     assert wer_counter['words'] > 0
-    wer = float(wer_counter['sub'] + wer_counter['ins'] + \
-        wer_counter['del']) / wer_counter['words'] * 100
+    wer = float(
+        wer_counter['sub'] + wer_counter['ins'] + wer_counter['del']
+    ) / wer_counter['words'] * 100
     sub = float(wer_counter['sub']) / wer_counter['words'] * 100
     ins = float(wer_counter['ins']) / wer_counter['words'] * 100
     dlt = float(wer_counter['del']) / wer_counter['words'] * 100
@@ -95,4 +99,4 @@ def main(args):
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
-    main(args) 
+    main(args)
