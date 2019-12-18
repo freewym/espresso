@@ -5,7 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-import os, sys
+import os
+import sys
 from collections import Counter
 
 
@@ -116,4 +117,4 @@ def main(args):
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
-    main(args) 
+    main(args)
