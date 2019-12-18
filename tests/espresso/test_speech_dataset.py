@@ -11,11 +11,11 @@ import os
 import torch
 
 from espresso.data import (
+    AsrDictionary,
+    AsrTextDataset,
     ScpCachedDataset,
     ScpInMemoryDataset,
     SpeechDataset,
-    TokenDictionary,
-    TokenTextDataset,
 )
 
 try:
@@ -29,12 +29,12 @@ class TestSpeechDataset(unittest.TestCase):
     @staticmethod
     def make_dictionary():
         """construct dictionary."""
-        d = TokenDictionary()
+        d = AsrDictionary()
         alphabet = string.ascii_lowercase
         for token in alphabet:
             d.add_symbol(token)
         d.add_symbol('<space>')
-        d.finalize(padding_factor=1) # don't add extra padding symbols
+        d.finalize(padding_factor=1)  # don't add extra padding symbols
         d.space_index = d.indices.get('<space>', -1)
         return d
 
@@ -43,8 +43,9 @@ class TestSpeechDataset(unittest.TestCase):
         """generate feature matrices."""
         feats = {}
         np.random.seed(seed)
-        with open(os.path.join(test_dir, 'feats.scp'), 'w',
-            encoding='utf-8') as f:
+        with open(
+            os.path.join(test_dir, 'feats.scp'), 'w', encoding='utf-8',
+        ) as f:
             for i in range(num):
                 utt_id = 'utt_id_' + str(i)
                 ark_file = os.path.join(test_dir, 'mat_' + str(i) + '.ark')
@@ -65,13 +66,15 @@ class TestSpeechDataset(unittest.TestCase):
         vocab = list(alphabet)
         vocab.append(space)
         np.random.seed(seed)
-        with open(os.path.join(test_dir, 'text_tokens'), 'w',
-            encoding='utf-8') as f:
+        with open(
+            os.path.join(test_dir, 'text_tokens'), 'w', encoding='utf-8',
+        ) as f:
             for i in np.random.permutation(range(num)):
                 utt_id = 'utt_id_' + str(i)
                 length = np.random.randint(10, 100)
-                tokens = [vocab[np.random.randint(0, len(vocab))] \
-                    for _ in range(length)]
+                tokens = [
+                    vocab[np.random.randint(0, len(vocab))] for _ in range(length)
+                ]
                 if tokens[0] == space:
                     tokens[0] = vocab[np.random.randint(0, len(vocab) - 1)]
                 if tokens[-1] == space:
@@ -88,15 +91,18 @@ class TestSpeechDataset(unittest.TestCase):
         self.batch_size = 8
         self.cache_size = 16
         self.dict = self.make_dictionary()
-        self.expected_feats = self.generate_feats(self.test_dir,
-            num=self.num_audios, seed=0)
-        self.expected_tokens = self.generate_text_tokens(self.test_dir,
-            num=self.num_transripts, seed=1)
+        self.expected_feats = self.generate_feats(
+            self.test_dir, num=self.num_audios, seed=0,
+        )
+        self.expected_tokens = self.generate_text_tokens(
+            self.test_dir, num=self.num_transripts, seed=1,
+        )
 
         self.cuda = torch.cuda.is_available()
 
-    def _speech_dataset_helper(self, all_in_memory=False,
-        ordered_prefetch=False):
+    def _speech_dataset_helper(
+        self, all_in_memory=False, ordered_prefetch=False,
+    ):
         if not all_in_memory:
             src_dataset = ScpCachedDataset(
                 path=os.path.join(self.test_dir, 'feats.scp'),
@@ -107,7 +113,7 @@ class TestSpeechDataset(unittest.TestCase):
             src_dataset = ScpInMemoryDataset(
                 path=os.path.join(self.test_dir, 'feats.scp')
             )
-        tgt_dataset = TokenTextDataset(
+        tgt_dataset = AsrTextDataset(
             path=os.path.join(self.test_dir, 'text_tokens'),
             dictionary=self.dict,
         )
@@ -171,12 +177,15 @@ class TestSpeechDataset(unittest.TestCase):
 
     def assertTensorEqual(self, t1, t2):
         self.assertEqual(t1.size(), t2.size(), "size mismatch")
-        if (t1.dtype == torch.short or t1.dtype == torch.int or \
-            t1.dtype == torch.long) and (t2.dtype == torch.short or \
-            t2.dtype == torch.int or t2.dtype == torch.long):
+        if (
+            (t1.dtype == torch.short or t1.dtype == torch.int or
+             t1.dtype == torch.long) and
+            (t2.dtype == torch.short or t2.dtype == torch.int or
+             t2.dtype == torch.long)
+        ):
             self.assertEqual(t1.ne(t2).long().sum(), 0)
         else:
-            self.assertEqual(t1.allclose(t2,rtol=1e-05, atol=1e-08), True)
+            self.assertEqual(t1.allclose(t2, rtol=1e-05, atol=1e-08), True)
 
 
 if __name__ == "__main__":
