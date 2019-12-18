@@ -90,20 +90,17 @@ class SpeechFConvModel(FConvModel):
             else:
                 try:
                     return type(x)
-                except:
-                    raise ValueError
+                except TypeError:
+                    raise TypeError
 
-        out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels,
-            type=int)
-        kernel_sizes = eval_str_nested_list_or_tuple(
-            args.encoder_conv_kernel_sizes, type=int)
-        strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides,
-            type=int)
-        print('| input feature dimension: {}, channels: {}'.format(task.feat_dim,
-            task.feat_in_channels))
+        out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
+        kernel_sizes = eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
+        strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
+        print('| input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
         assert task.feat_dim % task.feat_in_channels == 0
-        conv_layers = ConvBNReLU(out_channels, kernel_sizes, strides,
-            in_channels=task.feat_in_channels) if not out_channels is None else None
+        conv_layers = ConvBNReLU(
+            out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,
+        ) if out_channels is not None else None
 
         fconv_encoder_input_size = task.feat_dim // task.feat_in_channels
         if conv_layers is not None:
@@ -116,7 +113,7 @@ class SpeechFConvModel(FConvModel):
                     s = stride
                 fconv_encoder_input_size = (fconv_encoder_input_size + s - 1) // s
             fconv_encoder_input_size *= out_channels[-1]
-        
+
         encoder = SpeechFConvEncoder(
             conv_layers_before=conv_layers,
             input_size=fconv_encoder_input_size,
@@ -169,7 +166,7 @@ class SpeechFConvEncoder(FConvEncoder):
         self.conv_layers_before = conv_layers_before
         self.fc0 = Linear(input_size, embed_dim, dropout=dropout) \
             if input_size != embed_dim else None
-        
+
         convolutions = extend_conv_spec(convolutions)
         in_channels = convolutions[0][0]
         self.fc1 = Linear(embed_dim, in_channels, dropout=dropout)
@@ -221,8 +218,7 @@ class SpeechFConvEncoder(FConvEncoder):
                   padding elements of shape `(batch, src_len)`
         """
         if self.conv_layers_before is not None:
-            x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens,
-                src_lengths)
+            x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens, src_lengths)
         else:
             x, encoder_padding_mask = src_tokens, \
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
@@ -306,8 +302,10 @@ class SpeechFConvDecoder(FConvDecoder):
         def mask_copy_state(state, another_state):
             if isinstance(state, list):
                 assert isinstance(another_state, list) and len(state) == len(another_state)
-                return [mask_copy_state(state_i, another_state_i) \
-                    for state_i, another_state_i in zip(state, another_state)]
+                return [
+                    mask_copy_state(state_i, another_state_i)
+                    for state_i, another_state_i in zip(state, another_state)
+                ]
             if state is not None:
                 assert state.size(0) == mask.size(0) and another_state is not None and \
                     state.size() == another_state.size()
@@ -324,12 +322,15 @@ class SpeechFConvDecoder(FConvDecoder):
 
 @register_model_architecture('speech_fconv', 'speech_fconv')
 def base_architecture(args):
-    args.encoder_conv_channels = getattr(args, 'encoder_conv_channels',
-        '[64, 64, 128, 128]')
-    args.encoder_conv_kernel_sizes = getattr(args, 'encoder_conv_kernel_sizes',
-        '[(3, 3), (3, 3), (3, 3), (3, 3)]')
-    args.encoder_conv_strides = getattr(args, 'encoder_conv_strides',
-        '[(1, 1), (2, 2), (1, 1), (2, 2)]')
+    args.encoder_conv_channels = getattr(
+        args, 'encoder_conv_channels', '[64, 64, 128, 128]',
+    )
+    args.encoder_conv_kernel_sizes = getattr(
+        args, 'encoder_conv_kernel_sizes', '[(3, 3), (3, 3), (3, 3), (3, 3)]',
+    )
+    args.encoder_conv_strides = getattr(
+        args, 'encoder_conv_strides', '[(1, 1), (2, 2), (1, 1), (2, 2)]',
+    )
     args.dropout = getattr(args, 'dropout', 0.1)
     args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
     args.encoder_layers = getattr(args, 'encoder_layers', '[(512, 3)] * 20')
