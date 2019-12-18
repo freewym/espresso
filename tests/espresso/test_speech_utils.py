@@ -10,7 +10,7 @@ from collections import Counter
 
 import torch
 
-from espresso.data import TokenDictionary
+from espresso.data import AsrDictionary
 
 import espresso.tools.utils as utils
 
@@ -21,13 +21,13 @@ class TestSpeechUtils(unittest.TestCase):
     def make_dictionary(vocab, non_lang_syms=[]):
         """construct dictionary."""
         assert isinstance(vocab, list) and isinstance(non_lang_syms, list)
-        d = TokenDictionary()
+        d = AsrDictionary()
         for token in vocab:
             d.add_symbol(token)
         d.add_symbol('<space>')
         for token in non_lang_syms:
             d.add_symbol(token)
-        d.finalize(padding_factor=1) # don't add extra padding symbols
+        d.finalize(padding_factor=1)  # don't add extra padding symbols
         d.space_index = d.indices.get('<space>', -1)
         return d
 
@@ -60,32 +60,37 @@ class TestSpeechUtils(unittest.TestCase):
         self.oovs = list(string.ascii_uppercase)
         self.non_lang_syms = ['<noise>', '<spnoise>', '<sil>']
         self.num_sentences = 100
-        self.dict = self.make_dictionary(self.vocab,
+        self.dict = self.make_dictionary(
+            self.vocab,
             non_lang_syms=self.non_lang_syms,
         )
-        self.text = [self.generate_text(self.vocab, self.oovs,
-            self.non_lang_syms, seed=i) for i in range(self.num_sentences)]
+        self.text = [self.generate_text(
+            self.vocab, self.oovs, self.non_lang_syms, seed=i,
+        ) for i in range(self.num_sentences)]
 
     def test_speech_tokenizer(self):
         for i, sent in enumerate(self.text):
             print('test sentence {}:'.format(i))
             print(sent)
-            tokens = utils.tokenize(sent, \
-                space=self.dict.space_word, non_lang_syms=self.non_lang_syms)
+            tokens = utils.tokenize(
+                sent, space=self.dict.space_word,
+                non_lang_syms=self.non_lang_syms,
+            )
 
             # test :func:`~speech_tools.utils.tokenize` with
-            # :func:`~TokenDictionary.encode_line`
-            tensor = self.dict.encode_line(tokens, add_if_not_exist=False,
-                append_eos=True)
+            # :func:`~AsrDictionary.encode_line`
+            tensor = self.dict.encode_line(
+                tokens, add_if_not_exist=False, append_eos=True,
+            )
             reconstructed_tokens = self.dict.string(tensor)
             expected_tokens = ' '.join(
-                [token if self.dict.index(token) != self.dict.unk() else \
+                [token if self.dict.index(token) != self.dict.unk() else
                     self.dict.unk_word for token in tokens.split(' ')]
             )
             self.assertEqual(reconstructed_tokens, expected_tokens)
 
             # test :func:`~speech_tools.utils.tokenize` with
-            # :func:`~TokenDictionary.tokens_to_sentence`
+            # :func:`~AsrDictionary.tokens_to_sentence`
             reconstructed_sent = self.dict.tokens_to_sentence(tokens)
             expected_sent = []
             words = sent.split(' ')
@@ -129,12 +134,12 @@ class TestSpeechUtils(unittest.TestCase):
             [1, 0, 0, 0],
             [1, 1, 1, 1],
             [0, 0, 0, 0],
-            [1, 1, 1, 0]]).byte()
+            [1, 1, 1, 0]]).bool()
         expected_mask2 = torch.tensor([
             [1, 0, 0, 0, 0],
             [1, 1, 1, 1, 0],
             [0, 0, 0, 0, 0],
-            [1, 1, 1, 0, 0]]).byte()
+            [1, 1, 1, 0, 0]]).bool()
 
         generated_mask = utils.sequence_mask(seq_len)
         generated_mask2 = utils.sequence_mask(seq_len, max_len=5)
@@ -155,56 +160,72 @@ class TestSpeechUtils(unittest.TestCase):
             [0.0, 0.0, 0.0, 1.5]]).unsqueeze(-1).expand(-1, -1, 10)
         seq_len = torch.tensor([3, 2, 4, 1]).int()
 
-        t1_to_t2 = utils.convert_padding_direction(t1, seq_len,
-            right_to_left=True)
+        t1_to_t2 = utils.convert_padding_direction(
+            t1, seq_len, right_to_left=True,
+        )
         self.assertTensorEqual(t1_to_t2, t2)
 
-        t2_to_t1 = utils.convert_padding_direction(t2, seq_len,
-            left_to_right=True)
+        t2_to_t1 = utils.convert_padding_direction(
+            t2, seq_len, left_to_right=True,
+        )
         self.assertTensorEqual(t2_to_t1, t1)
 
     def test_edit_distance(self):
         ref, hyp = [], []
         dist, steps, counter = utils.edit_distance(ref, hyp)
-        self.assertEqual(counter,
-            Counter({'words': 0, 'corr': 0, 'sub': 0, 'ins': 0, 'del': 0}))
+        self.assertEqual(
+            counter,
+            Counter({'words': 0, 'corr': 0, 'sub': 0, 'ins': 0, 'del': 0}),
+        )
         self.assertEqual(steps, [])
 
         ref, hyp = ['a', 'b', 'c'], []
         dist, steps, counter = utils.edit_distance(ref, hyp)
-        self.assertEqual(counter,
-            Counter({'words': 3, 'corr': 0, 'sub': 0, 'ins': 0, 'del': 3}))
+        self.assertEqual(
+            counter,
+            Counter({'words': 3, 'corr': 0, 'sub': 0, 'ins': 0, 'del': 3}),
+        )
         self.assertEqual(steps, ['del', 'del', 'del'])
 
         ref, hyp = ['a', 'b', 'c'], ['a', 'b', 'c']
         dist, steps, counter = utils.edit_distance(ref, hyp)
-        self.assertEqual(counter,
-            Counter({'words': 3, 'corr': 3, 'sub': 0, 'ins': 0, 'del': 0}))
+        self.assertEqual(
+            counter,
+            Counter({'words': 3, 'corr': 3, 'sub': 0, 'ins': 0, 'del': 0}),
+        )
         self.assertEqual(steps, ['corr', 'corr', 'corr'])
 
         ref, hyp = ['a', 'b', 'c'], ['d', 'b', 'c', 'e', 'f']
         dist, steps, counter = utils.edit_distance(ref, hyp)
-        self.assertEqual(counter,
-            Counter({'words': 3, 'corr': 2, 'sub': 1, 'ins': 2, 'del': 0}))
+        self.assertEqual(
+            counter,
+            Counter({'words': 3, 'corr': 2, 'sub': 1, 'ins': 2, 'del': 0}),
+        )
         self.assertEqual(steps, ['sub', 'corr', 'corr', 'ins', 'ins'])
 
         ref, hyp = ['b', 'c', 'd', 'e', 'f', 'h'], \
             ['d', 'b', 'c', 'e', 'f', 'g']
         dist, steps, counter = utils.edit_distance(ref, hyp)
-        self.assertEqual(counter,
-            Counter({'words': 6, 'corr': 4, 'sub': 1, 'ins': 1, 'del': 1}))
-        self.assertEqual(steps,
-            ['ins', 'corr', 'corr', 'del', 'corr', 'corr', 'sub'])
+        self.assertEqual(
+            counter,
+            Counter({'words': 6, 'corr': 4, 'sub': 1, 'ins': 1, 'del': 1}),
+        )
+        self.assertEqual(
+            steps,
+            ['ins', 'corr', 'corr', 'del', 'corr', 'corr', 'sub'],
+        )
 
     def assertTensorEqual(self, t1, t2):
         self.assertEqual(t1.size(), t2.size(), "size mismatch")
-        if (t1.dtype == torch.short or t1.dtype == torch.int or \
-            t1.dtype == torch.long or t1.dtype == torch.uint8) and \
-            (t2.dtype == torch.short or t2.dtype == torch.int or \
-            t2.dtype == torch.long or t2.dtype == torch.uint8):
+        if (t1.dtype == torch.short or t1.dtype == torch.int or
+            t1.dtype == torch.long or t1.dtype == torch.uint8 or
+            t1.dtype == torch.bool) and \
+            (t2.dtype == torch.short or t2.dtype == torch.int or
+             t2.dtype == torch.long or t2.dtype == torch.uint8 or
+             t2.dtype == torch.bool):
             self.assertEqual(t1.ne(t2).long().sum(), 0)
         else:
-            self.assertEqual(t1.allclose(t2,rtol=1e-05, atol=1e-08), True)
+            self.assertEqual(t1.allclose(t2, rtol=1e-05, atol=1e-08), True)
 
 
 if __name__ == "__main__":

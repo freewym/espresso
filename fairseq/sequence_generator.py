@@ -7,11 +7,11 @@ import math
 
 import torch
 
-from espresso.models.external_language_model import RawOutExternalLanguageModelBase
-
 from fairseq import search, utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
+
+from espresso.models.external_language_model import RawOutExternalLanguageModelBase
 
 
 class SequenceGenerator(object):
@@ -747,7 +747,7 @@ class LMFusionModel(EnsembleModel):
                 temperature=temperature,
                 use_raw_out=isinstance(model, RawOutExternalLanguageModelBase),
             )
-            if i == 1 and self.lm_weight != 1.0: # assuming LM is the last model
+            if i == 1 and self.lm_weight != 1.0:  # assuming LM is the last model
                 probs.mul_(self.lm_weight)
             log_probs.append(probs)
             if attn is not None:
@@ -789,6 +789,6 @@ class LMFusionModel(EnsembleModel):
 
     def reorder_encoder_out(self, encoder_outs, new_order):
         return [
-            model.encoder.reorder_encoder_out(encoder_out, new_order) if hasattr(model, 'encoder') else None \
+            model.encoder.reorder_encoder_out(encoder_out, new_order) if hasattr(model, 'encoder') else None
             for model, encoder_out in zip(self.models, encoder_outs)
         ]
