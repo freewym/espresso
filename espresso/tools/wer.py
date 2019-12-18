@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import re
+import sys
 
 from collections import Counter, OrderedDict
 
@@ -41,8 +42,10 @@ class Scorer(object):
                         assert m is not None
                         self.word_filters.append([m.group(1), m.group(2)])
                     else:
-                        print('Unsupported pattern: "{}", ignored'.format(line),
-                            file=sys.stderr)
+                        print(
+                            'Unsupported pattern: "{}", ignored'.format(line),
+                            file=sys.stderr,
+                        )
 
     def add_prediction(self, utt_id, pred, bpe_symbol=None):
         if not isinstance(utt_id, str):
@@ -50,12 +53,12 @@ class Scorer(object):
         if not isinstance(pred, str):
             raise TypeError('pred must be a string(got {})'.format(type(pred)))
 
-        assert not utt_id in self.char_results, \
+        assert utt_id not in self.char_results, \
             'Duplicated utterance id detected: {}'.format(utt_id)
         self.char_results[utt_id] = pred + '\n'
 
         pred_words = self.dict.tokens_to_sentence(pred, bpe_symbol=bpe_symbol)
-        assert not utt_id in self.results, \
+        assert utt_id not in self.results, \
             'Duplicated utterance id detected: {}'.format(utt_id)
         self.results[utt_id] = pred_words + '\n'
 
@@ -76,8 +79,9 @@ class Scorer(object):
             pred = ' '.join([x for x in pred_list if x not in non_lang_syms])
 
         # char level counts
-        _, _, counter = speech_utils.edit_distance(ref.strip().split(),
-            pred.strip().split())
+        _, _, counter = speech_utils.edit_distance(
+            ref.strip().split(), pred.strip().split(),
+        )
         self.char_counter += counter
 
         # word level counts
@@ -90,18 +94,21 @@ class Scorer(object):
             pred_words = re.sub(pattern, repl, pred_words)
 
         ref_word_list, pred_word_list = ref_words.split(), pred_words.split()
-        _, steps, counter = speech_utils.edit_distance(ref_word_list,
-            pred_word_list)
+        _, steps, counter = speech_utils.edit_distance(
+            ref_word_list, pred_word_list,
+        )
         self.word_counter += counter
-        assert not utt_id in self.aligned_results, \
+        assert utt_id not in self.aligned_results, \
             'Duplicated utterance id detected: {}'.format(utt_id)
-        self.aligned_results[utt_id] = speech_utils.aligned_print(ref_word_list,
-            pred_word_list, steps)
+        self.aligned_results[utt_id] = speech_utils.aligned_print(
+            ref_word_list, pred_word_list, steps,
+        )
 
     def cer(self):
         assert self.char_counter['words'] > 0
-        cer = float(self.char_counter['sub'] + self.char_counter['ins'] + \
-            self.char_counter['del']) / self.char_counter['words'] * 100
+        cer = float(
+            self.char_counter['sub'] + self.char_counter['ins'] + self.char_counter['del']
+        ) / self.char_counter['words'] * 100
         sub = float(self.char_counter['sub']) / self.char_counter['words'] * 100
         ins = float(self.char_counter['ins']) / self.char_counter['words'] * 100
         dlt = float(self.char_counter['del']) / self.char_counter['words'] * 100
@@ -109,8 +116,9 @@ class Scorer(object):
 
     def wer(self):
         assert self.word_counter['words'] > 0
-        wer = float(self.word_counter['sub'] + self.word_counter['ins'] + \
-            self.word_counter['del']) / self.word_counter['words'] * 100
+        wer = float(
+            self.word_counter['sub'] + self.word_counter['ins'] + self.word_counter['del']
+        ) / self.word_counter['words'] * 100
         sub = float(self.word_counter['sub']) / self.word_counter['words'] * 100
         ins = float(self.word_counter['ins']) / self.word_counter['words'] * 100
         dlt = float(self.word_counter['del']) / self.word_counter['words'] * 100
@@ -175,4 +183,3 @@ class Scorer(object):
             for utt_id in self.aligned_results:
                 res += utt_id + '\n' + self.aligned_results[utt_id]
         return res
-

@@ -8,11 +8,11 @@ import torch
 import os
 
 from fairseq import tokenizer
+from fairseq.data import TruncatedDictionary
 from fairseq.tasks import register_task
-
 from fairseq.tasks.language_modeling import LanguageModelingTask
 
-from espresso.data import TokenDictionary
+from espresso.data import AsrDictionary
 
 
 @register_task("language_modeling_for_asr")
@@ -21,9 +21,9 @@ class LanguageModelingForASRTask(LanguageModelingTask):
     Train a language model.
 
     Args:
-        dictionary (~fairseq.data.TokenDictionary): the dictionary for the input of
+        dictionary (~fairseq.data.AsrDictionary): the dictionary for the input of
             the language model
-        output_dictionary (~fairseq.data.TokenDictionary): the dictionary for the
+        output_dictionary (~fairseq.data.AsrDictionary): the dictionary for the
             output of the language model. In most cases it will be the same as
             *dictionary*, but could possibly be a more limited version of the
             dictionary (if ``--output-dictionary-size`` is used).
@@ -69,7 +69,7 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         Args:
             filename (str): the filename
         """
-        return TokenDictionary.load(filename)
+        return AsrDictionary.load(filename)
 
     @classmethod
     def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8):
@@ -85,9 +85,9 @@ class LanguageModelingForASRTask(LanguageModelingTask):
                 multiple of 8, which is important on some hardware (e.g., Nvidia
                 Tensor Cores).
         """
-        d = TokenDictionary()
+        d = AsrDictionary()
         for filename in filenames:
-            TokenDictionary.add_file_to_dictionary(filename, d, tokenizer.tokenize_line, workers)
+            AsrDictionary.add_file_to_dictionary(filename, d, tokenizer.tokenize_line, workers)
         d.finalize(threshold=threshold, nwords=nwords, padding_factor=padding_factor)
         return d
 
@@ -105,7 +105,7 @@ class LanguageModelingForASRTask(LanguageModelingTask):
             assert len(paths) > 0
             dict_path = os.path.join(paths[0], "dict.txt") if args.dict is None \
                 else args.dict
-            dictionary = TokenDictionary.load(dict_path)
+            dictionary = AsrDictionary.load(dict_path)
             print("| dictionary: {} types".format(len(dictionary)))
             output_dictionary = dictionary
             if args.output_dictionary_size >= 0:
