@@ -566,7 +566,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         return self.output_layer(x), attn_scores
 
     def extract_features(
-        self, prev_output_tokens, encoder_out=None, incremental_state=None, **unusedi,
+        self, prev_output_tokens, encoder_out=None, incremental_state=None, **unused,
     ):
         """
         Similar to *forward* but only return features.
