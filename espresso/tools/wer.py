@@ -12,8 +12,8 @@ import espresso.tools.utils as speech_utils
 
 
 class Scorer(object):
-    def __init__(self, dict, wer_output_filter=None):
-        self.dict = dict
+    def __init__(self, dictionary, wer_output_filter=None):
+        self.dictionary = dictionary
         self.ordered_utt_list = None
         self.word_filters = []
         self.parse_wer_output_filter(wer_output_filter)
@@ -57,7 +57,7 @@ class Scorer(object):
             'Duplicated utterance id detected: {}'.format(utt_id)
         self.char_results[utt_id] = pred + '\n'
 
-        pred_words = self.dict.tokens_to_sentence(pred, bpe_symbol=bpe_symbol)
+        pred_words = self.dictionary.tokens_to_sentence(pred, bpe_symbol=bpe_symbol)
         assert utt_id not in self.results, \
             'Duplicated utterance id detected: {}'.format(utt_id)
         self.results[utt_id] = pred_words + '\n'
@@ -71,7 +71,7 @@ class Scorer(object):
             raise TypeError('pred must be a string(got {})'.format(type(pred)))
 
         # filter out any non_lang_syms from ref and pred
-        non_lang_syms = getattr(self.dict, 'non_lang_syms', None)
+        non_lang_syms = getattr(self.dictionary, 'non_lang_syms', None)
         assert non_lang_syms is None or isinstance(non_lang_syms, list)
         if non_lang_syms is not None and len(non_lang_syms) > 0:
             ref_list, pred_list = ref.strip().split(), pred.strip().split()
@@ -85,8 +85,8 @@ class Scorer(object):
         self.char_counter += counter
 
         # word level counts
-        ref_words = self.dict.tokens_to_sentence(ref, use_unk_sym=False, bpe_symbol=bpe_symbol)
-        pred_words = self.dict.tokens_to_sentence(pred, bpe_symbol=bpe_symbol)
+        ref_words = self.dictionary.tokens_to_sentence(ref, use_unk_sym=False, bpe_symbol=bpe_symbol)
+        pred_words = self.dictionary.tokens_to_sentence(pred, bpe_symbol=bpe_symbol)
 
         # filter words according to self.word_filters (support re.sub only)
         for pattern, repl in self.word_filters:

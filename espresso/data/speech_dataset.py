@@ -85,7 +85,7 @@ class SpeechDataset(FairseqDataset):
         src_sizes (List[int]): source sentence lengths
         tgt (torch.utils.data.Dataset, optional): target dataset to wrap
         tgt_sizes (List[int], optional): target sentence lengths
-        dict (~fairseq.data.Dictionary, optional): target vocabulary
+        dictionary (~fairseq.data.Dictionary, optional): target vocabulary
         left_pad_source (bool, optional): pad source tensors on the left side
             (default: True).
         left_pad_target (bool, optional): pad target tensors on the left side
@@ -102,7 +102,7 @@ class SpeechDataset(FairseqDataset):
 
     def __init__(
         self, src, src_sizes,
-        tgt=None, tgt_sizes=None, dict=None,
+        tgt=None, tgt_sizes=None, dictionary=None,
         left_pad_source=False, left_pad_target=False,
         max_source_positions=1024, max_target_positions=1024,
         shuffle=True, input_feeding=True,
@@ -111,7 +111,7 @@ class SpeechDataset(FairseqDataset):
         self.tgt = tgt
         self.src_sizes = np.array(src_sizes)
         self.tgt_sizes = np.array(tgt_sizes) if tgt_sizes is not None else None
-        self.dict = dict
+        self.dictionary = dictionary
         self.left_pad_source = left_pad_source
         self.left_pad_target = left_pad_target
         self.max_source_positions = max_source_positions
@@ -187,7 +187,7 @@ class SpeechDataset(FairseqDataset):
                   on the left if *left_pad_target* is ``True``.
         """
         return collate(
-            samples, pad_idx=self.dict.pad(), eos_idx=self.dict.eos(),
+            samples, pad_idx=self.dictionary.pad(), eos_idx=self.dictionary.eos(),
             left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding,
         )
