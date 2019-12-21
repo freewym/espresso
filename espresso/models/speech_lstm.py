@@ -27,6 +27,7 @@ from fairseq.modules import AdaptiveSoftmax
 
 from espresso.modules import speech_attention
 from espresso.tasks.speech_recognition import SpeechRecognitionEspressoTask
+from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
 import espresso.tools.utils as speech_utils
 
 
@@ -105,6 +106,16 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                             help='dropout probability for decoder input embedding')
         parser.add_argument('--decoder-dropout-out', type=float, metavar='D',
                             help='dropout probability for decoder output')
+
+        # Scheduled sampling options
+        parser.add_argument('--scheduled-sampling-probs', type=lambda p: options.eval_str_list(p),
+                            metavar='P_1,P_2,...,P_N', default=1.0,
+                            help='scheduled sampling probabilities of sampling the truth '
+                            'labels for N epochs starting from --start-schedule-sampling-epoch; '
+                            'all later epochs using P_N')
+        parser.add_argument('--start-scheduled-sampling-epoch', type=int,
+                            metavar='N', default=1,
+                            help='start scheduled sampling from the specified epoch')
         # fmt: on
 
     @classmethod
@@ -178,6 +189,10 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                 rnn_encoder_input_size = (rnn_encoder_input_size + s - 1) // s
             rnn_encoder_input_size *= out_channels[-1]
 
+        scheduled_sampling_rate_scheduler = ScheduledSamplingRateScheduler(
+            args.scheduled_sampling_probs, args.start_scheduled_sampling_epoch,
+        )
+
         encoder = SpeechLSTMEncoder(
             conv_layers_before=conv_layers,
             input_size=rnn_encoder_input_size,
@@ -207,6 +222,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                 options.eval_str_list(args.adaptive_softmax_cutoff, type=int)
                 if args.criterion == 'adaptive_loss' else None
             ),
+            scheduled_sampling_rate_scheduler=scheduled_sampling_rate_scheduler,
         )
         pretrained_lm = None
         if args.pretrained_lm_checkpoint:
@@ -423,7 +439,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
         return in_lengths if self.conv_layers_before is None \
             else self.conv_layers_before.output_lengths(in_lengths)
 
-    def forward(self, src_tokens, src_lengths):
+    def forward(self, src_tokens, src_lengths, **unused):
         if self.left_pad:
             # nn.utils.rnn.pack_padded_sequence requires right-padding;
             # convert left-padding to right-padding
@@ -494,6 +510,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         num_layers=1, dropout_in=0.1, dropout_out=0.1, encoder_output_units=0,
         attn_type=None, attn_dim=0, need_attn=False, residual=False, pretrained_embed=None,
         share_input_output_embed=False, adaptive_softmax_cutoff=None,
+        scheduled_sampling_rate_scheduler=None,
     ):
         super().__init__(dictionary)
         self.dropout_in = dropout_in
@@ -545,7 +562,9 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         elif not self.share_input_output_embed:
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
 
-    def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None, **unused):
+        self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
+
+    def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None, **kwargs):
         """
         Args:
             prev_output_tokens (LongTensor): previous decoder outputs of shape
@@ -560,10 +579,44 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 - the decoder's output of shape `(batch, tgt_len, vocab)`
                 - attention weights of shape `(batch, tgt_len, src_len)`
         """
+        if self.scheduled_sampling_rate_scheduler is not None:
+            epoch = kwargs.get('epoch', 0)
+            if epoch > 0:
+                sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
+                if sampling_prob < 1.0:  # apply scheduled sampling
+                    return self._forward_with_schduled_sampling(
+                        prev_output_tokens, sampling_prob, encoder_out=encoder_out,
+                        incremental_state={},  # use empty dict to preserve forward state
+                    )
+
         x, attn_scores = self.extract_features(
-            prev_output_tokens, encoder_out, incremental_state
+            prev_output_tokens, encoder_out, incremental_state,
         )
         return self.output_layer(x), attn_scores
+
+    def _forward_with_schduled_sampling(
+        self, prev_output_tokens, sampling_prob, encoder_out=None, incremental_state=None,
+    ):
+        bsz, seqlen = prev_output_tokens.size()
+        outs = []
+        pred = None
+        for step in range(seqlen):
+            if step > 0:
+                sampling_mask = torch.rand(
+                    [bsz, 1], device=prev_output_tokens.device,
+                ).lt(sampling_prob)
+                feed_tokens = torch.where(
+                    sampling_mask, prev_output_tokens[:, step:step + 1], pred,
+                )
+            else:
+                feed_tokens = prev_output_tokens[:, step:step + 1]  # B x 1
+            x, _ = self.extract_features(feed_tokens, encoder_out, incremental_state)
+            x = self.output_layer(x)  # B x 1 x V
+            outs.append(x)
+            pred = x.argmax(-1)  # B x 1
+        x = torch.cat(outs, dim=1)  # B x T x V
+        # ignore attention scores
+        return x, None
 
     def extract_features(
         self, prev_output_tokens, encoder_out=None, incremental_state=None, **unused,
