@@ -90,7 +90,7 @@ class TestSpeechDataset(unittest.TestCase):
         self.num_transripts = 100
         self.batch_size = 8
         self.cache_size = 16
-        self.dict = self.make_dictionary()
+        self.dictionary = self.make_dictionary()
         self.expected_feats = self.generate_feats(
             self.test_dir, num=self.num_audios, seed=0,
         )
@@ -115,12 +115,12 @@ class TestSpeechDataset(unittest.TestCase):
             )
         tgt_dataset = AsrTextDataset(
             path=os.path.join(self.test_dir, 'text_tokens'),
-            dictionary=self.dict,
+            dictionary=self.dictionary,
         )
 
         dataset = SpeechDataset(
             src_dataset, src_dataset.sizes,
-            tgt_dataset, tgt_dataset.sizes, self.dict,
+            tgt_dataset, tgt_dataset.sizes, self.dictionary,
             left_pad_source=False,
             left_pad_target=False,
             max_source_positions=1000,
@@ -151,7 +151,7 @@ class TestSpeechDataset(unittest.TestCase):
             self.assertEqual(bsz, len(batch_sampler[i]))
             src_frames = batch["net_input"]["src_tokens"]
             src_lengths = batch["net_input"]["src_lengths"]
-            tgt_tokens = self.dict.string(batch["target"]).split('\n')
+            tgt_tokens = self.dictionary.string(batch["target"]).split('\n')
             tgt_tokens = [line.split(' ') for line in tgt_tokens]
             self.assertEqual(bsz, src_frames.size(0))
             self.assertEqual(bsz, src_lengths.numel())
