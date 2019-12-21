@@ -60,7 +60,7 @@ class TestSpeechUtils(unittest.TestCase):
         self.oovs = list(string.ascii_uppercase)
         self.non_lang_syms = ['<noise>', '<spnoise>', '<sil>']
         self.num_sentences = 100
-        self.dict = self.make_dictionary(
+        self.dictionary = self.make_dictionary(
             self.vocab,
             non_lang_syms=self.non_lang_syms,
         )
@@ -73,31 +73,31 @@ class TestSpeechUtils(unittest.TestCase):
             print('test sentence {}:'.format(i))
             print(sent)
             tokens = utils.tokenize(
-                sent, space=self.dict.space_word,
+                sent, space=self.dictionary.space_word,
                 non_lang_syms=self.non_lang_syms,
             )
 
             # test :func:`~speech_tools.utils.tokenize` with
             # :func:`~AsrDictionary.encode_line`
-            tensor = self.dict.encode_line(
+            tensor = self.dictionary.encode_line(
                 tokens, add_if_not_exist=False, append_eos=True,
             )
-            reconstructed_tokens = self.dict.string(tensor)
+            reconstructed_tokens = self.dictionary.string(tensor)
             expected_tokens = ' '.join(
-                [token if self.dict.index(token) != self.dict.unk() else
-                    self.dict.unk_word for token in tokens.split(' ')]
+                [token if self.dictionary.index(token) != self.dictionary.unk() else
+                    self.dictionary.unk_word for token in tokens.split(' ')]
             )
             self.assertEqual(reconstructed_tokens, expected_tokens)
 
             # test :func:`~speech_tools.utils.tokenize` with
             # :func:`~AsrDictionary.tokens_to_sentence`
-            reconstructed_sent = self.dict.tokens_to_sentence(tokens)
+            reconstructed_sent = self.dictionary.tokens_to_sentence(tokens)
             expected_sent = []
             words = sent.split(' ')
             for w in words:
                 if w not in self.non_lang_syms:
                     new_word = ''.join(
-                        [self.dict.unk_word if c in self.oovs else c for c in w]
+                        [self.dictionary.unk_word if c in self.oovs else c for c in w]
                     )
                     expected_sent.append(new_word)
                 else:
