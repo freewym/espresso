@@ -3,37 +3,39 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import argparse
-
-from fairseq.options import eval_str_list
+from typing import List
 
 
-class ScheduledSamplingRateScheduler:
+class ScheduledSamplingRateScheduler(object):
 
-    def __init__(self, args):
-        self.args = args
+    def __init__(
+        self,
+        scheduled_sampling_probs: List[float] = [1.0],
+        start_scheduled_sampling_epoch: int = 1,
+    ):
+        """
+        Args:
+            scheduled_sampling_probs (List[float]): P_1,P_2,...,P_N.
+                Scheduled sampling probabilities of sampling the truth labels
+                for N epochs starting from --start-schedule-sampling-epoch;
+                all later epochs using P_N.
+            start_scheduled_sampling_epoch (int): start scheduled sampling from
+                the specified epoch.
+        """
 
-    @staticmethod
-    def add_args(parser: argparse.ArgumentParser):
-        parser.add_argument('--scheduled-sampling-probs', type=lambda p: eval_str_list(p),
-                            metavar='P_1,P_2,...,P_N', default=1.0,
-                            help='scheduled sampling probabilities of sampling the truth '
-                            'labels for N epochs starting from --start-schedule-sampling-epoch; '
-                            'all later epochs using P_N')
-        parser.add_argument('--start-scheduled-sampling-epoch', type=int,
-                            metavar='N', default=1,
-                            help='start scheduled sampling from the specified epoch')
+        self.scheduled_sampling_probs = scheduled_sampling_probs
+        self.start_scheduled_sampling_epoch = start_scheduled_sampling_epoch
 
     def step(self, epoch: int) -> float:
         if (
-                (len(self.args.scheduled_sampling_probs) > 1 or
-                 self.args.scheduled_sampling_probs[0] < 1.0) and
-                epoch >= self.args.start_scheduled_sampling_epoch
+                (len(self.scheduled_sampling_probs) > 1 or
+                 self.scheduled_sampling_probs[0] < 1.0) and
+                epoch >= self.start_scheduled_sampling_epoch
         ):
-            ss_prob = self.args.scheduled_sampling_probs[
-                min(epoch - self.args.start_scheduled_sampling_epoch,
-                    len(self.args.scheduled_sampling_probs) - 1)
+            prob = self.scheduled_sampling_probs[
+                min(epoch - self.start_scheduled_sampling_epoch,
+                    len(self.scheduled_sampling_probs) - 1)
             ]
-            return ss_prob
+            return prob
         else:
             return 1.0
