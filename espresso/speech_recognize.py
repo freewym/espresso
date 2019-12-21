@@ -40,7 +40,7 @@ def main(args):
     task.load_dataset(args.gen_subset)
 
     # Set dictionary
-    dict = task.target_dictionary
+    dictionary = task.target_dictionary
 
     # Load ensemble
     print('| loading model(s) from {}'.format(args.path))
@@ -63,7 +63,7 @@ def main(args):
                 print('| LM fusion with Multi-level LM')
             else:
                 models[i] = TensorizedLookaheadLanguageModel(
-                    m, dict,
+                    m, dictionary,
                     oov_penalty=args.oov_penalty,
                     open_vocab=not args.disable_open_vocab,
                 )
@@ -110,7 +110,7 @@ def main(args):
     generator = task.build_generator(args)
 
     # Generate and compute WER
-    scorer = wer.Scorer(dict, wer_output_filter=args.wer_output_filter)
+    scorer = wer.Scorer(dictionary, wer_output_filter=args.wer_output_filter)
     num_sentences = 0
     has_target = True
     with progress_bar.build_progress_bar(args, itr) as t:
@@ -146,16 +146,16 @@ def main(args):
                 if has_target:
                     target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
                     if not args.quiet:
-                        target_sent = dict.tokens_to_sentence(
+                        target_sent = dictionary.tokens_to_sentence(
                             target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,
                         )
                         print('T-{}\t{}'.format(utt_id, target_sent))
 
                 # Process top predictions
                 for j, hypo in enumerate(hypos[i][:args.nbest]):
-                    hypo_str = dict.string(hypo['tokens'].int().cpu())  # not removing bpe at this point
+                    hypo_str = dictionary.string(hypo['tokens'].int().cpu())  # not removing bpe at this point
                     if not args.quiet or i == 0:
-                        hypo_sent = dict.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
+                        hypo_sent = dictionary.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
 
                     if not args.quiet:
                         print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, hypo['score']))
