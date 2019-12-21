@@ -26,12 +26,15 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     Transcribe from speech (source) to token text (target).
 
     Args:
-        dict (~fairseq.data.AsrDictionary): dictionary for the output tokens
+        dictionary (~fairseq.data.AsrDictionary): dictionary for the output tokens
+        word_dict (~fairseq.data.AsrDictionary): dictionary for the words
+            (for decoding with word-based LMs)
+        feat_in_channels (int): input feature channels
 
     .. note::
 
         The speech recognition task is compatible with :mod:`speech-train`,
-        :mod:`speech-recognition` and :mod:`fairseq-interactive`.
+        :mod:`speech-recognize` and :mod:`fairseq-interactive`.
 
     The speech recognition task provides the following additional command-line
     arguments:
@@ -105,9 +108,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         raise NotImplementedError
 
-    def __init__(self, args, dict, word_dict=None):
+    def __init__(self, args, dictionary, word_dict=None):
         super().__init__(args)
-        self.dict = dict
+        self.dictionary = dictionary
         self.word_dict = word_dict
         self.feat_in_channels = args.feat_in_channels
         torch.backends.cudnn.deterministic = True
@@ -130,15 +133,15 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         dict_path = os.path.join(os.path.dirname(args.text_files[0]), 'dict.txt') \
             if args.dict is None and args.text_files is not None else args.dict
         assert dict_path is not None, 'Please specify --dict'
-        dict = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms)
-        print('| dictionary: {} types'.format(len(dict)))
+        dictionary = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms)
+        print('| dictionary: {} types'.format(len(dictionary)))
         if args.word_dict is not None:
             word_dict = cls.load_dictionary(args.word_dict)
             print('| word dictionary: {} types'.format(len(word_dict)))
-            return cls(args, dict, word_dict)
+            return cls(args, dictionary, word_dict)
 
         else:
-            return cls(args, dict)
+            return cls(args, dictionary)
 
     def load_dataset(self, split, epoch=0, combine=False, **kwargs):
         """Load a given dataset split.
@@ -177,7 +180,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             src_datasets.append(ScpCachedDataset(feat, ordered_prefetch=True))
             print('| {} {} examples'.format(feat, len(src_datasets[-1])))
             if text is not None:
-                tgt_datasets.append(AsrTextDataset(text, self.dict))
+                tgt_datasets.append(AsrTextDataset(text, self.dictionary))
                 print('| {} {} examples'.format(text, len(tgt_datasets[-1])))
 
             if not combine:
@@ -204,7 +207,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         self.datasets[split] = SpeechDataset(
             src_dataset, src_dataset.sizes,
             tgt_dataset, tgt_dataset.sizes if tgt_dataset is not None else None,
-            self.dict,
+            self.dictionary,
             left_pad_source=self.args.left_pad_source,
             left_pad_target=self.args.left_pad_target,
             max_source_positions=self.args.max_source_positions,
@@ -213,11 +216,11 @@ class SpeechRecognitionEspressoTask(FairseqTask):
 
         # update the counts of <eos> and <unk> in dictionary with training data
         if split == 'train':
-            self.dict.count[self.dict.eos()] = len(tgt_dataset)
+            self.dictionary.count[self.dictionary.eos()] = len(tgt_dataset)
             unk_count = 0
             for i in range(len(tgt_dataset)):
-                unk_count += (tgt_dataset[i] == self.dict.unk()).int().sum().item()
-            self.dict.count[self.dict.unk()] = unk_count
+                unk_count += (tgt_dataset[i] == self.dictionary.unk()).int().sum().item()
+            self.dictionary.count[self.dictionary.unk()] = unk_count
 
     def build_generator(self, args):
         if args.score_reference:
@@ -261,7 +264,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     @property
     def target_dictionary(self):
         """Return the target :class:`~fairseq.data.AsrDictionary`."""
-        return self.dict
+        return self.dictionary
 
     @property
     def word_dictionary(self):
