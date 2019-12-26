@@ -4,17 +4,16 @@
 # LICENSE file in the root directory of this source tree.
 
 import numpy as np
-import torch
 import torch.nn.functional as F
 
 from fairseq import utils
 from fairseq.data import data_utils
-from fairseq.models import FairseqIncrementalDecoder
 
 from fairseq.criterions import register_criterion
 from fairseq.criterions.cross_entropy import CrossEntropyCriterion
 
 from espresso.tools import wer
+from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
 
 
 @register_criterion('cross_entropy_with_wer')
@@ -25,6 +24,7 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
 
         dictionary = task.target_dictionary
         self.scorer = wer.Scorer(dictionary, wer_output_filter=task.args.wer_output_filter)
+        self.decoder_for_validation = SimpleGreedyDecoder(dictionary, for_validation=True)
         self.train_tgt_dataset = None
         self.valid_tgt_dataset = None
         self.num_updates = -1
@@ -55,81 +55,11 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
             net_output = model(**sample['net_input'], epoch=self.epoch)
             lprobs = model.get_normalized_probs(net_output, log_probs=True)
             target = model.get_targets(sample, net_output)
-        else:
-            assert isinstance(model.decoder, FairseqIncrementalDecoder)
-            incremental_states = {}
-            encoder_input = {
-                k: v for k, v in sample['net_input'].items()
-                if k != 'prev_output_tokens'
-            }
-            encoder_out = model.encoder(**encoder_input)
-            target = sample['target']
-            # make the maximum decoding length equal to at least the length of
-            # target, and the length of encoder_out if possible
-            maxlen = max(encoder_out['encoder_out'][0].size(1), target.size(1))
-            tokens = target.new_full([target.size(0), maxlen + 2], self.padding_idx)
-            tokens[:, 0] = dictionary.eos()
-            lprobs = []
-            attn = [] if getattr(model.decoder, 'need_attn', False) else None
-            dummy_log_probs = encoder_out['encoder_out'][0].new_full(
-                [target.size(0), len(dictionary)], -np.log(len(dictionary)))
-            for step in range(maxlen + 1):  # one extra step for EOS marker
-                is_eos = tokens[:, step].eq(dictionary.eos())
-                # if all predictions are finished (i.e., ended with eos),
-                # pad lprobs to target length with dummy log probs,
-                # truncate tokens up to this step and break
-                if step > 0 and is_eos.sum() == is_eos.size(0):
-                    for _ in range(step, target.size(1)):
-                        lprobs.append(dummy_log_probs)
-                    tokens = tokens[:, :step + 1]
-                    break
-                log_probs, attn_scores = self._decode(
-                    tokens[:, :step + 1], model, encoder_out, incremental_states,
-                )
-                tokens[:, step + 1] = log_probs.argmax(-1)
-                if step > 0:  # deal with finished predictions
-                    # make log_probs uniform if the previous output token is EOS
-                    # and add consecutive EOS to the end of prediction
-                    log_probs[is_eos, :] = -np.log(log_probs.size(1))
-                    tokens[is_eos, step + 1] = dictionary.eos()
-                if step < target.size(1):
-                    lprobs.append(log_probs)
-                if getattr(model.decoder, 'need_attn', False):
-                    attn.append(attn_scores)
-            # bsz x min(tgtlen, maxlen + 1) x vocab_size
-            lprobs = torch.stack(lprobs, dim=1)
-            if getattr(model.decoder, 'need_attn', False):
-                # bsz x (maxlen + 1) x (length of encoder_out)
-                attn = torch.stack(attn, dim=1)
-        # word error stats code starts
-        if (
-            not model.training or
-            (
+            if (
                 self.num_updates // self.args.print_interval >
                 (self.num_updates - 1) // self.args.print_interval
-            )
-        ):
-            pred = lprobs.argmax(-1).cpu() if model.training else \
-                tokens[:, 1:].data.cpu()  # bsz x len
-
-            if not model.training:  # validation step, compute WER stats with scorer
-                assert pred.size(0) == target.size(0)
-                self.scorer.reset()
-                for i in range(target.size(0)):
-                    utt_id = sample['utt_id'][i]
-                    id = sample['id'].data[i].item()
-                    # ref_tokens = dictionary.string(target.data[i])
-                    # if it is a dummy batch (e.g., a "padding" batch in a sharded
-                    # dataset), id might exceeds the dataset size; in that case we
-                    # just skip it
-                    if id < len(self.valid_tgt_dataset):
-                        ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
-                        pred_tokens = dictionary.string(pred.data[i])
-                        self.scorer.add_evaluation(
-                            utt_id, ref_tokens, pred_tokens,
-                            bpe_symbol=self.args.remove_bpe,
-                        )
-            else:  # print a randomly sampled result every print_interval updates
+            ):  # print a randomly sampled result every print_interval updates
+                pred = lprobs.argmax(-1).cpu()  # bsz x len
                 assert pred.size() == target.size()
                 with data_utils.numpy_seed(self.num_updates):
                     i = np.random.randint(0, len(sample['id']))
@@ -145,7 +75,27 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                 )
                 print('| sample REF: ' + ref_one)
                 print('| sample PRD: ' + pred_one)
-        # word error stats code ends
+        else:
+            tokens, lprobs, _ = self.decoder_for_validation.decode([model], sample)
+            pred = tokens[:, 1:].data.cpu()  # bsz x len
+            target = sample['target']
+            # compute word error stats
+            assert pred.size(0) == target.size(0)
+            self.scorer.reset()
+            for i in range(target.size(0)):
+                utt_id = sample['utt_id'][i]
+                id = sample['id'].data[i].item()
+                # ref_tokens = dictionary.string(target.data[i])
+                # if it is a dummy batch (e.g., a "padding" batch in a sharded
+                # dataset), id might exceeds the dataset size; in that case we
+                # just skip it
+                if id < len(self.valid_tgt_dataset):
+                    ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
+                    pred_tokens = dictionary.string(pred.data[i])
+                    self.scorer.add_evaluation(
+                        utt_id, ref_tokens, pred_tokens, bpe_symbol=self.args.remove_bpe,
+                    )
+
         lprobs = lprobs.view(-1, lprobs.size(-1))
         loss = F.nll_loss(
             lprobs,
@@ -183,20 +133,6 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
             agg_output['char_error'] = char_error
             agg_output['char_count'] = char_count
         return agg_output
-
-    def _decode(self, tokens, model, encoder_out, incremental_states):
-        decoder_out = list(model.forward_decoder(
-            tokens, encoder_out=encoder_out, incremental_state=incremental_states,
-        ))
-        decoder_out[0] = decoder_out[0][:, -1:, :]
-        attn = decoder_out[1]
-        if type(attn) is dict:
-            attn = attn.get('attn', None)
-        if attn is not None:
-            attn = attn[:, -1, :]
-        probs = model.get_normalized_probs(decoder_out, log_probs=True)
-        probs = probs[:, -1, :]
-        return probs, attn
 
     def set_train_tgt_dataset(self, dataset):
         self.train_tgt_dataset = dataset
