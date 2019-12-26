@@ -16,6 +16,33 @@ from fairseq.criterions.label_smoothed_cross_entropy import LabelSmoothedCrossEn
 from espresso.tools import wer
 
 
+def temporal_label_smoothing_prob_mask(
+    lprobs: torch.Tensor,  # R[Batch, SeqLength, Vocab]
+    target: torch.Tensor,  # Z[Batch, SeqLength]
+    padding_index: int = 0,
+):
+    # see https://arxiv.org/pdf/1612.02695.pdf
+    # prob_mask.dtype=int for deterministic behavior of Tensor.scatter_add_()
+    prob_mask = torch.zeros_like(lprobs, dtype=torch.int)  # bsz x tgtlen x vocab_size
+    idx_tensor = target.new_full(target.size(), padding_index).unsqueeze(-1)  # bsz x tgtlen x 1
+    # hard-code the remaining probabilty mass distributed symmetrically
+    # over neighbors at distance ±1 and ±2 with a 5 : 2 ratio
+    idx_tensor[:, 2:, 0] = target[:, :-2]  # two neighbors to the left
+    prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
+    idx_tensor.fill_(padding_index)[:, 1:, 0] = target[:, :-1]
+    prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
+    idx_tensor.fill_(padding_index)[:, :-2, 0] = target[:, 2:]  # two neighbors to the right
+    prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
+    idx_tensor.fill_(padding_index)[:, :-1, 0] = target[:, 1:]
+    prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
+    prob_mask[:, :, padding_index] = 0  # clear cumulative count on <pad>
+    prob_mask = prob_mask.float()  # convert to float
+    sum_prob = prob_mask.sum(-1, keepdim=True)
+    sum_prob[sum_prob.squeeze(-1).eq(0.)] = 1.  # to deal with the "division by 0" problem
+    prob_mask = prob_mask.div_(sum_prob).view(-1, prob_mask.size(-1))
+    return prob_mask
+
+
 def label_smoothed_nll_loss(
     lprobs, target, epsilon, ignore_index=None, reduce=True,
     smoothing_type='uniform', prob_mask=None, unigram_tensor=None,
@@ -192,27 +219,9 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                 print('| sample REF: ' + ref_one)
                 print('| sample PRD: ' + pred_one)
         # word error stats code ends
-        prob_mask = None
-        if self.args.smoothing_type == 'temporal':
-            # see https://arxiv.org/pdf/1612.02695.pdf
-            # prob_mask.dtype=int for deterministic behavior of Tensor.scatter_add_()
-            prob_mask = torch.zeros_like(lprobs, dtype=torch.int)  # bsz x tgtlen x vocab_size
-            idx_tensor = target.new_full(target.size(), self.padding_idx).unsqueeze(-1)  # bsz x tgtlen x 1
-            # hard-code the remaining probabilty mass distributed symmetrically
-            # over neighbors at distance ±1 and ±2 with a 5 : 2 ratio
-            idx_tensor[:, 2:, 0] = target[:, :-2]  # two neighbors to the left
-            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
-            idx_tensor.fill_(self.padding_idx)[:, 1:, 0] = target[:, :-1]
-            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
-            idx_tensor.fill_(self.padding_idx)[:, :-2, 0] = target[:, 2:]  # two neighbors to the right
-            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
-            idx_tensor.fill_(self.padding_idx)[:, :-1, 0] = target[:, 1:]
-            prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
-            prob_mask[:, :, self.padding_idx] = 0  # clear cumulative count on <pad>
-            prob_mask = prob_mask.float()  # convert to float
-            sum_prob = prob_mask.sum(-1, keepdim=True)
-            sum_prob[sum_prob.squeeze(-1).eq(0.)] = 1.  # to deal with the "division by 0" problem
-            prob_mask = prob_mask.div_(sum_prob).view(-1, prob_mask.size(-1))
+        prob_mask = temporal_label_smoothing_prob_mask(
+            lprobs, target, padding_index=self.padding_idx,
+        ) if self.args.smoothing_type == 'temporal' else None
 
         lprobs = lprobs.view(-1, lprobs.size(-1))
         target = target.view(-1, 1)
