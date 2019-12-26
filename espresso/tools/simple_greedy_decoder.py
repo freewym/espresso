@@ -36,8 +36,6 @@ class SimpleGreedyDecoder(object):
         assert temperature > 0, '--temperature must be greater than 0'
         self.for_validation = for_validation
 
-        from fairseq.sequence_generator import EnsembleModel
-
     @torch.no_grad()
     def decode(self, models, sample, **kwargs):
         """Generate a batch of translations.
@@ -48,6 +46,7 @@ class SimpleGreedyDecoder(object):
             bos_token (int, optional): beginning of sentence token
                 (default: self.eos)
         """
+        from fairseq.sequence_generator import EnsembleModel
         model = EnsembleModel(models)
         return self._decode(model, sample, **kwargs)
 
@@ -61,11 +60,18 @@ class SimpleGreedyDecoder(object):
             k: v for k, v in sample['net_input'].items()
             if k != 'prev_output_tokens'
         }
+        src_tokens = encoder_input['src_tokens']
+        input_size = src_tokens.size()
+        # batch dimension goes first followed by source lengths
+        bsz = input_size[0]
+        src_len = input_size[1]
+
         encoder_outs = model.forward_encoder(encoder_input)
         target = sample['target']
         # target can only be None if not for validation
         assert target is not None or not self.for_validation
         max_encoder_output_length = encoder_outs[0]['encoder_out'][0].size(1)
+        src_lengths = encoder_input['src_lengths']
         # for validation, make the maximum decoding length equal to at least the
         # length of target, and the length of encoder_out if possible; otherwise
         # max_len is obtained from max_len_a/b
@@ -77,8 +83,6 @@ class SimpleGreedyDecoder(object):
                 model.max_decoder_positions() - 1,
             )
 
-        src_tokens = encoder_input['src_tokens']
-        bsz = src_tokens.size(0)
         tokens = src_tokens.new(bsz, max_len + 2).long().fill_(self.pad)
         tokens[:, 0] = self.eos if bos_token is None else bos_token
         # lprobs is only used when target is not None (i.e., for validation)

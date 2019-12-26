@@ -84,7 +84,7 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
 
         dictionary = task.target_dictionary
         self.scorer = wer.Scorer(dictionary, wer_output_filter=task.args.wer_output_filter)
-        self.decoder_for_validation = SimpleGreedyDecoder(dictionary)
+        self.decoder_for_validation = SimpleGreedyDecoder(dictionary, for_validation=True)
         self.train_tgt_dataset = None
         self.valid_tgt_dataset = None
         self.num_updates = -1
