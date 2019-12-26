@@ -4,7 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import numpy as np
-import torch
 import torch.nn.functional as F
 
 from fairseq import utils

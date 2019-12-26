@@ -71,7 +71,6 @@ class SimpleGreedyDecoder(object):
         # target can only be None if not for validation
         assert target is not None or not self.for_validation
         max_encoder_output_length = encoder_outs[0]['encoder_out'][0].size(1)
-        src_lengths = encoder_input['src_lengths']
         # for validation, make the maximum decoding length equal to at least the
         # length of target, and the length of encoder_out if possible; otherwise
         # max_len is obtained from max_len_a/b
