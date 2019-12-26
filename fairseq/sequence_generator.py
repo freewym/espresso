@@ -349,10 +349,8 @@ class SequenceGenerator(object):
             if avg_attn_scores is not None:
                 if attn is None:
                     if src_tokens.dim() > 2:
-                        max_encoder_output_length = \
-                            model.models[0].encoder.output_lengths(src_tokens.size(1))
                         attn = scores.new(
-                            bsz * beam_size, max_encoder_output_length, max_len + 2,
+                            bsz * beam_size, encoder_outs[0]["encoder_out"][0].size(0), max_len + 2,
                         )
                     else:
                         attn = scores.new(bsz * beam_size, src_tokens.size(1), max_len + 2)
