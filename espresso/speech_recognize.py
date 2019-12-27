@@ -96,7 +96,7 @@ def main(args):
               else (None, model.max_positions()) for model in models]
         ),
         ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-        required_batch_size_multiple=8,
+        required_batch_size_multiple=args.required_batch_size_multiple,
         num_shards=args.num_shards,
         shard_id=args.shard_id,
         num_workers=args.num_workers,
@@ -138,13 +138,13 @@ def main(args):
                 output_lengths = models[0].encoder.output_lengths(net_input['src_lengths'])
                 nonpad_idxs = sequence_mask(output_lengths, models[0].encoder.output_lengths(src_tokens.size(1)))
 
-            for i, sample_id in enumerate(sample['id'].tolist()):
+            for i in range(len(sample['id'])):
                 has_target = sample['target'] is not None
                 utt_id = sample['utt_id'][i]
 
                 # Retrieve the original sentences
                 if has_target:
-                    target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
+                    target_str = sample['target_raw_text'][i]
                     if not args.quiet:
                         target_sent = dictionary.tokens_to_sentence(
                             target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,
