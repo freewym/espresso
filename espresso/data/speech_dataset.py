@@ -60,6 +60,11 @@ def collate(
     else:
         ntokens = sum(s['source'].size(0) for s in samples)
 
+    target_raw_text = None
+    if samples[0].get('target_raw_text', None) is not None:
+        target_raw_text = [s['target_raw_text'] for s in samples]
+        target_raw_text = [target_raw_text[i] for i in sort_order.numpy()]
+
     batch = {
         'id': id,
         'utt_id': utt_id,
@@ -70,6 +75,7 @@ def collate(
             'src_lengths': src_lengths,
         },
         'target': target,
+        'target_raw_text': target_raw_text,
     }
     if prev_output_tokens is not None:
         batch['net_input']['prev_output_tokens'] = prev_output_tokens
@@ -144,13 +150,15 @@ class SpeechDataset(FairseqDataset):
         assert self.src.utt_ids == self.tgt.utt_ids
 
     def __getitem__(self, index):
-        tgt_item = self.tgt[index] if self.tgt is not None else None
+        tgt_item = self.tgt[index][0] if self.tgt is not None else None
+        raw_text_item = self.tgt[index][1] if self.tgt is not None else None
         src_item = self.src[index]
         example = {
             'id': index,
             'utt_id': self.src.utt_ids[index],
             'source': src_item,
             'target': tgt_item,
+            'target_raw_text': raw_text_item,
         }
         return example
 
@@ -167,6 +175,8 @@ class SpeechDataset(FairseqDataset):
             dict: a mini-batch with the following keys:
 
                 - `id` (LongTensor): example IDs in the original input order
+                - `utt_id` (List[str]): list of utterance ids
+                - `nsentences` (int): batch size
                 - `ntokens` (int): total number of tokens in the batch
                 - `net_input` (dict): the input to the Model, containing keys:
 
@@ -185,6 +195,7 @@ class SpeechDataset(FairseqDataset):
                 - `target` (LongTensor): a padded 2D Tensor of tokens in the
                   target sentence of shape `(bsz, tgt_len)`. Padding will appear
                   on the left if *left_pad_target* is ``True``.
+                - `target_raw_text` (List[str]): list of original text
         """
         return collate(
             samples, pad_idx=self.dictionary.pad(), eos_idx=self.dictionary.eos(),
