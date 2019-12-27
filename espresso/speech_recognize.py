@@ -138,13 +138,13 @@ def main(args):
                 output_lengths = models[0].encoder.output_lengths(net_input['src_lengths'])
                 nonpad_idxs = sequence_mask(output_lengths, models[0].encoder.output_lengths(src_tokens.size(1)))
 
-            for i, sample_id in enumerate(sample['id'].tolist()):
+            for i in range(len(sample['id'])):
                 has_target = sample['target'] is not None
                 utt_id = sample['utt_id'][i]
 
                 # Retrieve the original sentences
                 if has_target:
-                    target_str = task.dataset(args.gen_subset).tgt[sample_id][1]
+                    target_str = sample['target_raw_text'][i]
                     if not args.quiet:
                         target_sent = dictionary.tokens_to_sentence(
                             target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,
