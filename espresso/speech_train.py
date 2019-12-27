@@ -70,9 +70,6 @@ def main(args, init_distributed=False):
     # corresponding train iterator
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
 
-    if hasattr(trainer.criterion, 'set_train_tgt_dataset'):
-        trainer.criterion.set_train_tgt_dataset(task.dataset(args.train_subset).tgt)
-
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
     max_update = args.max_update or math.inf
@@ -270,9 +267,6 @@ def validate(args, trainer, task, epoch_itr, subsets):
                 meter.reset()
         extra_meters = collections.defaultdict(lambda: AverageMeter())
 
-        if hasattr(trainer.criterion, 'set_valid_tgt_dataset'):
-            trainer.criterion.set_valid_tgt_dataset(task.dataset(subset).tgt)
-
         for sample in progress:
             log_output = trainer.valid_step(sample)
 
@@ -351,7 +345,7 @@ def print_options_meaning_changes(args):
 
 
 def cli_main():
-    parser = options.get_training_parser(default_task='speech_recognition')
+    parser = options.get_training_parser()
     parser.add_argument('--remove-bpe', nargs='?', const='@@ ', default=None,
                         help='remove BPE tokens before scoring '
                         '(can be set to sentencepiece). Being used for monitoring '

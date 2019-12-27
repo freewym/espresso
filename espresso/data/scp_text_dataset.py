@@ -15,7 +15,12 @@ except ImportError:
 
 
 class ScpDataset(torch.utils.data.Dataset):
-    """Loader for TorchNet IndexedDataset"""
+    """
+    A dataset for audio features prepared in Kaldi scp format (e.g., feats.scp).
+    See http://kaldi-asr.org/doc/tutorial_running.html#tutorial_running_feats
+    for the format descriptions. This class loads a feature matrix from the disk
+    every time each entry is inquired, thus incurs the most intensive I/O.
+    """
 
     def __init__(self, path):
         super().__init__()
@@ -74,6 +79,11 @@ class ScpDataset(torch.utils.data.Dataset):
 
 
 class ScpCachedDataset(ScpDataset):
+    """
+    This class loads a batch of feature matrices (specified as *cache_size*)
+    every time an entry is inquired. The inquire order should be known in advance.
+    It balances the I/O efficiency and memory usage.
+    """
 
     def __init__(self, path, ordered_prefetch=False, cache_size=4096):
         super().__init__(path)
@@ -143,7 +153,10 @@ class ScpCachedDataset(ScpDataset):
 
 
 class ScpInMemoryDataset(ScpDataset):
-    """Loader for TorchNet ScpDataset, keeps all the data in memory."""
+    """
+    This class loads all feature matrices into memory at once.
+    It has the maximum memory usage and least I/O.
+    """
 
     def __init__(self, path):
         super().__init__(path)
@@ -223,17 +236,7 @@ class AsrTextDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, i):
         self.check_index(i)
-        return self.tensor_list[i]
-
-    def get_original_tokens(self, i):
-        self.check_index(i)
-        return self.tokens_list[i]
-
-    def get_original_text(self, i, dictionary, bpe_symbol=None):
-        self.check_index(i)
-        return dictionary.tokens_to_sentence(
-            self.tokens_list[i], use_unk_sym=False, bpe_symbol=bpe_symbol,
-        )
+        return self.tensor_list[i], self.tokens_list[i]
 
     def __len__(self):
         return self.size

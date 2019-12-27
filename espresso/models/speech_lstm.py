@@ -228,7 +228,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         if args.pretrained_lm_checkpoint:
             print('| loading pretrained LM from {}'.format(args.pretrained_lm_checkpoint))
             pretrained_lm = checkpoint_utils.load_model_ensemble(
-                args.pretrained_lm_checkpoint, task)[0][0]
+                args.pretrained_lm_checkpoint, task=task)[0][0]
             pretrained_lm.make_generation_fast_()
             # freeze pretrained model
             for param in pretrained_lm.parameters():
@@ -584,7 +584,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             if epoch > 0:
                 sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
                 if sampling_prob < 1.0:  # apply scheduled sampling
-                    return self._forward_with_schduled_sampling(
+                    return self._forward_with_scheduled_sampling(
                         prev_output_tokens, sampling_prob, encoder_out=encoder_out,
                         incremental_state={},  # use empty dict to preserve forward state
                     )
@@ -594,7 +594,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         )
         return self.output_layer(x), attn_scores
 
-    def _forward_with_schduled_sampling(
+    def _forward_with_scheduled_sampling(
         self, prev_output_tokens, sampling_prob, encoder_out=None, incremental_state=None,
     ):
         bsz, seqlen = prev_output_tokens.size()

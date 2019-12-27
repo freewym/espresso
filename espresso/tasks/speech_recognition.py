@@ -130,8 +130,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         args.left_pad_target = options.eval_bool(args.left_pad_target)
 
         # load dictionaries
-        dict_path = os.path.join(os.path.dirname(args.text_files[0]), 'dict.txt') \
-            if args.dict is None and args.text_files is not None else args.dict
+        dict_path = os.path.join(os.path.dirname(args.train_text_files[0]), 'dict.txt') \
+            if args.dict is None and args.train_text_files is not None else args.dict
         assert dict_path is not None, 'Please specify --dict'
         dictionary = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms)
         print('| dictionary: {} types'.format(len(dictionary)))
@@ -219,7 +219,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             self.dictionary.count[self.dictionary.eos()] = len(tgt_dataset)
             unk_count = 0
             for i in range(len(tgt_dataset)):
-                unk_count += (tgt_dataset[i] == self.dictionary.unk()).int().sum().item()
+                unk_count += (tgt_dataset[i][0] == self.dictionary.unk()).int().sum().item()
             self.dictionary.count[self.dictionary.unk()] = unk_count
 
     def build_generator(self, args):

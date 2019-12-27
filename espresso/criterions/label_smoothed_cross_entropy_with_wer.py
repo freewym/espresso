@@ -85,8 +85,6 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         dictionary = task.target_dictionary
         self.scorer = wer.Scorer(dictionary, wer_output_filter=task.args.wer_output_filter)
         self.decoder_for_validation = SimpleGreedyDecoder(dictionary, for_validation=True)
-        self.train_tgt_dataset = None
-        self.valid_tgt_dataset = None
         self.num_updates = -1
         self.epoch = 0
         self.unigram_tensor = None
@@ -137,14 +135,13 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
                 assert pred.size() == target.size()
                 with data_utils.numpy_seed(self.num_updates):
                     i = np.random.randint(0, len(sample['id']))
-                id = sample['id'].data[i].item()
+                ref_tokens = sample['target_raw_text'][i]
                 length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
-                # ref_one = dictionary.tokens_to_sentence(dictionary.string(target.data[i]))
-                ref_one = self.train_tgt_dataset.get_original_text(
-                    id, dictionary, bpe_symbol=self.args.remove_bpe,
+                ref_one = dictionary.tokens_to_sentence(
+                    ref_tokens, use_unk_sym=False, bpe_symbol=self.args.remove_bpe,
                 )
                 pred_one = dictionary.tokens_to_sentence(
-                    dictionary.string(pred.data[i][:length]),
+                    dictionary.string(pred.data[i][:length]), use_unk_sym=True,
                     bpe_symbol=self.args.remove_bpe,
                 )
                 print('| sample REF: ' + ref_one)
@@ -158,17 +155,11 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
             self.scorer.reset()
             for i in range(target.size(0)):
                 utt_id = sample['utt_id'][i]
-                id = sample['id'].data[i].item()
-                # ref_tokens = dictionary.string(target.data[i])
-                # if it is a dummy batch (e.g., a "padding" batch in a sharded
-                # dataset), id might exceeds the dataset size; in that case we
-                # just skip it
-                if id < len(self.valid_tgt_dataset):
-                    ref_tokens = self.valid_tgt_dataset.get_original_tokens(id)
-                    pred_tokens = dictionary.string(pred.data[i])
-                    self.scorer.add_evaluation(
-                        utt_id, ref_tokens, pred_tokens, bpe_symbol=self.args.remove_bpe,
-                    )
+                ref_tokens = sample['target_raw_text'][i]
+                pred_tokens = dictionary.string(pred.data[i])
+                self.scorer.add_evaluation(
+                    utt_id, ref_tokens, pred_tokens, bpe_symbol=self.args.remove_bpe,
+                )
 
         prob_mask = temporal_label_smoothing_prob_mask(
             lprobs, target, padding_index=self.padding_idx,
@@ -211,12 +202,6 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
             agg_output['char_error'] = char_error
             agg_output['char_count'] = char_count
         return agg_output
-
-    def set_train_tgt_dataset(self, dataset):
-        self.train_tgt_dataset = dataset
-
-    def set_valid_tgt_dataset(self, dataset):
-        self.valid_tgt_dataset = dataset
 
     def set_num_updates(self, num_updates):
         self.num_updates = num_updates
