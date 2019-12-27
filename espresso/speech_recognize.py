@@ -144,7 +144,7 @@ def main(args):
 
                 # Retrieve the original sentences
                 if has_target:
-                    target_str = task.dataset(args.gen_subset).tgt.get_original_tokens(sample_id)
+                    target_str = task.dataset(args.gen_subset).tgt[sample_id][1]
                     if not args.quiet:
                         target_sent = dictionary.tokens_to_sentence(
                             target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,

@@ -219,7 +219,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             self.dictionary.count[self.dictionary.eos()] = len(tgt_dataset)
             unk_count = 0
             for i in range(len(tgt_dataset)):
-                unk_count += (tgt_dataset[i] == self.dictionary.unk()).int().sum().item()
+                unk_count += (tgt_dataset[i][0] == self.dictionary.unk()).int().sum().item()
             self.dictionary.count[self.dictionary.unk()] = unk_count
 
     def build_generator(self, args):
