@@ -32,13 +32,12 @@ def collate(
             raise ValueError('Invalid key.')
 
     id = torch.LongTensor([s['id'] for s in samples])
-    utt_id = [s['utt_id'] for s in samples]
     src_frames = merge('source', left_pad=left_pad_source)
     # sort by descending source length
     src_lengths = torch.IntTensor([s['source'].size(0) for s in samples])
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
-    utt_id = [utt_id[i] for i in sort_order.numpy()]
+    utt_id = [samples[i]['utt_id'] for i in sort_order.numpy()]
     src_frames = src_frames.index_select(0, sort_order)
 
     prev_output_tokens = None
@@ -62,8 +61,7 @@ def collate(
 
     target_raw_text = None
     if samples[0].get('target_raw_text', None) is not None:
-        target_raw_text = [s['target_raw_text'] for s in samples]
-        target_raw_text = [target_raw_text[i] for i in sort_order.numpy()]
+        target_raw_text = [samples[i]['target_raw_text'] for i in sort_order.numpy()]
 
     batch = {
         'id': id,
