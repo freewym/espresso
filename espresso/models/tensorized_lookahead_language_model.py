@@ -212,7 +212,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
             word_probs[batch_node_word_end_mask]
 
         # take log of probs and clip it from below to avoid log(0)
-        out_logprobs = torch.log(torch.max(out_probs, out_probs.new([self.zero])))
+        out_logprobs = torch.log(out_probs.clamp(min=self.zero))
 
         # assign log-probs of emitting word <eos> to that of emitting subword <eos>
         out_logprobs[batch_space_mask, :, self.subword_eos_idx] = \
