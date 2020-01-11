@@ -6,11 +6,10 @@
 import numpy as np
 import torch
 
-from fairseq import utils
-from fairseq.data import data_utils
-
+from fairseq import metrics, utils
 from fairseq.criterions import register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
+from fairseq.data import data_utils
 
 from espresso.tools import wer
 from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
@@ -188,20 +187,18 @@ class LabelSmoothedCrossEntropyWithWERCriterion(LabelSmoothedCrossEntropyCriteri
         return loss, sample_size, logging_output
 
     @staticmethod
-    def aggregate_logging_outputs(logging_outputs):
+    def reduce_metrics(logging_outputs) -> None:
         """Aggregate logging outputs from data parallel training."""
-        agg_output = LabelSmoothedCrossEntropyCriterion.aggregate_logging_outputs(logging_outputs)
+        LabelSmoothedCrossEntropyCriterion.reduce_metrics(logging_outputs)
+
         word_error = sum(log.get('word_error', 0) for log in logging_outputs)
         word_count = sum(log.get('word_count', 0) for log in logging_outputs)
         char_error = sum(log.get('char_error', 0) for log in logging_outputs)
         char_count = sum(log.get('char_count', 0) for log in logging_outputs)
         if word_count > 0:  # model.training == False
-            agg_output['word_error'] = word_error
-            agg_output['word_count'] = word_count
+            metrics.log_scalar('wer', float(word_error) / word_count * 100, word_count, round=4)
         if char_count > 0:  # model.training == False
-            agg_output['char_error'] = char_error
-            agg_output['char_count'] = char_count
-        return agg_output
+            metrics.log_scalar('cer', float(char_error) / char_count * 100, char_count, round=4)
 
     def set_num_updates(self, num_updates):
         self.num_updates = num_updates

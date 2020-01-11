@@ -8,6 +8,7 @@
 Recognize pre-processed speech with a trained model.
 """
 
+import math
 import os
 
 import torch
@@ -158,7 +159,8 @@ def main(args):
                         hypo_sent = dictionary.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
 
                     if not args.quiet:
-                        print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, hypo['score']))
+                        score = hypo['score'] / math.log(2)  # convert to base 2
+                        print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, score))
 
                     # Score and obtain attention only the top hypothesis
                     if j == 0:
@@ -177,6 +179,7 @@ def main(args):
             t.log({'wps': round(wps_meter.avg)})
             num_sentences += sample['nsentences']
 
+    print('| NOTE: hypothesis and token scores are output in base 2')
     print('| Recognized {} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
     if args.print_alignment:
