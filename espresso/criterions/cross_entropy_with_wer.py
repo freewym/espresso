@@ -4,13 +4,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import numpy as np
+
 import torch.nn.functional as F
 
-from fairseq import utils
-from fairseq.data import data_utils
-
+from fairseq import metrics, utils
 from fairseq.criterions import register_criterion
 from fairseq.criterions.cross_entropy import CrossEntropyCriterion
+from fairseq.data import data_utils
 
 from espresso.tools import wer
 from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
@@ -97,7 +97,6 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
             'loss': utils.item(loss.data) if reduce else loss.data,
-            'nll_loss': utils.item(loss.data) if reduce else loss.data,
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
@@ -110,20 +109,18 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
         return loss, sample_size, logging_output
 
     @staticmethod
-    def aggregate_logging_outputs(logging_outputs):
+    def reduce_metrics(logging_outputs) -> None:
         """Aggregate logging outputs from data parallel training."""
-        agg_output = CrossEntropyCriterion.aggregate_logging_outputs(logging_outputs)
+        CrossEntropyCriterion.reduce_metrics(logging_outputs)
+
         word_error = sum(log.get('word_error', 0) for log in logging_outputs)
         word_count = sum(log.get('word_count', 0) for log in logging_outputs)
         char_error = sum(log.get('char_error', 0) for log in logging_outputs)
         char_count = sum(log.get('char_count', 0) for log in logging_outputs)
         if word_count > 0:  # model.training == False
-            agg_output['word_error'] = word_error
-            agg_output['word_count'] = word_count
+            metrics.log_scalar('wer', float(word_error) / word_count * 100, word_count, round=4)
         if char_count > 0:  # model.training == False
-            agg_output['char_error'] = char_error
-            agg_output['char_count'] = char_count
-        return agg_output
+            metrics.log_scalar('wer', float(word_error) / word_count * 100, word_count, round=4)
 
     def set_num_updates(self, num_updates):
         self.num_updates = num_updates
