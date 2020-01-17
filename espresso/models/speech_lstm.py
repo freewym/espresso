@@ -3,6 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -29,6 +31,9 @@ from espresso.modules import speech_attention
 from espresso.tasks.speech_recognition import SpeechRecognitionEspressoTask
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
 import espresso.tools.utils as speech_utils
+
+
+logger = logging.getLogger(__name__)
 
 
 @register_model('speech_lstm')
@@ -171,7 +176,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
         kernel_sizes = eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
         strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
-        print('| input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
+        logger.info('input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
         assert task.feat_dim % task.feat_in_channels == 0
         conv_layers = ConvBNReLU(
             out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,
@@ -226,7 +231,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         )
         pretrained_lm = None
         if args.pretrained_lm_checkpoint:
-            print('| loading pretrained LM from {}'.format(args.pretrained_lm_checkpoint))
+            logger.info('loading pretrained LM from {}'.format(args.pretrained_lm_checkpoint))
             pretrained_lm = checkpoint_utils.load_model_ensemble(
                 args.pretrained_lm_checkpoint, task=task)[0][0]
             pretrained_lm.make_generation_fast_()
