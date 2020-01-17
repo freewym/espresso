@@ -38,8 +38,7 @@ class ScpDataset(torch.utils.data.Dataset):
             try:
                 feat = kaldi_io.read_mat(filename)
             except Exception:
-                print('Failed to read feature matrix {}.'.format(filename))
-                raise
+                raise Exception('failed to read feature matrix {}.'.format(filename))
             assert feat is not None and isinstance(feat, np.ndarray)
             self.sizes.append(feat.shape[0])
         self.sizes = np.array(self.sizes, dtype=np.int32)
@@ -123,12 +122,11 @@ class ScpCachedDataset(ScpDataset):
                     i, self.start_pos_for_next_cache,
                 )
             except ValueError:
-                print(
+                raise ValueError(
                     'index {} not found in self.ordered_indices. Set '
                     'self.ordered_prefetch to False, and/or call self.prefetch() '
                     'with the full list of indices, and then try again.'.format(i)
                 )
-                raise
             pos_end = min(
                 pos_start + self.cache_size, len(self.ordered_indices),
             )
