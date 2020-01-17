@@ -5,11 +5,21 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import logging
 import re
 import sys
 from collections import Counter
 
 from espresso.tools.utils import edit_distance
+
+
+logging.basicConfig(
+    format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    level=logging.INFO,
+    stream=sys.stderr,
+)
+logger = logging.getLogger('espresso.tools.compute_wer')
 
 
 def get_parser():
@@ -53,10 +63,7 @@ def main(args):
                     assert m is not None
                     word_filters.append([m.group(1), m.group(2)])
                 else:
-                    print(
-                        'Unsupported pattern: "{}", ignored'.format(line),
-                        file=sys.stderr,
-                    )
+                    logger.warning('Unsupported pattern: "{}". Ignoring it.'.format(line))
 
     refs = {}
     with open(args.ref_text, 'r', encoding='utf-8') as f:
