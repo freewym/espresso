@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import numpy as np
 
 import torch.nn.functional as F
@@ -14,6 +15,9 @@ from fairseq.data import data_utils
 
 from espresso.tools import wer
 from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
+
+
+logger = logging.getLogger(__name__)
 
 
 @register_criterion('cross_entropy_with_wer')
@@ -70,8 +74,8 @@ class CrossEntropyWithWERCriterion(CrossEntropyCriterion):
                     dictionary.string(pred.data[i][:length]), use_unk_sym=True,
                     bpe_symbol=self.args.remove_bpe,
                 )
-                print('| sample REF: ' + ref_one)
-                print('| sample PRD: ' + pred_one)
+                logger.info('sample REF: ' + ref_one)
+                logger.info('sample PRD: ' + pred_one)
         else:
             tokens, lprobs, _ = self.decoder_for_validation.decode([model], sample)
             pred = tokens[:, 1:].data.cpu()  # bsz x len

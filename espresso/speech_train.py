@@ -8,8 +8,10 @@
 Train a new model on one or across multiple GPUs.
 """
 
+import logging
 import math
 import random
+import sys
 
 import numpy as np
 import torch
@@ -20,6 +22,15 @@ from fairseq import (
 from fairseq.data import iterators
 from fairseq.trainer import Trainer
 from fairseq.meters import StopwatchMeter
+
+
+logging.basicConfig(
+    format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    level=logging.INFO,
+    stream=sys.stdout,
+)
+logger = logging.getLogger('espresso.speech_train')
 
 
 def main(args, init_distributed=False):
@@ -40,7 +51,7 @@ def main(args, init_distributed=False):
         checkpoint_utils.verify_checkpoint_directory(args.save_dir)
 
     # Print args
-    print(args)
+    logger.info(args)
 
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(args)
@@ -52,17 +63,17 @@ def main(args, init_distributed=False):
     # Build model and criterion
     model = task.build_model(args)
     criterion = task.build_criterion(args)
-    print(model)
-    print('| model {}, criterion {}'.format(args.arch, criterion.__class__.__name__))
-    print('| num. model params: {} (num. trained: {})'.format(
+    logger.info(model)
+    logger.info('model {}, criterion {}'.format(args.arch, criterion.__class__.__name__))
+    logger.info('num. model params: {} (num. trained: {})'.format(
         sum(p.numel() for p in model.parameters()),
         sum(p.numel() for p in model.parameters() if p.requires_grad),
     ))
 
     # Build trainer
     trainer = Trainer(args, task, model, criterion)
-    print('| training on {} GPUs'.format(args.distributed_world_size))
-    print('| max input frames per GPU = {} and max sentences per GPU = {}'.format(
+    logger.info('training on {} GPUs'.format(args.distributed_world_size))
+    logger.info('max input frames per GPU = {} and max sentences per GPU = {}'.format(
         args.max_tokens,
         args.max_sentences,
     ))
@@ -104,14 +115,14 @@ def main(args, init_distributed=False):
 
         # early stop
         if should_stop_early(args, valid_losses[0]):
-            print('| Early stop since valid performance hasn\'t improved for last {} runs'.format(args.patience))
+            logger.info('early stop since valid performance hasn\'t improved for last {} runs'.format(args.patience))
             break
 
         reload_dataset = len(args.train_feat_files) > 1
         # sharded data: get train iterator for next epoch
         epoch_itr = trainer.get_train_iterator(epoch_itr.epoch, load_dataset=reload_dataset)
     train_meter.stop()
-    print('| done training in {:.1f} seconds'.format(train_meter.sum))
+    logger.info('done training in {:.1f} seconds'.format(train_meter.sum))
 
 
 def should_stop_early(args, valid_loss):
@@ -148,46 +159,48 @@ def train(args, trainer, task, epoch_itr):
         args, itr, epoch_itr.epoch, no_progress_bar='simple',
     )
 
+    # task specific setup per epoch
+    task.begin_epoch(epoch_itr.epoch, trainer.get_model())
+
     valid_subsets = args.valid_subset.split(',')
     max_update = args.max_update or math.inf
     if hasattr(trainer.criterion, 'set_epoch'):
         trainer.criterion.set_epoch(epoch_itr.epoch)
-    for samples in progress:
-        if hasattr(trainer.criterion, 'set_num_updates'):
-            trainer.criterion.set_num_updates(trainer.get_num_updates())
+    with metrics.aggregate() as agg:
+        for samples in progress:
+            if hasattr(trainer.criterion, 'set_num_updates'):
+                trainer.criterion.set_num_updates(trainer.get_num_updates())
 
-        with metrics.aggregate('train_inner'):
             log_output = trainer.train_step(samples)
             num_updates = trainer.get_num_updates()
             if log_output is None:
                 continue
 
             # log mid-epoch stats
-            stats = get_training_stats('train_inner')
+            stats = get_training_stats(agg.get_smoothed_values())
             progress.log(stats, tag='train', step=num_updates)
 
-        if (
-            not args.disable_validation
-            and args.save_interval_updates > 0
-            and num_updates % args.save_interval_updates == 0
-            and num_updates > 0
-        ):
-            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
-            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
+            if (
+                not args.disable_validation
+                and args.save_interval_updates > 0
+                and num_updates % args.save_interval_updates == 0
+                and num_updates > 0
+            ):
+                valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+                checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
-        if num_updates >= max_update:
-            break
+            if num_updates >= max_update:
+                break
 
     # log end-of-epoch stats
-    stats = get_training_stats('train')
+    stats = get_training_stats(agg.get_smoothed_values())
     progress.print(stats, tag='train', step=num_updates)
 
     # reset epoch-level meters
     metrics.reset_meters('train')
 
 
-def get_training_stats(stats_key):
-    stats = metrics.get_smoothed_values(stats_key)
+def get_training_stats(stats):
     if 'nll_loss' in stats and 'ppl' not in stats:
         stats['ppl'] = utils.get_perplexity(stats['nll_loss'])
     stats['wall'] = round(metrics.get_meter('default', 'wall').elapsed_time, 0)
@@ -225,22 +238,22 @@ def validate(args, trainer, task, epoch_itr, subsets):
             no_progress_bar='simple'
         )
 
-        # reset validation loss meters
+        # reset validation meters
         metrics.reset_meters('valid')
 
-        for sample in progress:
-            trainer.valid_step(sample)
+        with metrics.aggregate() as agg:
+            for sample in progress:
+                trainer.valid_step(sample)
 
         # log validation stats
-        stats = get_valid_stats(args, trainer)
+        stats = get_valid_stats(args, trainer, agg.get_smoothed_values())
         progress.print(stats, tag=subset, step=trainer.get_num_updates())
 
         valid_losses.append(stats[args.best_checkpoint_metric])
     return valid_losses
 
 
-def get_valid_stats(args, trainer):
-    stats = metrics.get_smoothed_values('valid')
+def get_valid_stats(args, trainer, stats):
     if 'nll_loss' in stats and 'ppl' not in stats:
         stats['ppl'] = utils.get_perplexity(stats['nll_loss'])
     stats['num_updates'] = trainer.get_num_updates()
@@ -265,16 +278,16 @@ def print_options_meaning_changes(args):
     """Options that have different meanings than those in the translation task
     are explained here.
     """
-    print('| --max-tokens is the maximum number of input frames in a batch')
+    logger.info('--max-tokens is the maximum number of input frames in a batch')
 
 
-def cli_main():
+def cli_main(modify_parser=None):
     parser = options.get_training_parser()
     parser.add_argument('--remove-bpe', nargs='?', const='@@ ', default=None,
                         help='remove BPE tokens before scoring '
                         '(can be set to sentencepiece). Being used for monitoring '
                         'and validation')
-    args = options.parse_args_and_arch(parser)
+    args = options.parse_args_and_arch(parser, modify_parser=modify_parser)
     print_options_meaning_changes(args)
 
     if args.distributed_init_method is None:
@@ -299,7 +312,7 @@ def cli_main():
         args.distributed_init_method = 'tcp://localhost:{port}'.format(port=port)
         args.distributed_rank = None  # set based on device id
         if max(args.update_freq) > 1 and args.ddp_backend != 'no_c10d':
-            print('| NOTE: you may get faster training with: --ddp-backend=no_c10d')
+            logger.info('NOTE: you may get faster training with: --ddp-backend=no_c10d')
         torch.multiprocessing.spawn(
             fn=distributed_main,
             args=(args, ),

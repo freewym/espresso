@@ -3,12 +3,16 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import re
 import sys
 
 from collections import Counter, OrderedDict
 
 import espresso.tools.utils as speech_utils
+
+
+logger = logging.getLogger(__name__)
 
 
 class Scorer(object):
@@ -42,10 +46,7 @@ class Scorer(object):
                         assert m is not None
                         self.word_filters.append([m.group(1), m.group(2)])
                     else:
-                        print(
-                            'Unsupported pattern: "{}", ignored'.format(line),
-                            file=sys.stderr,
-                        )
+                        logger.warning('Unsupported pattern: "{}". Ignoring it'.format(line))
 
     def add_prediction(self, utt_id, pred, bpe_symbol=None):
         if not isinstance(utt_id, str):

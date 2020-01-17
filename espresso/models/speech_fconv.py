@@ -3,7 +3,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,6 +27,9 @@ from fairseq.modules import GradMultiply
 
 from espresso.models.speech_lstm import ConvBNReLU
 import espresso.tools.utils as speech_utils
+
+
+logger = logging.getLogger(__name__)
 
 
 @register_model('speech_fconv')
@@ -96,7 +101,7 @@ class SpeechFConvModel(FConvModel):
         out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
         kernel_sizes = eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
         strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
-        print('| input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
+        logger.info('input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
         assert task.feat_dim % task.feat_in_channels == 0
         conv_layers = ConvBNReLU(
             out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,

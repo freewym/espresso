@@ -5,9 +5,19 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import logging
 import os
 import sys
 from collections import Counter
+
+
+logging.basicConfig(
+    format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    level=logging.INFO,
+    stream=sys.stderr,
+)
+logger = logging.getLogger('espresso.tools.text2vocabulary')
 
 
 def get_parser():
@@ -65,7 +75,7 @@ def main(args):
         most_common = most_common[:cutoff_point]
         vocab_set = set(list(zip(*most_common))[0])
     else:
-        print('using the provided vocabulary:', file=sys.stderr)
+        logger.info('using the provided vocabulary:')
         with open(args.vocab, 'r', encoding='utf-8') as f:
             vocab_set = set([line.rstrip().split()[0] for line in f])
         most_common = []
@@ -78,11 +88,11 @@ def main(args):
         print('{} {:d}'.format(w, c))
 
     oov_rate = 1. - float(invocab_count) / total_count
-    print('training set:', file=sys.stderr)
-    print('  total #tokens={:d}'.format(total_count), file=sys.stderr)
-    print('  OOV rate={:.2f}%'.format(oov_rate * 100), file=sys.stderr)
+    logger.info('training set:')
+    logger.info('  total #tokens={:d}'.format(total_count))
+    logger.info('  OOV rate={:.2f}%'.format(oov_rate * 100))
     if args.vocab is None:
-        print('  cutoff frequency={:d}'.format(cutoff_freq), file=sys.stderr)
+        logger.info('  cutoff frequency={:d}'.format(cutoff_freq))
 
     if args.valid_text is not None:
         total_count = 0
@@ -94,9 +104,9 @@ def main(args):
                 total_count += len(tokens)
                 invocab_count += len([tok for tok in tokens if tok in vocab_set])
         oov_rate = 1. - float(invocab_count) / total_count
-        print('validation set:', file=sys.stderr)
-        print('  total #tokens={:d}'.format(total_count), file=sys.stderr)
-        print('  OOV rate={:.2f}%'.format(oov_rate * 100), file=sys.stderr)
+        logger.info('validation set:')
+        logger.info('  total #tokens={:d}'.format(total_count))
+        logger.info('  OOV rate={:.2f}%'.format(oov_rate * 100))
 
     if args.test_text is not None:
         for k, path in enumerate(args.test_text.split(os.pathsep)):
@@ -109,9 +119,9 @@ def main(args):
                     total_count += len(tokens)
                     invocab_count += len([tok for tok in tokens if tok in vocab_set])
             oov_rate = 1. - float(invocab_count) / total_count
-            print('test set{}:'.format(k) if k > 0 else 'test set:', file=sys.stderr)
-            print('  total #tokens={:d}'.format(total_count), file=sys.stderr)
-            print('  OOV rate={:.2f}%'.format(oov_rate * 100), file=sys.stderr)
+            logger.info('test set{}:'.format(k) if k > 0 else 'test set:')
+            logger.info('  total #tokens={:d}'.format(total_count))
+            logger.info('  OOV rate={:.2f}%'.format(oov_rate * 100))
 
 
 if __name__ == '__main__':

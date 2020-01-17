@@ -277,18 +277,19 @@ if [ $stage -le 7 ]; then
   fi
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
   for dataset in $test_set; do
+    feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
     decode_dir=$dir/decode_${dataset}${decode_affix:+_${decode_affix}}
     # only score train_dev with built-in scorer
     text_opt= && [ "$dataset" == "train_dev" ] && text_opt="--test-text-files data/$dataset/token_text"
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 24000 --max-sentences 48 \
-      --num-shards 1 --shard-id 0 --test-feat-files ${dumpdir}/$dataset/delta${do_delta}/feats.scp $text_opt \
+      --num-shards 1 --shard-id 0 --test-feat-files $feat $text_opt \
       --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 35 --max-len-a 0.1 --max-len-b 0 --lenpen 1.0 \
-      --results-path $decode_dir $opts \
-      2>&1 | tee $dir/logs/decode_$dataset${decode_affix:+_${decode_affix}}.log
+      --results-path $decode_dir $opts
 
+    echo "log saved in ${decode_dir}/decode.log"
     echo "Scoring with kaldi..."
     local/score.sh data/$dataset $decode_dir
     if [ "$dataset" == "train_dev" ]; then

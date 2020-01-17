@@ -140,9 +140,10 @@ class SpeechDataset(FairseqDataset):
         try:
             tgt_indices = list(map(self.tgt.utt_ids.index, self.src.utt_ids))
         except ValueError:
-            print('Unable to find some utt_id(s) in tgt. which is unlikely to \
-                happen. Something must be wrong.')
-            raise
+            raise ValueError(
+                'Unable to find some utt_id(s) in tgt. which is unlikely to happen. '
+                'Something must be wrong.'
+            )
         self.tgt.filter_and_reorder(tgt_indices)
         self.tgt_sizes = np.array(self.tgt.sizes)
         assert self.src.utt_ids == self.tgt.utt_ids

@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import os
 
 import torch
@@ -18,6 +19,9 @@ from espresso.data import (
     ScpCachedDataset,
     SpeechDataset,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @register_task('speech_recognition_espresso')
@@ -134,10 +138,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             if args.dict is None and args.train_text_files is not None else args.dict
         assert dict_path is not None, 'Please specify --dict'
         dictionary = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms)
-        print('| dictionary: {} types'.format(len(dictionary)))
+        logger.info('dictionary: {} types'.format(len(dictionary)))
         if args.word_dict is not None:
             word_dict = cls.load_dictionary(args.word_dict)
-            print('| word dictionary: {} types'.format(len(word_dict)))
+            logger.info('word dictionary: {} types'.format(len(word_dict)))
             return cls(args, dictionary, word_dict)
 
         else:
@@ -178,10 +182,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             assert ScpCachedDataset.exists(feat), feat + ' does not exists'
             assert text is None or AsrTextDataset.exists(text), text + ' does not exists'
             src_datasets.append(ScpCachedDataset(feat, ordered_prefetch=True))
-            print('| {} {} examples'.format(feat, len(src_datasets[-1])))
+            logger.info('{} {} examples'.format(feat, len(src_datasets[-1])))
             if text is not None:
                 tgt_datasets.append(AsrTextDataset(text, self.dictionary))
-                print('| {} {} examples'.format(text, len(tgt_datasets[-1])))
+                logger.info('{} {} examples'.format(text, len(tgt_datasets[-1])))
 
             if not combine:
                 break
@@ -225,8 +229,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     def build_generator(self, args):
         if args.score_reference:
             args.score_reference = False
-            print('| --score-reference is not applicable to speech recognition,'
-                  ' ignoring it.')
+            logger.warning(
+                '--score-reference is not applicable to speech recognition, ignoring it.'
+            )
         from fairseq.sequence_generator import SequenceGenerator
 
         # Choose search strategy. Defaults to Beam Search.

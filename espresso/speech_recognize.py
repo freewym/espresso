@@ -8,8 +8,10 @@
 Recognize pre-processed speech with a trained model.
 """
 
+import logging
 import math
 import os
+import sys
 
 import torch
 
@@ -28,11 +30,32 @@ def main(args):
     assert not args.sampling or args.nbest == args.beam, \
         '--sampling requires --nbest to be equal to --beam'
 
+    if args.results_path is not None:
+        os.makedirs(args.results_path, exist_ok=True)
+        output_path = os.path.join(args.results_path, 'decode.log')
+        with open(output_path, 'w', buffering=1) as h:
+            return _main(args, h)
+    return _main(args, sys.stdout)
+
+
+def _main(args, output_file):
+    logging.basicConfig(
+        format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+        level=logging.INFO,
+        stream=output_file,
+    )
+    logger = logging.getLogger('espresso.speech_recognize')
+    if output_file is not sys.stdout:  # also print to stdout
+        logger.addHandler(logging.StreamHandler(sys.stdout))
+
+    print_options_meaning_changes(args, logger)
+
     utils.import_user_module(args)
 
     if args.max_tokens is None and args.max_sentences is None:
         args.max_tokens = 12000
-    print(args)
+    logger.info(args)
 
     use_cuda = torch.cuda.is_available() and not args.cpu
 
@@ -44,7 +67,7 @@ def main(args):
     dictionary = task.target_dictionary
 
     # Load ensemble
-    print('| loading model(s) from {}'.format(args.path))
+    logger.info('loading model(s) from {}'.format(args.path))
     models, _model_args = checkpoint_utils.load_model_ensemble(
         args.path.split(':'),
         arg_overrides=eval(args.model_overrides),
@@ -61,19 +84,19 @@ def main(args):
                     open_vocab=not args.disable_open_vocab,
                 )
                 del models[i]
-                print('| LM fusion with Multi-level LM')
+                logger.info('LM fusion with Multi-level LM')
             else:
                 models[i] = TensorizedLookaheadLanguageModel(
                     m, dictionary,
                     oov_penalty=args.oov_penalty,
                     open_vocab=not args.disable_open_vocab,
                 )
-                print('| LM fusion with Look-ahead Word LM')
+                logger.info('LM fusion with Look-ahead Word LM')
         # assume subword LM comes after E2E models
         elif i == len(models) - 1 and isinstance(m, FairseqLanguageModel):
-            print('| LM fusion with Subword LM')
+            logger.info('LM fusion with Subword LM')
     if args.lm_weight != 0.0:
-        print('| using LM fusion with lm-weight={:.2f}'.format(args.lm_weight))
+        logger.info('using LM fusion with lm-weight={:.2f}'.format(args.lm_weight))
 
     # Optimize ensemble for generation
     for model in models:
@@ -105,8 +128,9 @@ def main(args):
 
     # Initialize generator
     if args.match_source_len:
-        print('| The option match_source_len is not applicable to '
-              'speech recognition. Ignoring it.')
+        logger.warning(
+            'The option match_source_len is not applicable to speech recognition. Ignoring it.'
+        )
     gen_timer = StopwatchMeter()
     generator = task.build_generator(args)
 
@@ -150,7 +174,7 @@ def main(args):
                         target_sent = dictionary.tokens_to_sentence(
                             target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,
                         )
-                        print('T-{}\t{}'.format(utt_id, target_sent))
+                        print('T-{}\t{}'.format(utt_id, target_sent), file=output_file)
 
                 # Process top predictions
                 for j, hypo in enumerate(hypos[i][:args.nbest]):
@@ -160,7 +184,7 @@ def main(args):
 
                     if not args.quiet:
                         score = hypo['score'] / math.log(2)  # convert to base 2
-                        print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, score))
+                        print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, score), file=output_file)
 
                     # Score and obtain attention only the top hypothesis
                     if j == 0:
@@ -179,64 +203,62 @@ def main(args):
             t.log({'wps': round(wps_meter.avg)})
             num_sentences += sample['nsentences']
 
-    print('| NOTE: hypothesis and token scores are output in base 2')
-    print('| Recognized {} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
+    logger.info('NOTE: hypothesis and token scores are output in base 2')
+    logger.info('Recognized {} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
     if args.print_alignment:
-        print('| Saved attention plots in ' + save_dir)
+        logger.info('Saved attention plots in ' + save_dir)
 
     if has_target:
         assert args.test_text_files is not None
         scorer.add_ordered_utt_list(*args.test_text_files)
 
-    os.makedirs(args.results_path, exist_ok=True)
-
     fn = 'decoded_char_results.txt'
     with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
         f.write(scorer.print_char_results())
-        print('| Decoded char results saved as ' + f.name)
+        logger.info('Decoded char results saved as ' + f.name)
 
     fn = 'decoded_results.txt'
     with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
         f.write(scorer.print_results())
-        print('| Decoded results saved as ' + f.name)
+        logger.info('Decoded results saved as ' + f.name)
 
     if has_target:
-        header = ' Recognize {} with beam={}: '.format(args.gen_subset, args.beam)
+        header = 'Recognize {} with beam={}: '.format(args.gen_subset, args.beam)
         fn = 'wer'
         with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
             res = 'WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
                 *(scorer.wer()))
-            print('|' + header + res)
+            logger.info(header + res)
             f.write(res + '\n')
-            print('| WER saved in ' + f.name)
+            logger.info('WER saved in ' + f.name)
 
         fn = 'cer'
         with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
             res = 'CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%'.format(
                 *(scorer.cer()))
-            print('|' + ' ' * len(header) + res)
+            logger.info(' ' * len(header) + res)
             f.write(res + '\n')
-            print('| CER saved in ' + f.name)
+            logger.info('CER saved in ' + f.name)
 
         fn = 'aligned_results.txt'
         with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
             f.write(scorer.print_aligned_results())
-            print('| Aligned results saved as ' + f.name)
+            logger.info('Aligned results saved as ' + f.name)
     return scorer
 
 
-def print_options_meaning_changes(args):
+def print_options_meaning_changes(args, logger):
     """Options that have different meanings than those in the translation task
     are explained here.
     """
-    print('| --max-tokens is the maximum number of input frames in a batch')
+    logger.info('--max-tokens is the maximum number of input frames in a batch')
     if args.print_alignment:
-        print('| --print-alignment has been set to plot attentions')
+        logger.info('--print-alignment has been set to plot attentions')
 
 
 def cli_main():
-    parser = options.get_generation_parser(default_task='speech_recognition')
+    parser = options.get_generation_parser(default_task='speech_recognition_espresso')
     parser.add_argument('--eos-factor', default=None, type=float, metavar='F',
                         help='only consider emitting EOS if its score is no less '
                         'than the specified factor of the best candidate score')
@@ -253,7 +275,6 @@ def cli_main():
                         'pretrained external LM')
     args = options.parse_args_and_arch(parser)
     assert args.results_path is not None, 'please specify --results-path'
-    print_options_meaning_changes(args)
     main(args)
 
 
