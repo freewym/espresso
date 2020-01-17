@@ -3,9 +3,10 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import torch
-
+import logging
 import os
+
+import torch
 
 from fairseq import tokenizer
 from fairseq.data import TruncatedDictionary
@@ -13,6 +14,9 @@ from fairseq.tasks import register_task
 from fairseq.tasks.language_modeling import LanguageModelingTask
 
 from espresso.data import AsrDictionary
+
+
+logger = logging.getLogger(__name__)
 
 
 @register_task("language_modeling_for_asr")
@@ -106,7 +110,7 @@ class LanguageModelingForASRTask(LanguageModelingTask):
             dict_path = os.path.join(paths[0], "dict.txt") if args.dict is None \
                 else args.dict
             dictionary = AsrDictionary.load(dict_path)
-            print("| dictionary: {} types".format(len(dictionary)))
+            logger.info("dictionary: {} types".format(len(dictionary)))
             output_dictionary = dictionary
             if args.output_dictionary_size >= 0:
                 output_dictionary = TruncatedDictionary(
