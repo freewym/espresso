@@ -306,19 +306,20 @@ if [ ${stage} -le 9 ]; then
       feat=$test_feat_dir/feats.scp
     fi
     text=data/$dataset/token_text
+    decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 20000 --max-sentences 32 \
       --num-shards 1 --shard-id 0 --test-feat-files $feat --test-text-files $text \
       --dict $dict --non-lang-syms $nlsyms \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 50 --max-len-a 0.2 --max-len-b 0 --lenpen 1.0 \
-      --results-path $dir/decode_$dataset${decode_affix:+_${decode_affix}} $opts \
-      --print-alignment 2>&1 | tee $dir/logs/decode_$dataset${decode_affix:+_${decode_affix}}.log
+      --results-path $decode_dir $opts --print-alignment
 
+    echo "log saved in ${decode_dir}/decode.log"
     if $kaldi_scoring; then
       echo "verify WER by scoring with Kaldi..."
-      local/score.sh data/$dataset $dir/decode_$dataset${decode_affix:+_${decode_affix}}
-      cat $dir/decode_$dataset${decode_affix:+_${decode_affix}}/scoring_kaldi/wer
+      local/score.sh data/$dataset $decode_dir
+      cat ${decode_dir}/scoring_kaldi/wer
     fi
   done
 fi
