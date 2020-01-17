@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import unittest
 import string
 import numpy as np
@@ -13,6 +14,9 @@ import torch
 from espresso.data import AsrDictionary
 
 import espresso.tools.utils as utils
+
+
+logger = logging.getLogger(__name__)
 
 
 class TestSpeechUtils(unittest.TestCase):
@@ -70,8 +74,8 @@ class TestSpeechUtils(unittest.TestCase):
 
     def test_speech_tokenizer(self):
         for i, sent in enumerate(self.text):
-            print('test sentence {}:'.format(i))
-            print(sent)
+            logger.info('test sentence {}:'.format(i))
+            logger.info(sent)
             tokens = utils.tokenize(
                 sent, space=self.dictionary.space_word,
                 non_lang_syms=self.non_lang_syms,
