@@ -214,7 +214,7 @@ if [ ${stage} -le 7 ]; then
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 3000 \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
-    --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_with_wer \
+    --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.1 --smoothing-type uniform \
     --scheduled-sampling-probs 1.0 --start-scheduled-sampling-epoch 1 \
     --train-feat-files $train_feat --train-text-files $train_token_text \

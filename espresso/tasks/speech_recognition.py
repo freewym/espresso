@@ -8,7 +8,7 @@ import os
 
 import torch
 
-from fairseq import options, search
+from fairseq import metrics, options, search
 from fairseq.data import ConcatDataset
 
 from fairseq.tasks import FairseqTask, register_task
@@ -294,11 +294,36 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     def build_dataset_for_inference(self, src_tokens, src_lengths):
         return SpeechDataset(src_tokens, src_lengths)
 
+    def build_model(self, args):
+        # build the greedy decoder for validation with WER
+        from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
+        self.decoder_for_validation = SimpleGreedyDecoder(self.target_dictionary, for_validation=True)
+        return super().build_model(args)
+
+    def valid_step(self, sample, model, criterion):
+        loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
+        (
+            logging_output['word_error'], logging_output['word_count'],
+            logging_output['char_error'], logging_output['char_count'],
+        ) = self._inference_with_wer(self.decoder_for_validation, sample, model)
+        return loss, sample_size, logging_output
+
     def inference_step(self, generator, models, sample, prefix_tokens=None, lm_weight=0.0):
         with torch.no_grad():
             return generator.generate(
                 models, sample, prefix_tokens=prefix_tokens, lm_weight=lm_weight,
             )
+
+    def reduce_metrics(self, logging_outputs, criterion):
+        super().reduce_metrics(logging_outputs, criterion)
+        word_error = sum(log.get('word_error', 0) for log in logging_outputs)
+        word_count = sum(log.get('word_count', 0) for log in logging_outputs)
+        char_error = sum(log.get('char_error', 0) for log in logging_outputs)
+        char_count = sum(log.get('char_count', 0) for log in logging_outputs)
+        if word_count > 0:
+            metrics.log_scalar('wer', float(word_error) / word_count * 100, word_count, round=4)
+        if char_count > 0:
+            metrics.log_scalar('cer', float(char_error) / char_count * 100, char_count, round=4)
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
@@ -313,3 +338,25 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     def word_dictionary(self):
         """Return the target :class:`~fairseq.data.AsrDictionary`."""
         return self.word_dict
+
+    def _inference_with_wer(self, decoder, sample, model):
+        from espresso.tools import wer
+
+        scorer = wer.Scorer(self.target_dictionary, wer_output_filter=self.args.wer_output_filter)
+        tokens, lprobs, _ = decoder.decode([model], sample)
+        pred = tokens[:, 1:].data.cpu()  # bsz x len
+        target = sample['target']
+        assert pred.size(0) == target.size(0)
+        # compute word error stats
+        scorer.reset()
+        for i in range(target.size(0)):
+            utt_id = sample['utt_id'][i]
+            ref_tokens = sample['target_raw_text'][i]
+            pred_tokens = self.target_dictionary.string(pred.data[i])
+            scorer.add_evaluation(
+                utt_id, ref_tokens, pred_tokens, bpe_symbol=self.args.remove_bpe,
+            )
+        return (
+            scorer.tot_word_error(), scorer.tot_word_count(),
+            scorer.tot_char_error(), scorer.tot_char_count(),
+        )
