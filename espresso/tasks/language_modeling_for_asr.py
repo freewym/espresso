@@ -105,7 +105,7 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         dictionary = None
         output_dictionary = None
         if args.data:
-            paths = args.data.split(":")
+            paths = args.data.split(os.pathsep)
             assert len(paths) > 0
             dict_path = os.path.join(paths[0], "dict.txt") if args.dict is None \
                 else args.dict
