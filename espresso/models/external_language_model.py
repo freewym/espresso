@@ -101,7 +101,8 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
         batch_space_mask = prev_output_tokens.squeeze(-1).eq(self.subword_space_idx)
 
         cached_state = utils.get_incremental_state(
-            self.lm_decoder, incremental_state, 'cached_state')
+            self.lm_decoder, incremental_state, 'cached_state',
+        )
 
         if cached_state is None:  # it is the first time step
             assert (prev_output_tokens == self.subword_eos_idx).all(), \
@@ -109,12 +110,12 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             w = prev_output_tokens.new_full([bsz, 1], self.word_eos_idx)
             lm_probs = self.lm_decoder.get_normalized_probs(
                 self.lm_decoder(w, incremental_state=incremental_state),
-                log_probs=False, sample=None)  # B x 1 x V
+                log_probs=False, sample=None,
+            )  # B x 1 x V
             cumsum_probs = torch.cumsum(lm_probs, dim=-1)  # B x 1 x V
             nodes = [self.lexroot] * bsz
         else:
-            cumsum_probs = utils.get_incremental_state(
-                self, incremental_state, 'cumsum_probs')
+            cumsum_probs = utils.get_incremental_state(self, incremental_state, 'cumsum_probs')
             nodes = utils.get_incremental_state(self, incremental_state, 'nodes')
             assert len(nodes) == bsz
             w = prev_output_tokens.new([
@@ -144,8 +145,7 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
                 else:  # no path in the tree
                     nodes[i] = None
 
-        utils.set_incremental_state(
-            self, incremental_state, 'cumsum_probs', cumsum_probs)
+        utils.set_incremental_state(self, incremental_state, 'cumsum_probs', cumsum_probs)
         utils.set_incremental_state(self, incremental_state, 'nodes', nodes)
 
         # initialize out_probs (B x 1 x V)
@@ -164,16 +164,13 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             out_probs[~batch_space_mask, :, self.subword_eos_idx] = self.zero
             # set transition probability to 1 for those whose node is out of the
             # tree, i.e. node is None (case 4 in Eqn. 15)
-            batch_node_none_mask = []
-            for node in nodes:
-                batch_node_none_mask.append(node is None)
-            batch_node_none_mask = batch_space_mask.new(batch_node_none_mask)
+            batch_node_none_mask = batch_space_mask.new(
+                [node is None for node in nodes]
+            )
             out_probs[batch_node_none_mask] = 1.
         else:
             # set out_probs to 0
-            out_probs = cumsum_probs.new_full(
-                [bsz, 1, self.subword_vocab_size], self.zero,
-            )
+            out_probs = cumsum_probs.new_full([bsz, 1, self.subword_vocab_size], self.zero)
 
         # compute parent probabilities for those whose node is not None
         sum_probs = cumsum_probs.new_full([bsz, 1], 1.)  # default for root node
