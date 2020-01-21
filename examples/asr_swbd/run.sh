@@ -47,7 +47,6 @@ do_delta=false
 . ./utils/parse_options.sh
 
 lmdir=exp/lm_lstm${lm_affix:+_${lm_affix}}
-wordlmdir=exp/wordlm_lstm${wordlm_affix:+_${wordlm_affix}}
 dir=exp/lstm${affix:+_$affix}
 
 if [ $stage -le 0 ]; then
@@ -227,7 +226,7 @@ if [ $stage -le 5 ]; then
   test_set_array=($test_set)
   for i in $(seq 0 $num); do
     log_file=$lmdir/logs/evaluation_${test_set_array[$i]}.log
-    python3 ../../eval_lm.py $lmdatadir --user-dir espresso \
+    python3 ../../eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
       --max-tokens 40960 --max-sentences 1536 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
