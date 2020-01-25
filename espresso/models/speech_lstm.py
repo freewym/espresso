@@ -14,7 +14,6 @@ from fairseq.models import (
     FairseqDecoder,
     FairseqEncoder,
     FairseqIncrementalDecoder,
-    FairseqLanguageModel,
     FairseqEncoderDecoderModel,
     register_model,
     register_model_architecture,
@@ -28,9 +27,12 @@ from fairseq.models.lstm import (
 from fairseq.modules import AdaptiveSoftmax
 
 from espresso.modules import speech_attention
-from espresso.tasks.speech_recognition import SpeechRecognitionEspressoTask
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
 import espresso.tools.utils as speech_utils
+
+
+DEFAULT_MAX_SOURCE_POSITIONS = 1e5
+DEFAULT_MAX_TARGET_POSITIONS = 1e5
 
 
 logger = logging.getLogger(__name__)
@@ -114,7 +116,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
 
         # Scheduled sampling options
         parser.add_argument('--scheduled-sampling-probs', type=lambda p: options.eval_str_list(p),
-                            metavar='P_1,P_2,...,P_N', default=1.0,
+                            metavar='P_1,P_2,...,P_N', default=[1.0],
                             help='scheduled sampling probabilities of sampling the truth '
                             'labels for N epochs starting from --start-schedule-sampling-epoch; '
                             'all later epochs using P_N')
@@ -128,6 +130,9 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         """Build a new model instance."""
         # make sure that all args are properly defaulted (in case there are any new ones)
         base_architecture(args)
+
+        max_source_positions = getattr(args, 'max_source_positions', DEFAULT_MAX_SOURCE_POSITIONS)
+        max_target_positions = getattr(args, 'max_target_positions', DEFAULT_MAX_TARGET_POSITIONS)
 
         def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):
             num_embeddings = len(dictionary)
@@ -207,6 +212,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             dropout_out=args.encoder_rnn_dropout_out,
             bidirectional=args.encoder_rnn_bidirectional,
             residual=args.encoder_rnn_residual,
+            max_source_positions=max_source_positions,
         )
         decoder = SpeechLSTMDecoder(
             dictionary=task.target_dictionary,
@@ -227,6 +233,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                 options.eval_str_list(args.adaptive_softmax_cutoff, type=int)
                 if args.criterion == 'adaptive_loss' else None
             ),
+            max_target_positions=max_target_positions,
             scheduled_sampling_rate_scheduler=scheduled_sampling_rate_scheduler,
         )
         pretrained_lm = None
@@ -252,107 +259,6 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         """Maximum length supported by the decoder."""
         return self.decoder.max_positions() if self.pretrained_lm is None else \
             min(self.decoder.max_positions(), self.pretrained_lm.max_positions())
-
-
-@register_model('lstm_lm')
-class LSTMLanguageModel(FairseqLanguageModel):
-    def __init__(self, decoder, args):
-        super().__init__(decoder)
-        self.is_wordlm = args.is_wordlm
-
-    @staticmethod
-    def add_args(parser):
-        """Add model-specific arguments to the parser."""
-        # fmt: off
-        parser.add_argument('--dropout', type=float, metavar='D',
-                            help='dropout probability')
-        parser.add_argument('--decoder-embed-dim', type=int, metavar='N',
-                            help='decoder embedding dimension')
-        parser.add_argument('--decoder-embed-path', type=str, metavar='STR',
-                            help='path to pre-trained decoder embedding')
-        parser.add_argument('--decoder-freeze-embed', action='store_true',
-                            help='freeze decoder embeddings')
-        parser.add_argument('--decoder-hidden-size', type=int, metavar='N',
-                            help='decoder hidden size')
-        parser.add_argument('--decoder-layers', type=int, metavar='N',
-                            help='number of decoder layers')
-        parser.add_argument('--decoder-out-embed-dim', type=int, metavar='N',
-                            help='decoder output embedding dimension')
-        parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
-                            help='comma separated list of adaptive softmax cutoff points. '
-                                 'Must be used with adaptive_loss criterion')
-        parser.add_argument('--share-embed',
-                            type=lambda x: options.eval_bool(x),
-                            help='share input and output embeddings')
-        parser.add_argument('--is-wordlm', action='store_true',
-                            help='whether it is word LM or subword LM. Only '
-                            'relevant for ASR decoding with LM, and it determines '
-                            'how the underlying decoder instance gets the dictionary'
-                            'from the task instance when calling cls.build_model()')
-
-        # Granular dropout settings (if not specified these default to --dropout)
-        parser.add_argument('--decoder-dropout-in', type=float, metavar='D',
-                            help='dropout probability for decoder input embedding')
-        parser.add_argument('--decoder-dropout-out', type=float, metavar='D',
-                            help='dropout probability for decoder output')
-        # fmt: on
-
-    @classmethod
-    def build_model(cls, args, task):
-        """Build a new model instance."""
-        # make sure all arguments are present in older models
-        base_lm_architecture(args)
-
-        def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):
-            num_embeddings = len(dictionary)
-            padding_idx = dictionary.pad()
-            embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
-            embed_dict = utils.parse_embedding(embed_path)
-            utils.print_embed_overlap(embed_dict, dictionary)
-            return utils.load_embedding(embed_dict, dictionary, embed_tokens)
-
-        if args.is_wordlm and hasattr(task, 'word_dictionary'):
-            dictionary = task.word_dictionary
-        elif isinstance(task, SpeechRecognitionEspressoTask):
-            dictionary = task.target_dictionary
-        else:
-            dictionary = task.source_dictionary
-
-        # separate decoder input embeddings
-        pretrained_decoder_embed = None
-        if args.decoder_embed_path:
-            pretrained_decoder_embed = load_pretrained_embedding_from_file(
-                args.decoder_embed_path,
-                dictionary,
-                args.decoder_embed_dim
-            )
-        # one last double check of parameter combinations
-        if args.share_embed and (
-                args.decoder_embed_dim != args.decoder_out_embed_dim):
-            raise ValueError(
-                '--share-embed requires '
-                '--decoder-embed-dim to match --decoder-out-embed-dim'
-            )
-
-        if args.decoder_freeze_embed:
-            pretrained_decoder_embed.weight.requires_grad = False
-
-        decoder = SpeechLSTMDecoder(
-            dictionary=dictionary,
-            embed_dim=args.decoder_embed_dim,
-            hidden_size=args.decoder_hidden_size,
-            out_embed_dim=args.decoder_out_embed_dim,
-            num_layers=args.decoder_layers,
-            dropout_in=args.decoder_dropout_in,
-            dropout_out=args.decoder_dropout_out,
-            pretrained_embed=pretrained_decoder_embed,
-            share_input_output_embed=args.share_embed,
-            adaptive_softmax_cutoff=(
-                options.eval_str_list(args.adaptive_softmax_cutoff, type=int)
-                if args.criterion == 'adaptive_loss' else None
-            ),
-        )
-        return LSTMLanguageModel(decoder, args)
 
 
 class ConvBNReLU(nn.Module):
@@ -415,6 +321,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
         self, conv_layers_before=None, input_size=83, hidden_size=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, bidirectional=False,
         residual=False, left_pad=False, pretrained_embed=None, padding_value=0.,
+        max_source_positions=DEFAULT_MAX_SOURCE_POSITIONS,
     ):
         super().__init__(None)  # no src dictionary
         self.conv_layers_before = conv_layers_before
@@ -424,6 +331,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
         self.bidirectional = bidirectional
         self.hidden_size = hidden_size
         self.residual = residual
+        self.max_source_positions = max_source_positions
 
         self.lstm = nn.ModuleList([
             LSTM(
@@ -505,7 +413,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""
-        return int(1e5)  # an arbitrary large number
+        return self.max_source_positions
 
 
 class SpeechLSTMDecoder(FairseqIncrementalDecoder):
@@ -515,6 +423,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         num_layers=1, dropout_in=0.1, dropout_out=0.1, encoder_output_units=0,
         attn_type=None, attn_dim=0, need_attn=False, residual=False, pretrained_embed=None,
         share_input_output_embed=False, adaptive_softmax_cutoff=None,
+        max_target_positions=DEFAULT_MAX_TARGET_POSITIONS,
         scheduled_sampling_rate_scheduler=None,
     ):
         super().__init__(dictionary)
@@ -528,6 +437,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             encoder_output_units = 0
         self.need_attn = need_attn
         self.residual = residual
+        self.max_target_positions = max_target_positions
 
         self.adaptive_softmax = None
         num_embeddings = len(dictionary)
@@ -634,13 +544,17 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 - the decoder's features of shape `(batch, tgt_len, embed_dim)`
                 - attention weights of shape `(batch, tgt_len, src_len)`
         """
-        if self.attention is not None:
-            assert encoder_out is not None
+        if encoder_out is not None:
+            assert self.attention is not None
             encoder_padding_mask = encoder_out['encoder_padding_mask']
             encoder_out = encoder_out['encoder_out']
             # get outputs from encoder
             encoder_outs = encoder_out[0]
             srclen = encoder_outs.size(0)
+        else:
+            encoder_padding_mask = None
+            encoder_out = None
+            srclen = None
 
         if incremental_state is not None:
             prev_output_tokens = prev_output_tokens[:, -1:]
@@ -659,18 +573,20 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             prev_hiddens, prev_cells, input_feed = cached_state
         else:
             num_layers = len(self.layers)
-            prev_hiddens = [x.new_zeros(bsz, self.hidden_size) for i in range(num_layers)]
-            prev_cells = [x.new_zeros(bsz, self.hidden_size) for i in range(num_layers)]
+            zero_state = x.new_zeros(bsz, self.hidden_size)
+            prev_hiddens = [zero_state for i in range(num_layers)]
+            prev_cells = [zero_state for i in range(num_layers)]
             input_feed = x.new_zeros(bsz, self.encoder_output_units) \
-                if self.attention is not None else None
+                if encoder_out is not None else None
 
-        if self.attention is not None:
-            attn_scores = x.new_zeros(srclen, seqlen, bsz)
+        attn_scores = x.new_zeros(srclen, seqlen, bsz) if encoder_out is not None else None
         outs = []
         for j in range(seqlen):
             # input feeding: concatenate context vector from previous time step
-            input = torch.cat((x[j, :, :], input_feed), dim=1) \
-                if input_feed is not None else x[j, :, :]
+            if input_feed is not None:
+                input = torch.cat((x[j, :, :], input_feed), dim=1)
+            else:
+                input = x[j, :, :]
 
             for i, rnn in enumerate(self.layers):
                 # recurrent cell
@@ -679,7 +595,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                     prev_layer_hidden = input[:, :hidden.size(1)]
 
                 # compute and apply attention using the 1st layer's hidden state
-                if self.attention is not None:
+                if encoder_out is not None:
                     if i == 0:
                         context, attn_scores[:, j, :], _ = self.attention(
                             hidden, encoder_outs, encoder_padding_mask,
@@ -692,7 +608,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                     input = hidden
                 input = F.dropout(input, p=self.dropout_out, training=self.training)
                 if self.residual and i > 0:
-                    if self.attention is not None:
+                    if encoder_out is not None:
                         hidden_sum = input[:, :hidden.size(1)] + prev_layer_hidden
                         input = torch.cat((hidden_sum, input[:, hidden.size(1):]), dim=1)
                     else:
@@ -703,7 +619,8 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 prev_cells[i] = cell
 
             # input feeding
-            input_feed = context if self.attention is not None else None
+            if input_feed is not None:
+                input_feed = context
 
             # save final output
             outs.append(input)
@@ -726,7 +643,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             x = F.dropout(x, p=self.dropout_out, training=self.training)
 
         # srclen x tgtlen x bsz -> bsz x tgtlen x srclen
-        if not self.training and self.attention is not None and self.need_attn:
+        if not self.training and encoder_out is not None and self.need_attn:
             attn_scores = attn_scores.transpose(0, 2)
         else:
             attn_scores = None
@@ -753,7 +670,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         def reorder_state(state):
             if isinstance(state, list):
                 return [reorder_state(state_i) for state_i in state]
-            return state.index_select(0, new_order) if state is not None else None
+            elif state is not None:
+                return state.index_select(0, new_order)
+            else:
+                return None
 
         new_state = tuple(map(reorder_state, cached_state))
         utils.set_incremental_state(self, incremental_state, 'cached_state', new_state)
@@ -786,7 +706,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
 
     def max_positions(self):
         """Maximum output length supported by the decoder."""
-        return int(1e5)  # an arbitrary large number
+        return self.max_target_positions
 
     def make_generation_fast_(self, need_attn=False, **kwargs):
         self.need_attn = need_attn
@@ -813,62 +733,6 @@ def Convolution2d(in_channels, out_channels, kernel_size, stride):
         in_channels, out_channels, kernel_size, stride=stride, padding=padding,
     )
     return m
-
-
-@register_model_architecture('lstm_lm', 'lstm_lm')
-def base_lm_architecture(args):
-    args.dropout = getattr(args, 'dropout', 0.1)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 48)
-    args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
-    args.decoder_freeze_embed = getattr(args, 'decoder_freeze_embed', False)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 650)
-    args.decoder_layers = getattr(args, 'decoder_layers', 2)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 650)
-    args.decoder_rnn_residual = getattr(args, 'decoder_rnn_residual', False)
-    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
-    args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', args.dropout)
-    args.decoder_dropout_out = getattr(args, 'decoder_dropout_out', args.dropout)
-    args.share_embed = getattr(args, 'share_embed', False)
-    args.is_wordlm = getattr(args, 'is_wordlm', False)
-
-
-@register_model_architecture('lstm_lm', 'lstm_lm_wsj')
-def lstm_lm_wsj(args):
-    base_lm_architecture(args)
-
-
-@register_model_architecture('lstm_lm', 'lstm_lm_librispeech')
-def lstm_lm_librispeech(args):
-    args.dropout = getattr(args, 'dropout', 0.0)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 800)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 800)
-    args.decoder_layers = getattr(args, 'decoder_layers', 4)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 800)
-    args.share_embed = getattr(args, 'share_embed', True)
-    base_lm_architecture(args)
-
-
-@register_model_architecture('lstm_lm', 'lstm_lm_swbd')
-def lstm_lm_swbd(args):
-    args.dropout = getattr(args, 'dropout', 0.3)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1800)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1800)
-    args.decoder_layers = getattr(args, 'decoder_layers', 3)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1800)
-    args.share_embed = getattr(args, 'share_embed', True)
-    base_lm_architecture(args)
-
-
-@register_model_architecture('lstm_lm', 'lstm_wordlm_wsj')
-def lstm_wordlm_wsj(args):
-    args.dropout = getattr(args, 'dropout', 0.35)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 1200)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1200)
-    args.decoder_layers = getattr(args, 'decoder_layers', 3)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1200)
-    args.share_embed = getattr(args, 'share_embed', True)
-    args.is_wordlm = True
-    base_lm_architecture(args)
 
 
 @register_model_architecture('speech_lstm', 'speech_lstm')
