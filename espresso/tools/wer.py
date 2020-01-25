@@ -3,11 +3,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from collections import Counter, OrderedDict
 import logging
 import re
-import sys
-
-from collections import Counter, OrderedDict
 
 import espresso.tools.utils as speech_utils
 
