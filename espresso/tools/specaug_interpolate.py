@@ -8,25 +8,7 @@ This implementation is modified from https://github.com/zcaceres/spec_augment
 
 MIT License
 
-Copyright (c) 2019 Zach Caceres
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Copyright (c) 2019 Zach Caceres, Jenny Cai
 """
 
 import numpy as np
@@ -76,17 +58,23 @@ def time_warp(spec, W=5):
     Returns:
         time warpped tensor (torch.Tensor): output tensor of shape `(dim, T)`
     """
-    t = spec.shape[1]
-    if t - W <= W:
+    t = spec.size(1)
+    if t - W <= W + 1:
         return spec
-    center = np.random.randint(W, t - W)
-    warped = np.random.randint(center - W + 1, center + W + 1)
+    center = np.random.randint(W + 1, t - W)
+    warped = np.random.randint(center - W, center + W + 1)
+    if warped == center:
+        return spec
     spec = spec.unsqueeze(0).unsqueeze(0)
-    with torch.no_grad():  # to make the results deterministic 
-        left = torch.nn.functional.interpolate(spec[:, :, :, :center],
-            size=(spec.shape[2], warped), mode='bicubic', align_corners=False)
-        right = torch.nn.functional.interpolate(spec[:, :, :, center:],
-            size=(spec.shape[2], t - warped), mode='bicubic', align_corners=False)
+    with torch.no_grad():  # to make the results deterministic
+        left = torch.nn.functional.interpolate(
+            spec[:, :, :, :center], size=(spec.size(2), warped),
+            mode="bicubic", align_corners=False,
+        )
+        right = torch.nn.functional.interpolate(
+            spec[:, :, :, center:], size=(spec.size(2), t - warped),
+            mode="bicubic", align_corners=False,
+        )
     return torch.cat((left, right), dim=-1).squeeze(0).squeeze(0)
 
 
@@ -102,20 +90,17 @@ def freq_mask(spec, F=30, num_masks=1, pad_value=0.):
      Returns:
          freq masked tensor (torch.Tensor): output tensor of shape `(dim, T)`
     """
-    cloned = spec.unsqueeze(0).clone()
-    num_mel_channels = cloned.shape[1]
+    cloned = spec.clone()
+    num_mel_channels = cloned.size(0)
 
-    for i in range(0, num_masks):
-        f = np.random.randint(0, F)
+    for i in range(num_masks):
+        f = np.random.randint(0, F + 1)
         f_zero = np.random.randint(0, num_mel_channels - f)
 
-        # avoids randint error if values are equal and range is empty
         if f == 0:
-            return cloned.squeeze(0)
-
-        cloned[0][f_zero:f_zero + f] = pad_value
-
-    return cloned.squeeze(0)
+            return cloned
+        cloned[f_zero:f_zero + f] = pad_value
+    return cloned
 
 
 def time_mask(spec, T=40, num_masks=1, p=0.2, pad_value=0.):
@@ -131,17 +116,17 @@ def time_mask(spec, T=40, num_masks=1, p=0.2, pad_value=0.):
     Returns:
         time masked tensor (torch.Tensor): output tensor of shape `(dim, T)`
     """
-    cloned = spec.unsqueeze(0).clone()
-    len_spectro = cloned.shape[2]
-    T = max(1, min(T, int(len_spectro * p / num_masks)))
+    cloned = spec.clone()
+    len_spectro = cloned.size(1)
+    T = min(T, int(len_spectro * p))
+    if T == 0:
+        return cloned
 
-    for i in range(0, num_masks):
-        t = np.random.randint(0, T)
+    for i in range(num_masks):
+        t = np.random.randint(0, T + 1)
         t_zero = np.random.randint(0, len_spectro - t)
 
-        # avoids randint error if values are equal and range is empty
         if t == 0:
-            return cloned.squeeze(0)
-
-        cloned[0][:, t_zero:t_zero + t] = pad_value
-    return cloned.squeeze(0)
+            return cloned
+        cloned[:, t_zero:t_zero + t] = pad_value
+    return cloned

@@ -222,9 +222,9 @@ if [ ${stage} -le 8 ]; then
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   opts=""
   if $apply_specaug; then
-    opts="$opts --max-epoch 95 --lr-scheduler tri_stage --warmup-steps $((2000/ngpus)) --hold-steps $((500000/ngpus)) --decay-steps $((940000*ngpus))"
+    opts="$opts --max-epoch 95 --lr-scheduler tri_stage --warmup-steps $((2000/ngpus)) --hold-steps $((600000/ngpus)) --decay-steps $((1040000/ngpus))"
     opts="$opts --encoder-rnn-layers 5"
-    specaug_config="{'W': 80, 'F': 27, 'T': 100, 'p': 0.2}"
+    specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
   else
     opts="$opts --max-epoch 30 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10"
   fi

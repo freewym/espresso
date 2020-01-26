@@ -262,10 +262,10 @@ if [ $stage -le 7 ]; then
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   if $apply_specaug; then
-    opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((2000/ngpus)) --hold-steps $((140000/ngpus)) --decay-steps $((330000/ngpus))"
+    opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((1000/ngpus)) --hold-steps $((140000/ngpus)) --decay-steps $((330000/ngpus))"
     opts="$opts --encoder-rnn-hidden-size 1024 --encoder-rnn-layers 5 --decoder-embed-dim 512 --decoder-hidden-size 1024"
     opts="$opts --decoder-out-embed-dim 3072 --attention-dim 512 --dropout 0.4"
-    specaug_config="{'W': 40, 'F': 27, 'T': 70, 'p': 0.2}"
+    specaug_config="{'W': 40, 'F': 27, 'T': 70, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 0.2}"
   else
     opts="$opts --max-epoch 35 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 14"
   fi
