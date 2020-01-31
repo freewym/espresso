@@ -782,6 +782,8 @@ class LMFusionModel(EnsembleModel):
         attn = decoder_out[1]
         if type(attn) is dict:
             attn = attn.get('attn', None)
+        if type(attn) is list:
+            attn = attn[0]
         if attn is not None:
             attn = attn[:, -1, :]
         if use_raw_out:
