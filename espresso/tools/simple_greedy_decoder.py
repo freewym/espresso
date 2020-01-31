@@ -108,6 +108,10 @@ class SimpleGreedyDecoder(object):
                 tokens[is_eos, step + 1] = self.eos
             if self.for_validation and step < target.size(1):
                 lprobs[:, step, :] = log_probs
+
+            # Record attention scores
+            if type(avg_attn_scores) is list:
+                avg_attn_scores = avg_attn_scores[0]
             if avg_attn_scores is not None:
                 if attn is None:
                     attn = avg_attn_scores.new(bsz, max_encoder_output_length, max_len + 2)
