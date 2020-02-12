@@ -8,7 +8,7 @@ import os
 
 import torch
 
-from fairseq import metrics, options, search
+from fairseq import metrics, options, search, utils
 from fairseq.data import ConcatDataset
 
 from fairseq.tasks import FairseqTask, register_task
@@ -316,10 +316,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
 
     def reduce_metrics(self, logging_outputs, criterion):
         super().reduce_metrics(logging_outputs, criterion)
-        word_error = sum(log.get('word_error', 0) for log in logging_outputs)
-        word_count = sum(log.get('word_count', 0) for log in logging_outputs)
-        char_error = sum(log.get('char_error', 0) for log in logging_outputs)
-        char_count = sum(log.get('char_count', 0) for log in logging_outputs)
+        word_error = utils.item(sum(log.get('word_error', 0) for log in logging_outputs))
+        word_count = utils.item(sum(log.get('word_count', 0) for log in logging_outputs))
+        char_error = utils.item(sum(log.get('char_error', 0) for log in logging_outputs))
+        char_count = utils.item(sum(log.get('char_count', 0) for log in logging_outputs))
         if word_count > 0:
             metrics.log_scalar('wer', float(word_error) / word_count * 100, word_count, round=4)
         if char_count > 0:
