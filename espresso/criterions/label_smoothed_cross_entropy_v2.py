@@ -126,8 +126,8 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
         )
         sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
         logging_output = {
-            'loss': utils.item(loss.data) if reduce else loss.data,
-            'nll_loss': utils.item(nll_loss.data) if reduce else nll_loss.data,
+            'loss': loss.data,
+            'nll_loss': nll_loss.data,
             'ntokens': sample['ntokens'],
             'nsentences': sample['target'].size(0),
             'sample_size': sample_size,
