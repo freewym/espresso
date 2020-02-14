@@ -197,8 +197,10 @@ fi
 
 train_feat=$train_feat_dir/feats.scp
 train_token_text=data/$train_set/token_text
+train_utt2num_frames=data/$train_set/utt2num_frames
 valid_feat=$valid_feat_dir/feats.scp
 valid_token_text=data/$valid_set/token_text
+valid_utt2num_frames=data/$valid_set/utt2num_frames
 if [ ${stage} -le 7 ]; then
   echo "Stage 7: Model Training"
   valid_subset=valid
@@ -217,8 +219,8 @@ if [ ${stage} -le 7 ]; then
     --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.1 --smoothing-type uniform \
     --scheduled-sampling-probs 1.0 --start-scheduled-sampling-epoch 1 \
-    --train-feat-files $train_feat --train-text-files $train_token_text \
-    --valid-feat-files $valid_feat --valid-text-files $valid_token_text \
+    --train-feat-files $train_feat --train-text-files $train_token_text --train-utt2num-frames-files $train_utt2num_frames \
+    --valid-feat-files $valid_feat --valid-text-files $valid_token_text --valid-utt2num-frames-files $valid_utt2num_frames \
     --dict $dict --remove-bpe sentencepiece \
     --max-source-positions 9999 --max-target-positions 999 2>&1 | tee $log_file
 fi
@@ -236,10 +238,11 @@ if [ ${stage} -le 8 ]; then
   for dataset in $test_set; do
     feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
     text=data/$dataset/token_text
+    utt2num_frames=data/$dataset/utt2num_frames
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 15000 --max-sentences 24 \
-      --num-shards 1 --shard-id 0 --test-feat-files $feat --test-text-files $text \
+      --num-shards 1 --shard-id 0 --test-feat-files $feat --test-text-files $text --test-utt2num-frames-files $utt2num_frames \
       --dict $dict --remove-bpe sentencepiece \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 60 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
