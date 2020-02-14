@@ -22,25 +22,38 @@ class ScpDataset(torch.utils.data.Dataset):
     every time each entry is inquired, thus incurs the most intensive I/O.
     """
 
-    def __init__(self, path):
+    def __init__(self, path, utt2num_frames_path=None):
         super().__init__()
         self.dtype = np.float
-        self.read_scp(path)
+        self.read_scp(path, utt2num_frames_path)
 
-    def read_scp(self, path):
+    def read_scp(self, path, utt2num_frames_path=None):
         with open(path, 'r', encoding='utf-8') as f:
             scp_entries = [line.strip().split(None, 1) for line in f]
         self.utt_ids = [entry[0] for entry in scp_entries]
         self.extended_filenames = [entry[1] for entry in scp_entries]
         self.size = len(scp_entries)  # number of utterances
         self.sizes = []  # length of each utterance
+        if utt2num_frames_path is not None:
+             with open(utt2num_frames_path, 'r', encoding='utf-8') as f:
+                 i = 0
+                 for line in f:
+                     utt_id, num_frames = line.strip().split(None, 1)
+                     assert utt_id == self.utt_ids[i], \
+                         'utterance ids mismatch: ' + utt_id + ' vs. ' + self.utt_ids[i]
+                     self.sizes.append(int(num_frames))
+                     i += 1
+
         for filename in self.extended_filenames:
             try:
                 feat = kaldi_io.read_mat(filename)
             except Exception:
                 raise Exception('failed to read feature matrix {}.'.format(filename))
             assert feat is not None and isinstance(feat, np.ndarray)
+            if len(self.sizes) == self.size:
+                break
             self.sizes.append(feat.shape[0])
+
         self.sizes = np.array(self.sizes, dtype=np.int32)
         self.feat_dim = feat.shape[1]  # feature dimension
 
@@ -84,8 +97,8 @@ class ScpCachedDataset(ScpDataset):
     It balances the I/O efficiency and memory usage.
     """
 
-    def __init__(self, path, ordered_prefetch=False, cache_size=4096):
-        super().__init__(path)
+    def __init__(self, path, utt2num_frames_path=None, ordered_prefetch=False, cache_size=4096):
+        super().__init__(path, utt2num_frames_path)
         self.cache = None
         self.cache_index = {}
         self.cache_size = cache_size  # in terms of number of examples
@@ -156,8 +169,8 @@ class ScpInMemoryDataset(ScpDataset):
     It has the maximum memory usage and least I/O.
     """
 
-    def __init__(self, path):
-        super().__init__(path)
+    def __init__(self, path, utt2num_frames_path=None):
+        super().__init__(path, utt2num_frames_path)
         self.read_data()
 
     def read_data(self):

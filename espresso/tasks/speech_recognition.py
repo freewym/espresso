@@ -59,20 +59,33 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                             help='path(s) to text file(s) for training, where '
                             'each should matches with one in --train-feat-files, '
                             'will be iterated upon during epochs in round-robin manner')
+        parser.add_argument('--train-utt2num-frames-files', nargs='+', default=None,
+                            help='path(s) to utt2num_frames file(s) for training. if not None, '
+                            'each should matches with one in --train-feat-files, '
+                            'will be iterated upon during epochs in round-robin manner')
         parser.add_argument('--valid-feat-files', nargs='+',
                             help='path(s) to scp feature file(s) for validation')
         parser.add_argument('--valid-text-files', nargs='+',
                             help='path(s) to text file(s) for validation, where '
                             'each should matches with one in --valid-feat-files')
+        parser.add_argument('--valid-utt2num-frames-files', nargs='+', default=None,
+                            help='path(s) to utt2num_frames file(s) for validation. if not None, '
+                            'each should matches with one in --valid-feat-files')
         parser.add_argument('--test-feat-files', nargs='+',
                             help='path(s) to scp feature file(s) for test')
-        parser.add_argument('--test-text-files', nargs='*', default=None,
+        parser.add_argument('--test-text-files', nargs='+', default=None,
                             help='path(s) to text file(s) for test. if not None, '
                             'each one should matches with one in --test-feat-files')
+        parser.add_argument('--test-utt2num-frames-files', nargs='+', default=None,
+                            help='path(s) to utt2num_frames file(s) for test. if not None, '
+                            'each should matches with one in --test-feat-files')
         parser.add_argument('--train-subset-feat-files', nargs='+',
                             help='path(s) to scp feature file(s) for validation')
         parser.add_argument('--train-subset-text-files', nargs='+',
                             help='path(s) to text file(s) for validation, where '
+                            'each should matches with one in --train-subset-feat-files')
+        parser.add_argument('--train-subset-utt2num-frames-files', nargs='+', default=None,
+                            help='path(s) to utt2num_frames file(s) for validation. if not None, '
                             'each should matches with one in --train-subset-feat-files')
         parser.add_argument('--dict', default=None, type=str,
                             help='path to the dictionary')
@@ -159,29 +172,47 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         if split == 'train':
             feat_files = self.args.train_feat_files
             text_files = self.args.train_text_files
+            utt2num_frames_files = self.args.train_utt2num_frames_files  # can be None
             assert len(feat_files) > 0 and len(feat_files) == len(text_files)
+            assert utt2num_frames_files is None or len(feat_files) == len(utt2num_frames_files)
             feat_files = [feat_files[epoch % len(feat_files)]]
             text_files = [text_files[epoch % len(text_files)]]
+            if utt2num_frames_files is not None:
+                utt2num_frames_files = [utt2num_frames_files[epoch % len(utt2num_frames_files)]]
+            else:
+                utt2num_frames_files = [None]
         elif split == 'valid':
             feat_files = self.args.valid_feat_files
             text_files = self.args.valid_text_files
+            utt2num_frames_files = self.args.valid_utt2num_frames_files  # can be None
+            if utt2num_frames_files is None:
+                utt2num_frames_files = [None] * len(feat_files)
         elif split == 'test':
             feat_files = self.args.test_feat_files
-            text_files = self.args.test_text_files  # can be empty
+            text_files = self.args.test_text_files  # can be None
+            utt2num_frames_files = self.args.test_utt2num_frames_files  # can be None
             if text_files is None:
                 text_files = [None] * len(feat_files)
+            if utt2num_frames_files is None:
+                utt2num_frames_files = [None] * len(feat_files)
         elif split == 'train_subset':
             feat_files = self.args.train_subset_feat_files
             text_files = self.args.train_subset_text_files
+            utt2num_frames_files = self.args.train_subset_utt2num_frames_files  # can be None
+            if utt2num_frames_files is None:
+                utt2num_frames_files = [None] * len(feat_files)
         else:
             raise ValueError('split should be one of "train", "valid", "test", "train_subset"')
 
-        assert len(feat_files) > 0 and len(feat_files) == len(text_files)
-        file_pairs = zip(feat_files, text_files)
-        for feat, text in file_pairs:
+        assert len(feat_files) > 0 and len(feat_files) == len(text_files) and \
+            len(feat_files) == len(utt2num_frames_files)
+        file_tuples = zip(feat_files, text_files, utt2num_frames_files)
+        for feat, text, utt2num_frames in file_tuples:
             assert ScpCachedDataset.exists(feat), feat + ' does not exists'
             assert text is None or AsrTextDataset.exists(text), text + ' does not exists'
-            src_datasets.append(ScpCachedDataset(feat, ordered_prefetch=True))
+            assert utt2num_frames is None or ScpCachedDataset.exists(utt2num_frames), \
+                utt2num_frames + ' does not exists'
+            src_datasets.append(ScpCachedDataset(feat, utt2num_frames, ordered_prefetch=True))
             logger.info('{} {} examples'.format(feat, len(src_datasets[-1])))
             if text is not None:
                 tgt_datasets.append(AsrTextDataset(text, self.dictionary))
