@@ -6,6 +6,7 @@
 import os
 
 import numpy as np
+
 import torch
 
 try:
@@ -25,7 +26,7 @@ class ScpDataset(torch.utils.data.Dataset):
     def __init__(self, path, utt2num_frames_path=None):
         super().__init__()
         self.dtype = np.float
-        self.read_scp(path, utt2num_frames_path)
+        self.read_scp(path, utt2num_frames_path=utt2num_frames_path)
 
     def read_scp(self, path, utt2num_frames_path=None):
         with open(path, 'r', encoding='utf-8') as f:
@@ -35,14 +36,14 @@ class ScpDataset(torch.utils.data.Dataset):
         self.size = len(scp_entries)  # number of utterances
         self.sizes = []  # length of each utterance
         if utt2num_frames_path is not None:
-             with open(utt2num_frames_path, 'r', encoding='utf-8') as f:
-                 i = 0
-                 for line in f:
-                     utt_id, num_frames = line.strip().split(None, 1)
-                     assert utt_id == self.utt_ids[i], \
-                         'utterance ids mismatch: ' + utt_id + ' vs. ' + self.utt_ids[i]
-                     self.sizes.append(int(num_frames))
-                     i += 1
+            with open(utt2num_frames_path, 'r', encoding='utf-8') as f:
+                i = 0
+                for line in f:
+                    utt_id, num_frames = line.strip().split(None, 1)
+                    assert utt_id == self.utt_ids[i], \
+                        'utterance ids mismatch: ' + utt_id + ' vs. ' + self.utt_ids[i]
+                    self.sizes.append(int(num_frames))
+                    i += 1
 
         for filename in self.extended_filenames:
             try:
@@ -98,7 +99,7 @@ class ScpCachedDataset(ScpDataset):
     """
 
     def __init__(self, path, utt2num_frames_path=None, ordered_prefetch=False, cache_size=4096):
-        super().__init__(path, utt2num_frames_path)
+        super().__init__(path, utt2num_frames_path=utt2num_frames_path)
         self.cache = None
         self.cache_index = {}
         self.cache_size = cache_size  # in terms of number of examples
@@ -170,7 +171,7 @@ class ScpInMemoryDataset(ScpDataset):
     """
 
     def __init__(self, path, utt2num_frames_path=None):
-        super().__init__(path, utt2num_frames_path)
+        super().__init__(path, utt2num_frames_path=utt2num_frames_path)
         self.read_data()
 
     def read_data(self):

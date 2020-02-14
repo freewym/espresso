@@ -8,8 +8,10 @@
 Train a new model on one or across multiple GPUs.
 """
 
+import json
 import logging
 import math
+import os
 import random
 import sys
 
@@ -118,10 +120,16 @@ def main(args, init_distributed=False):
             logger.info('early stop since valid performance hasn\'t improved for last {} runs'.format(args.patience))
             break
 
+        if hasattr(args, 'data'):
+            data_json_path = os.path.join(args.data, '{}.json'.format('train'))
+            with open(data_json_path, 'rb') as f:
+                train_feat_files = json.load(f)['feat_files']
+        else:
+            train_feat_files = []
         epoch_itr = trainer.get_train_iterator(
             epoch_itr.epoch,
             # sharded data: get train iterator for next epoch
-            load_dataset=(len(args.train_feat_files) > 1),
+            load_dataset=(len(train_feat_files) > 1),
         )
     train_meter.stop()
     logger.info('done training in {:.1f} seconds'.format(train_meter.sum))

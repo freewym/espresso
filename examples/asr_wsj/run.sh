@@ -247,27 +247,32 @@ if [ ${stage} -le 7 ] && $use_wordlm; then
   done
 fi
 
-train_feat=$train_feat_dir/feats.scp
-train_token_text=data/$train_set/token_text
-train_utt2num_frames=data/$train_set/utt2num_frames
-valid_feat=$valid_feat_dir/feats.scp
-valid_token_text=data/$valid_set/token_text
-valid_utt2num_frames=data/$valid_set/utt2num_frames
 if [ ${stage} -le 8 ]; then
   echo "Stage 8: Model Training"
+  train_feat=$(pwd)/$train_feat_dir/feats.scp
+  train_token_text=$(pwd)/data/$train_set/token_text
+  train_utt2num_frames=data/$train_set/utt2num_frames
+  valid_feat=$(pwd)/$valid_feat_dir/feats.scp
+  valid_token_text=$(pwd)/data/$valid_set/token_text
+  valid_utt2num_frames=data/$valid_set/utt2num_frames
+  mkdir -p $dir
+  asr_prep_json.py --feat-files $train_feat --text-files $train_token_text --utt2num-frames-files $train_utt2num_frames --output $dir/train.json
+  asr_prep_json.py --feat-files $valid_feat --text-files $valid_token_text --utt2num-frames-files $valid_utt2num_frames --output $dir/valid.json
+
   opts=""
   valid_subset=valid
   if $validate_on_train_subset; then
+    train_subset_feat=$(pwd)/$train_subset_feat_dir/feats.scp
+    train_subset_token_text=$(pwd)/data/${train_set}_${train_subset_size}/token_text
+    train_subset_utt2num_frames=$(pwd)/data/${train_set}_${train_subset_size}/utt2num_frames
+    asr_prep_json.py --feat-files $train_subset_feat --text-files $train_subset_token_text --utt2num-frames-files $train_subset_utt2num_frames --output $dir/train_subset.json
     valid_subset="$valid_subset,train_subset"
-    opts="$opts --train-subset-feat-files $train_subset_feat_dir/feats.scp"
-    opts="$opts --train-subset-text-files data/${train_set}_${train_subset_size}/token_text"
-    opts="$opts --train-subset-utt2num-frames-files data/${train_set}_${train_subset_size}/utt2num_frames"
   fi
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
   mkdir -p $dir/logs
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py --task speech_recognition_espresso --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py $dir --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval 400 --log-format simple --print-training-sample-interval 1000 \
     --num-workers 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
@@ -279,8 +284,6 @@ if [ ${stage} -le 8 ]; then
     --arch speech_conv_lstm_wsj --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.05 --smoothing-type temporal \
     --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6 \
-    --train-feat-files $train_feat --train-text-files $train_token_text --train-utt2num-frames-files $train_utt2num_frames \
-    --valid-feat-files $valid_feat --valid-text-files $valid_token_text --valid-utt2num-frames-files $valid_utt2num_frames \
     --dict $dict --non-lang-syms $nlsyms \
     --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
 fi
@@ -311,10 +314,11 @@ if [ ${stage} -le 9 ]; then
     text=data/$dataset/token_text
     utt2num_frames=data/$dataset/utt2num_frames
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
-    CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
+    mkdir -p $decode_dir
+    asr_prep_json.py --feat-files $feat --text-files $text --utt2num-frames-files $utt2num_frames --output $decode_dir/test.json
+    CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py $decode_dir \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 20000 --max-sentences 32 \
-      --num-shards 1 --shard-id 0 --test-feat-files $feat --test-text-files $text --test-utt2num-frames-files $utt2num_frames \
-      --dict $dict --non-lang-syms $nlsyms \
+      --num-shards 1 --shard-id 0 --dict $dict --non-lang-syms $nlsyms \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 50 --max-len-a 0.2 --max-len-b 0 --lenpen 1.0 \
       --results-path $decode_dir $opts --print-alignment

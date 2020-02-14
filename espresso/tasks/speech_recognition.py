@@ -3,12 +3,13 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import json
 import logging
 import os
 
 import torch
 
-from fairseq import metrics, options, search, utils
+from fairseq import metrics, search, utils
 from fairseq.data import ConcatDataset
 
 from fairseq.tasks import FairseqTask, register_task
@@ -52,62 +53,24 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     def add_args(parser):
         """Add task-specific arguments to the parser."""
         # fmt: off
-        parser.add_argument('--train-feat-files', nargs='+',
-                            help='path(s) to scp feature file(s) for training, '
-                            'will be iterated upon during epochs in round-robin manner')
-        parser.add_argument('--train-text-files', nargs='+',
-                            help='path(s) to text file(s) for training, where '
-                            'each should matches with one in --train-feat-files, '
-                            'will be iterated upon during epochs in round-robin manner')
-        parser.add_argument('--train-utt2num-frames-files', nargs='+', default=None,
-                            help='path(s) to utt2num_frames file(s) for training. if not None, '
-                            'each should matches with one in --train-feat-files, '
-                            'will be iterated upon during epochs in round-robin manner')
-        parser.add_argument('--valid-feat-files', nargs='+',
-                            help='path(s) to scp feature file(s) for validation')
-        parser.add_argument('--valid-text-files', nargs='+',
-                            help='path(s) to text file(s) for validation, where '
-                            'each should matches with one in --valid-feat-files')
-        parser.add_argument('--valid-utt2num-frames-files', nargs='+', default=None,
-                            help='path(s) to utt2num_frames file(s) for validation. if not None, '
-                            'each should matches with one in --valid-feat-files')
-        parser.add_argument('--test-feat-files', nargs='+',
-                            help='path(s) to scp feature file(s) for test')
-        parser.add_argument('--test-text-files', nargs='+', default=None,
-                            help='path(s) to text file(s) for test. if not None, '
-                            'each one should matches with one in --test-feat-files')
-        parser.add_argument('--test-utt2num-frames-files', nargs='+', default=None,
-                            help='path(s) to utt2num_frames file(s) for test. if not None, '
-                            'each should matches with one in --test-feat-files')
-        parser.add_argument('--train-subset-feat-files', nargs='+',
-                            help='path(s) to scp feature file(s) for validation')
-        parser.add_argument('--train-subset-text-files', nargs='+',
-                            help='path(s) to text file(s) for validation, where '
-                            'each should matches with one in --train-subset-feat-files')
-        parser.add_argument('--train-subset-utt2num-frames-files', nargs='+', default=None,
-                            help='path(s) to utt2num_frames file(s) for validation. if not None, '
-                            'each should matches with one in --train-subset-feat-files')
-        parser.add_argument('--dict', default=None, type=str,
-                            help='path to the dictionary')
-        parser.add_argument('--non-lang-syms', default=None, type=str,
-                            help='path to a file listing non-linguistic symbols, e.g., <NOISE> '
-                            'etc. One entry per line. To be filtered out when calculating WER/CER.')
-        parser.add_argument('--word-dict', default=None, type=str,
-                            help='path to the word dictionary. Only relevant for decoding')
-        parser.add_argument('--wer-output-filter', default=None, type=str,
-                            help='path to wer_output_filter file for WER evaluation')
-        parser.add_argument('--left-pad-source', default='False', type=str, metavar='BOOL',
-                            help='pad the source on the left')
-        parser.add_argument('--left-pad-target', default='False', type=str, metavar='BOOL',
-                            help='pad the target on the left')
-        parser.add_argument('--max-source-positions', default=1024, type=int, metavar='N',
-                            help='max number of frames in the source sequence')
-        parser.add_argument('--max-target-positions', default=1024, type=int, metavar='N',
-                            help='max number of tokens in the target sequence')
-        parser.add_argument('--upsample-primary', default=1, type=int,
-                            help='amount to upsample primary dataset')
-        parser.add_argument('--feat-in-channels', default=1, type=int, metavar='N',
-                            help='feature input channels')
+        parser.add_argument("data", help="path to data directory")
+        parser.add_argument("--dict", default=None, type=str,
+                            help="path to the dictionary")
+        parser.add_argument("--non-lang-syms", default=None, type=str,
+                            help="path to a file listing non-linguistic symbols, e.g., <NOISE> "
+                            "etc. One entry per line. To be filtered out when calculating WER/CER.")
+        parser.add_argument("--word-dict", default=None, type=str,
+                            help="path to the word dictionary. Only relevant for decoding")
+        parser.add_argument("--wer-output-filter", default=None, type=str,
+                            help="path to wer_output_filter file for WER evaluation")
+        parser.add_argument("--max-source-positions", default=1024, type=int, metavar="N",
+                            help="max number of frames in the source sequence")
+        parser.add_argument("--max-target-positions", default=1024, type=int, metavar="N",
+                            help="max number of tokens in the target sequence")
+        parser.add_argument("--upsample-primary", default=1, type=int,
+                            help="amount to upsample primary dataset")
+        parser.add_argument("--feat-in-channels", default=1, type=int, metavar="N",
+                            help="feature input channels")
         # fmt: off
 
     @classmethod
@@ -125,9 +88,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         raise NotImplementedError
 
-    def __init__(self, args, dictionary, word_dict=None):
+    def __init__(self, args, tgt_dict, word_dict=None):
         super().__init__(args)
-        self.dictionary = dictionary
+        self.tgt_dict = tgt_dict
         self.word_dict = word_dict
         self.feat_in_channels = args.feat_in_channels
         torch.backends.cudnn.deterministic = True
@@ -143,22 +106,17 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         Args:
             args (argparse.Namespace): parsed command-line arguments
         """
-        args.left_pad_source = options.eval_bool(args.left_pad_source)
-        args.left_pad_target = options.eval_bool(args.left_pad_target)
-
         # load dictionaries
-        dict_path = os.path.join(os.path.dirname(args.train_text_files[0]), 'dict.txt') \
-            if args.dict is None and args.train_text_files is not None else args.dict
-        assert dict_path is not None, 'Please specify --dict'
-        dictionary = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms)
-        logger.info('dictionary: {} types'.format(len(dictionary)))
+        dict_path = os.path.join(args.data, "dict.txt") if args.dict is None else args.dict
+        tgt_dict = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms)
+        logger.info("dictionary: {} types".format(len(tgt_dict)))
         if args.word_dict is not None:
             word_dict = cls.load_dictionary(args.word_dict)
-            logger.info('word dictionary: {} types'.format(len(word_dict)))
-            return cls(args, dictionary, word_dict)
+            logger.info("word dictionary: {} types".format(len(word_dict)))
+            return cls(args, tgt_dict, word_dict)
 
         else:
-            return cls(args, dictionary)
+            return cls(args, tgt_dict)
 
     def load_dataset(self, split, epoch=0, combine=False, **kwargs):
         """Load a given dataset split.
@@ -166,57 +124,42 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         Args:
             split (str): name of the split (e.g., train, valid, test)
         """
-        src_datasets = []
-        tgt_datasets = []
+        data_json_path = os.path.join(self.args.data, "{}.json".format(split))
+        if not os.path.isfile(data_json_path):
+            raise FileNotFoundError("Dataset not found: {}".format(data_json_path))
 
-        if split == 'train':
-            feat_files = self.args.train_feat_files
-            text_files = self.args.train_text_files
-            utt2num_frames_files = self.args.train_utt2num_frames_files  # can be None
+        with open(data_json_path, "rb") as f:
+            loaded_json = json.load(f)
+            feat_files = loaded_json["feat_files"]
+            text_files = loaded_json.get("text_files", [None] * len(feat_files))
+            utt2num_frames_files = loaded_json.get("utt2num_frames_files", [None] * len(feat_files))
+
+        if split == "train":
             assert len(feat_files) > 0 and len(feat_files) == len(text_files)
             assert utt2num_frames_files is None or len(feat_files) == len(utt2num_frames_files)
+            # iterated upon during epochs in round-robin manner
             feat_files = [feat_files[epoch % len(feat_files)]]
             text_files = [text_files[epoch % len(text_files)]]
-            if utt2num_frames_files is not None:
-                utt2num_frames_files = [utt2num_frames_files[epoch % len(utt2num_frames_files)]]
-            else:
-                utt2num_frames_files = [None]
-        elif split == 'valid':
-            feat_files = self.args.valid_feat_files
-            text_files = self.args.valid_text_files
-            utt2num_frames_files = self.args.valid_utt2num_frames_files  # can be None
-            if utt2num_frames_files is None:
-                utt2num_frames_files = [None] * len(feat_files)
-        elif split == 'test':
-            feat_files = self.args.test_feat_files
-            text_files = self.args.test_text_files  # can be None
-            utt2num_frames_files = self.args.test_utt2num_frames_files  # can be None
-            if text_files is None:
-                text_files = [None] * len(feat_files)
-            if utt2num_frames_files is None:
-                utt2num_frames_files = [None] * len(feat_files)
-        elif split == 'train_subset':
-            feat_files = self.args.train_subset_feat_files
-            text_files = self.args.train_subset_text_files
-            utt2num_frames_files = self.args.train_subset_utt2num_frames_files  # can be None
-            if utt2num_frames_files is None:
-                utt2num_frames_files = [None] * len(feat_files)
-        else:
-            raise ValueError('split should be one of "train", "valid", "test", "train_subset"')
+            utt2num_frames_files = [utt2num_frames_files[epoch % len(utt2num_frames_files)]]
+        elif split not in ["valid", "test", "train_subset"]:
+            raise ValueError("split should be one of 'train', 'valid', 'test', 'train_subset'")
 
         assert len(feat_files) > 0 and len(feat_files) == len(text_files) and \
             len(feat_files) == len(utt2num_frames_files)
+        src_datasets, tgt_datasets = [], []
         file_tuples = zip(feat_files, text_files, utt2num_frames_files)
         for feat, text, utt2num_frames in file_tuples:
-            assert ScpCachedDataset.exists(feat), feat + ' does not exists'
-            assert text is None or AsrTextDataset.exists(text), text + ' does not exists'
+            assert ScpCachedDataset.exists(feat), feat + " does not exists"
+            assert text is None or AsrTextDataset.exists(text), text + " does not exists"
             assert utt2num_frames is None or ScpCachedDataset.exists(utt2num_frames), \
-                utt2num_frames + ' does not exists'
-            src_datasets.append(ScpCachedDataset(feat, utt2num_frames, ordered_prefetch=True))
-            logger.info('{} {} examples'.format(feat, len(src_datasets[-1])))
+                utt2num_frames + " does not exists"
+            src_datasets.append(ScpCachedDataset(
+                feat, utt2num_frames_path=utt2num_frames, ordered_prefetch=True
+            ))
+            logger.info("{} {} examples".format(feat, len(src_datasets[-1])))
             if text is not None:
-                tgt_datasets.append(AsrTextDataset(text, self.dictionary))
-                logger.info('{} {} examples'.format(text, len(tgt_datasets[-1])))
+                tgt_datasets.append(AsrTextDataset(text, self.tgt_dict))
+                logger.info("{} {} examples".format(text, len(tgt_datasets[-1])))
 
             if not combine:
                 break
@@ -232,7 +175,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         else:
             for i in range(1, len(src_datasets)):
                 assert self.feat_dim == src_datasets[i].feat_dim, \
-                    'feature dimension does not match across multiple scp files'
+                    "feature dimension does not match across multiple scp files"
             sample_ratios = [1] * len(src_datasets)
             sample_ratios[0] = self.args.upsample_primary
             src_dataset = ConcatDataset(src_datasets, sample_ratios)
@@ -242,37 +185,37 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         self.datasets[split] = SpeechDataset(
             src_dataset, src_dataset.sizes,
             tgt_dataset, tgt_dataset.sizes if tgt_dataset is not None else None,
-            self.dictionary,
-            left_pad_source=self.args.left_pad_source,
-            left_pad_target=self.args.left_pad_target,
+            self.tgt_dict,
+            left_pad_source=False,
+            left_pad_target=False,
             max_source_positions=self.args.max_source_positions,
             max_target_positions=self.args.max_target_positions,
         )
 
-        # update the counts of <eos> and <unk> in dictionary with training data
-        if split == 'train':
-            self.dictionary.count[self.dictionary.eos()] = len(tgt_dataset)
+        # update the counts of <eos> and <unk> in tgt_dict with training data
+        if split == "train":
+            self.tgt_dict.count[self.tgt_dict.eos()] = len(tgt_dataset)
             unk_count = 0
             for i in range(len(tgt_dataset)):
-                unk_count += (tgt_dataset[i][0] == self.dictionary.unk()).int().sum().item()
-            self.dictionary.count[self.dictionary.unk()] = unk_count
+                unk_count += (tgt_dataset[i][0] == self.tgt_dict.unk()).int().sum().item()
+            self.tgt_dict.count[self.tgt_dict.unk()] = unk_count
 
     def build_generator(self, args):
         if args.score_reference:
             args.score_reference = False
             logger.warning(
-                '--score-reference is not applicable to speech recognition, ignoring it.'
+                "--score-reference is not applicable to speech recognition, ignoring it."
             )
         from fairseq.sequence_generator import SequenceGenerator
 
         # Choose search strategy. Defaults to Beam Search.
-        sampling = getattr(args, 'sampling', False)
-        sampling_topk = getattr(args, 'sampling_topk', -1)
-        sampling_topp = getattr(args, 'sampling_topp', -1.0)
-        diverse_beam_groups = getattr(args, 'diverse_beam_groups', -1)
-        diverse_beam_strength = getattr(args, 'diverse_beam_strength', 0.5),
-        match_source_len = getattr(args, 'match_source_len', False)
-        diversity_rate = getattr(args, 'diversity_rate', -1)
+        sampling = getattr(args, "sampling", False)
+        sampling_topk = getattr(args, "sampling_topk", -1)
+        sampling_topp = getattr(args, "sampling_topp", -1.0)
+        diverse_beam_groups = getattr(args, "diverse_beam_groups", -1)
+        diverse_beam_strength = getattr(args, "diverse_beam_strength", 0.5),
+        match_source_len = getattr(args, "match_source_len", False)
+        diversity_rate = getattr(args, "diversity_rate", -1)
         if (
             sum(
                 int(cond)
@@ -285,9 +228,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             )
             > 1
         ):
-            raise ValueError('Provided Search parameters are mutually exclusive.')
-        assert sampling_topk < 0 or sampling, '--sampling-topk requires --sampling'
-        assert sampling_topp < 0 or sampling, '--sampling-topp requires --sampling'
+            raise ValueError("Provided Search parameters are mutually exclusive.")
+        assert sampling_topk < 0 or sampling, "--sampling-topk requires --sampling"
+        assert sampling_topp < 0 or sampling, "--sampling-topp requires --sampling"
 
         if sampling:
             search_strategy = search.Sampling(self.target_dictionary, sampling_topk, sampling_topp)
@@ -308,18 +251,18 @@ class SpeechRecognitionEspressoTask(FairseqTask):
 
         return SequenceGenerator(
             self.target_dictionary,
-            beam_size=getattr(args, 'beam', 5),
-            max_len_a=getattr(args, 'max_len_a', 0),
-            max_len_b=getattr(args, 'max_len_b', 200),
-            min_len=getattr(args, 'min_len', 1),
-            normalize_scores=(not getattr(args, 'unnormalized', False)),
-            len_penalty=getattr(args, 'lenpen', 1),
-            unk_penalty=getattr(args, 'unkpen', 0),
-            temperature=getattr(args, 'temperature', 1.),
-            match_source_len=getattr(args, 'match_source_len', False),
-            no_repeat_ngram_size=getattr(args, 'no_repeat_ngram_size', 0),
+            beam_size=getattr(args, "beam", 5),
+            max_len_a=getattr(args, "max_len_a", 0),
+            max_len_b=getattr(args, "max_len_b", 200),
+            min_len=getattr(args, "min_len", 1),
+            normalize_scores=(not getattr(args, "unnormalized", False)),
+            len_penalty=getattr(args, "lenpen", 1),
+            unk_penalty=getattr(args, "unkpen", 0),
+            temperature=getattr(args, "temperature", 1.),
+            match_source_len=getattr(args, "match_source_len", False),
+            no_repeat_ngram_size=getattr(args, "no_repeat_ngram_size", 0),
             search_strategy=search_strategy,
-            eos_factor=getattr(args, 'eos_factor', None),
+            eos_factor=getattr(args, "eos_factor", None),
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
@@ -334,8 +277,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
         (
-            logging_output['word_error'], logging_output['word_count'],
-            logging_output['char_error'], logging_output['char_count'],
+            logging_output["word_error"], logging_output["word_count"],
+            logging_output["char_error"], logging_output["char_count"],
         ) = self._inference_with_wer(self.decoder_for_validation, sample, model)
         return loss, sample_size, logging_output
 
@@ -347,14 +290,14 @@ class SpeechRecognitionEspressoTask(FairseqTask):
 
     def reduce_metrics(self, logging_outputs, criterion):
         super().reduce_metrics(logging_outputs, criterion)
-        word_error = utils.item(sum(log.get('word_error', 0) for log in logging_outputs))
-        word_count = utils.item(sum(log.get('word_count', 0) for log in logging_outputs))
-        char_error = utils.item(sum(log.get('char_error', 0) for log in logging_outputs))
-        char_count = utils.item(sum(log.get('char_count', 0) for log in logging_outputs))
+        word_error = utils.item(sum(log.get("word_error", 0) for log in logging_outputs))
+        word_count = utils.item(sum(log.get("word_count", 0) for log in logging_outputs))
+        char_error = utils.item(sum(log.get("char_error", 0) for log in logging_outputs))
+        char_count = utils.item(sum(log.get("char_count", 0) for log in logging_outputs))
         if word_count > 0:
-            metrics.log_scalar('wer', float(word_error) / word_count * 100, word_count, round=4)
+            metrics.log_scalar("wer", float(word_error) / word_count * 100, word_count, round=4)
         if char_count > 0:
-            metrics.log_scalar('cer', float(char_error) / char_count * 100, char_count, round=4)
+            metrics.log_scalar("cer", float(char_error) / char_count * 100, char_count, round=4)
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
@@ -363,7 +306,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     @property
     def target_dictionary(self):
         """Return the target :class:`~fairseq.data.AsrDictionary`."""
-        return self.dictionary
+        return self.tgt_dict
 
     @property
     def word_dictionary(self):
@@ -376,13 +319,13 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         scorer = wer.Scorer(self.target_dictionary, wer_output_filter=self.args.wer_output_filter)
         tokens, lprobs, _ = decoder.decode([model], sample)
         pred = tokens[:, 1:].data.cpu()  # bsz x len
-        target = sample['target']
+        target = sample["target"]
         assert pred.size(0) == target.size(0)
         # compute word error stats
         scorer.reset()
         for i in range(target.size(0)):
-            utt_id = sample['utt_id'][i]
-            ref_tokens = sample['target_raw_text'][i]
+            utt_id = sample["utt_id"][i]
+            ref_tokens = sample["target_raw_text"][i]
             pred_tokens = self.target_dictionary.string(pred.data[i])
             scorer.add_evaluation(
                 utt_id, ref_tokens, pred_tokens, bpe_symbol=self.args.remove_bpe,
