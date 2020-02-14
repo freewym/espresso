@@ -242,7 +242,7 @@ if [ ${stage} -le 8 ]; then
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 15000 --max-sentences 24 \
-      --num-shards 1 --shard-id 0 --test-feat-files $feat --test-text-files $text --test-utt2num-frames $utt2num_frames \
+      --num-shards 1 --shard-id 0 --test-feat-files $feat --test-text-files $text --test-utt2num-frames-files $utt2num_frames \
       --dict $dict --remove-bpe sentencepiece \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 60 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \

@@ -285,7 +285,7 @@ if [ $stage -le 7 ]; then
     text_opt= && [ "$dataset" == "train_dev" ] && text_opt="--test-text-files data/$dataset/token_text"
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 24000 --max-sentences 48 \
-      --num-shards 1 --shard-id 0 --test-feat-files $feat $text_opt --test-utt2num-frames $utt2num_frames \
+      --num-shards 1 --shard-id 0 --test-feat-files $feat $text_opt --test-utt2num-frames-files $utt2num_frames \
       --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 35 --max-len-a 0.1 --max-len-b 0 --lenpen 1.0 \
