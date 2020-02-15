@@ -138,6 +138,9 @@ class Scorer(object):
         return self.char_counter['words']
 
     def add_ordered_utt_list(self, *args):
+        if len(args) == 1 and isinstance(args[0], list):  # aleady a list of utterance ids
+            self.ordered_utt_list = args[0]
+            return
         self.ordered_utt_list = []
         for text_file in args:
             with open(text_file, 'r', encoding='utf-8') as f:
