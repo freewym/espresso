@@ -4,8 +4,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
+from typing import List, Optional
 
 import numpy as np
+
 import torch
 
 try:
@@ -22,43 +24,33 @@ class ScpDataset(torch.utils.data.Dataset):
     every time each entry is inquired, thus incurs the most intensive I/O.
     """
 
-    def __init__(self, path, utt2num_frames_path=None):
+    def __init__(
+        self, utt_ids: List[str], rxfiles: List[str], utt2num_frames: Optional[List[int]] = None,
+    ):
         super().__init__()
+        assert len(utt_ids) == len(rxfiles)
         self.dtype = np.float
-        self.read_scp(path, utt2num_frames_path)
-
-    def read_scp(self, path, utt2num_frames_path=None):
-        with open(path, 'r', encoding='utf-8') as f:
-            scp_entries = [line.strip().split(None, 1) for line in f]
-        self.utt_ids = [entry[0] for entry in scp_entries]
-        self.extended_filenames = [entry[1] for entry in scp_entries]
-        self.size = len(scp_entries)  # number of utterances
+        self.utt_ids = utt_ids
+        self.rxfiles = rxfiles
+        self.size = len(utt_ids)  # number of utterances
         self.sizes = []  # length of each utterance
-        if utt2num_frames_path is not None:
-             with open(utt2num_frames_path, 'r', encoding='utf-8') as f:
-                 i = 0
-                 for line in f:
-                     utt_id, num_frames = line.strip().split(None, 1)
-                     assert utt_id == self.utt_ids[i], \
-                         'utterance ids mismatch: ' + utt_id + ' vs. ' + self.utt_ids[i]
-                     self.sizes.append(int(num_frames))
-                     i += 1
+        if utt2num_frames is not None and len(utt2num_frames) > 0:
+            assert len(utt2num_frames) == self.size
+            self.sizes = utt2num_frames
 
-        for filename in self.extended_filenames:
+        for rxfile in self.rxfiles:
             try:
-                feat = kaldi_io.read_mat(filename)
+                feat = kaldi_io.read_mat(rxfile)
             except Exception:
-                raise Exception('failed to read feature matrix {}.'.format(filename))
+                raise Exception('failed to read feature matrix {}.'.format(rxfile))
             assert feat is not None and isinstance(feat, np.ndarray)
             if len(self.sizes) == self.size:
                 break
             self.sizes.append(feat.shape[0])
 
+        assert len(self.sizes) == self.size
         self.sizes = np.array(self.sizes, dtype=np.int32)
         self.feat_dim = feat.shape[1]  # feature dimension
-
-        assert len(self.utt_ids) == len(self.extended_filenames) and \
-            len(self.utt_ids) == len(self.sizes)
 
     def check_index(self, i):
         if i < 0 or i >= self.size:
@@ -71,14 +63,14 @@ class ScpDataset(torch.utils.data.Dataset):
         assert len(np.unique(indices)) == len(indices), \
             'Duplicate elements in indices.'
         self.utt_ids = [self.utt_ids[i] for i in indices]
-        self.extended_filenames = [self.extended_filenames[i] for i in indices]
+        self.rxfiles = [self.rxfiles[i] for i in indices]
         self.sizes = self.sizes[indices]
         self.size = len(self.utt_ids)
         self.ordered_indices = list(range(self.size))
 
     def __getitem__(self, i):
         self.check_index(i)
-        feat = kaldi_io.read_mat(self.extended_filenames[i])
+        feat = kaldi_io.read_mat(self.rxfiles[i])
         item = torch.from_numpy(feat).float()
         return item
 
@@ -97,8 +89,11 @@ class ScpCachedDataset(ScpDataset):
     It balances the I/O efficiency and memory usage.
     """
 
-    def __init__(self, path, utt2num_frames_path=None, ordered_prefetch=False, cache_size=4096):
-        super().__init__(path, utt2num_frames_path)
+    def __init__(
+        self, utt_ids: List[str], rxfiles: List[str], utt2num_frames: Optional[List[int]] = None,
+        ordered_prefetch=False, cache_size=4096,
+    ):
+        super().__init__(utt_ids, rxfiles, utt2num_frames=utt2num_frames)
         self.cache = None
         self.cache_index = {}
         self.cache_size = cache_size  # in terms of number of examples
@@ -155,7 +150,7 @@ class ScpCachedDataset(ScpDataset):
                 self.cache_index[idx] = ptx
                 length = self.sizes[idx]
                 dst = self.cache[ptx: ptx + length]
-                np.copyto(dst, kaldi_io.read_mat(self.extended_filenames[idx]))
+                np.copyto(dst, kaldi_io.read_mat(self.rxfiles[idx]))
                 ptx += length
 
         ptx = self.cache_index[i]
@@ -169,8 +164,10 @@ class ScpInMemoryDataset(ScpDataset):
     It has the maximum memory usage and least I/O.
     """
 
-    def __init__(self, path, utt2num_frames_path=None):
-        super().__init__(path, utt2num_frames_path)
+    def __init__(
+        self, utt_ids: List[str], rxfiles: List[str], utt2num_frames: Optional[List[int]] = None,
+    ):
+        super().__init__(utt_ids, rxfiles, utt2num_frames=utt2num_frames)
         self.read_data()
 
     def read_data(self):
@@ -182,7 +179,7 @@ class ScpInMemoryDataset(ScpDataset):
         for i in range(len(self.data_offsets)):
             ptx = self.data_offsets[i]
             dst = self.buffer[ptx: ptx + self.sizes[i]]
-            np.copyto(dst, kaldi_io.read_mat(self.extended_filenames[i]))
+            np.copyto(dst, kaldi_io.read_mat(self.rxfiles[i]))
 
     def filter_and_reorder(self, indices):
         super().filter_and_reorder(indices)
@@ -200,29 +197,26 @@ class AsrTextDataset(torch.utils.data.Dataset):
     Original lines are also kept in memory. Each line of the text file is in the
     format of 'utt_id tokenized_text'."""
 
-    def __init__(self, path, dictionary, append_eos=True):
+    def __init__(self, utt_ids: List[str], token_text: List[str], dictionary, append_eos=True):
         super().__init__()
         self.dtype = np.float
         self.append_eos = append_eos
-        self.read_text(path, dictionary)
+        self.read_text(utt_ids, token_text, dictionary)
 
-    def read_text(self, path, dictionary):
-        self.utt_ids = []
-        self.tokens_list = []
+    def read_text(self, utt_ids: List[str], token_text: List[str], dictionary):
+        assert len(utt_ids) == len(token_text)
+        self.utt_ids = utt_ids
+        self.tokens_list = token_text
         self.tensor_list = []
-        self.sizes = []
-        with open(path, 'r', encoding='utf-8') as f:
-            for line in f:
-                utt_id, tokens = line.strip().split(None, 1)
-                self.utt_ids.append(utt_id)
-                self.tokens_list.append(tokens)
-                tensor = dictionary.encode_line(
-                    tokens, add_if_not_exist=False, append_eos=self.append_eos,
-                ).long()
-                self.tensor_list.append(tensor)
-                self.sizes.append(len(self.tensor_list[-1]))
-
         self.size = len(self.utt_ids)  # number of utterances
+        self.sizes = []
+        for tokens in self.tokens_list:
+            tensor = dictionary.encode_line(
+                tokens, add_if_not_exist=False, append_eos=self.append_eos,
+            ).long()
+            self.tensor_list.append(tensor)
+            self.sizes.append(len(self.tensor_list[-1]))
+
         self.sizes = np.array(self.sizes, dtype=np.int32)
 
         assert len(self.utt_ids) == len(self.tokens_list) and \
