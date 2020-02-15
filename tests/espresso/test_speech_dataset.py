@@ -41,47 +41,46 @@ class TestSpeechDataset(unittest.TestCase):
     @staticmethod
     def generate_feats(test_dir, num=10, seed=0):
         """generate feature matrices."""
-        feats = {}
+        expected_feats = {}
         np.random.seed(seed)
-        with open(
-            os.path.join(test_dir, 'feats.scp'), 'w', encoding='utf-8',
-        ) as f:
-            for i in range(num):
-                utt_id = 'utt_id_' + str(i)
-                ark_file = os.path.join(test_dir, 'mat_' + str(i) + '.ark')
-                f.write(utt_id + ' ' + ark_file + ':0\n')
-                length = np.random.randint(200, 800)
-                m = np.random.uniform(-10.0, 10.0, (length, 40))
-                feats[utt_id] = m
-                kaldi_io.write_mat(ark_file, m)
-        return feats
+        utt_ids, rxfiles, utt2num_frames = [], [], []
+        for i in range(num):
+            utt_id = 'utt_id_' + str(i)
+            ark_file = os.path.join(test_dir, 'mat_' + str(i) + '.ark')
+            length = np.random.randint(200, 800)
+            m = np.random.uniform(-10.0, 10.0, (length, 40))
+            expected_feats[utt_id] = m
+            kaldi_io.write_mat(ark_file, m)
+            utt_ids.append(utt_id)
+            rxfiles.append(ark_file + ':0')
+            utt2num_frames.append(length)
+        return expected_feats, utt_ids, rxfiles, utt2num_frames
 
     @staticmethod
-    def generate_text_tokens(test_dir, num=10, seed=0):
+    def generate_text(test_dir, num=10, seed=0):
         """generate token text, where utterances are in a (random) different
         order from those in feats.scp."""
-        text_tokens = {}
+        expected_text = {}
         alphabet = string.ascii_lowercase
         space = '<space>'
         vocab = list(alphabet)
         vocab.append(space)
         np.random.seed(seed)
-        with open(
-            os.path.join(test_dir, 'text_tokens'), 'w', encoding='utf-8',
-        ) as f:
-            for i in np.random.permutation(range(num)):
-                utt_id = 'utt_id_' + str(i)
-                length = np.random.randint(10, 100)
-                tokens = [
-                    vocab[np.random.randint(0, len(vocab))] for _ in range(length)
-                ]
-                if tokens[0] == space:
-                    tokens[0] = vocab[np.random.randint(0, len(vocab) - 1)]
-                if tokens[-1] == space:
-                    tokens[-1] = vocab[np.random.randint(0, len(vocab) - 1)]
-                text_tokens[utt_id] = tokens
-                f.write(utt_id + ' ' + ' '.join(tokens) + '\n')
-        return text_tokens
+        utt_ids, token_text = [], []
+        for i in np.random.permutation(range(num)):
+            utt_id = 'utt_id_' + str(i)
+            length = np.random.randint(10, 100)
+            tokens = [
+                vocab[np.random.randint(0, len(vocab))] for _ in range(length)
+            ]
+            if tokens[0] == space:
+                tokens[0] = vocab[np.random.randint(0, len(vocab) - 1)]
+            if tokens[-1] == space:
+                tokens[-1] = vocab[np.random.randint(0, len(vocab) - 1)]
+            expected_text[utt_id] = tokens
+            utt_ids.append(utt_id)
+            token_text.append(' '.join(tokens))
+        return expected_text, utt_ids, token_text
 
     def setUp(self):
         self.test_dir = './temp'
@@ -91,30 +90,35 @@ class TestSpeechDataset(unittest.TestCase):
         self.batch_size = 8
         self.cache_size = 16
         self.dictionary = self.make_dictionary()
-        self.expected_feats = self.generate_feats(
-            self.test_dir, num=self.num_audios, seed=0,
-        )
-        self.expected_tokens = self.generate_text_tokens(
-            self.test_dir, num=self.num_transripts, seed=1,
-        )
+        (
+            self.expected_feats, self.feats_utt_ids, self.rxfiles, self.utt2num_frames
+        ) = self.generate_feats(self.test_dir, num=self.num_audios, seed=0)
+        (
+            self.expected_text, self.text_utt_ids, self.token_text
+        ) = self.generate_text(self.test_dir, num=self.num_transripts, seed=1)
 
         self.cuda = torch.cuda.is_available()
 
     def _speech_dataset_helper(
-        self, all_in_memory=False, ordered_prefetch=False,
+        self, all_in_memory=False, ordered_prefetch=False, has_utt2num_frames=False,
     ):
         if not all_in_memory:
             src_dataset = ScpCachedDataset(
-                path=os.path.join(self.test_dir, 'feats.scp'),
+                utt_ids=self.feats_utt_ids,
+                rxfiles=self.rxfiles,
+                utt2num_frames=self.utt2num_frames if has_utt2num_frames else None,
                 ordered_prefetch=ordered_prefetch,
                 cache_size=self.cache_size,
             )
         else:
             src_dataset = ScpInMemoryDataset(
-                path=os.path.join(self.test_dir, 'feats.scp')
+                utt_ids=self.feats_utt_ids,
+                rxfiles=self.rxfiles,
+                utt2num_frames=self.utt2num_frames if has_utt2num_frames else None,
             )
         tgt_dataset = AsrTextDataset(
-            path=os.path.join(self.test_dir, 'text_tokens'),
+            utt_ids=self.text_utt_ids,
+            token_text=self.token_text,
             dictionary=self.dictionary,
         )
 
@@ -162,7 +166,7 @@ class TestSpeechDataset(unittest.TestCase):
                     src_frames[j, :src_lengths[j], :]
                 )
                 self.assertEqual(
-                    self.expected_tokens[utt_id],
+                    self.expected_text[utt_id],
                     tgt_tokens[j],
                 )
 
@@ -174,6 +178,9 @@ class TestSpeechDataset(unittest.TestCase):
 
     def test_speech_dataset_all_in_memory(self):
         self._speech_dataset_helper(all_in_memory=True)
+
+    def test_speech_dataset_has_utt2num_frames(self):
+        self._speech_dataset_helper(has_utt2num_frames=True)
 
     def assertTensorEqual(self, t1, t2):
         self.assertEqual(t1.size(), t2.size(), "size mismatch")

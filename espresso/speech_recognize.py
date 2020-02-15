@@ -210,8 +210,7 @@ def _main(args, output_file):
         logger.info('Saved attention plots in ' + save_dir)
 
     if has_target:
-        assert args.test_text_files is not None
-        scorer.add_ordered_utt_list(*args.test_text_files)
+        scorer.add_ordered_utt_list(task.datasets[args.gen_subset].tgt.utt_ids)
 
     fn = 'decoded_char_results.txt'
     with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
