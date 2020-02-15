@@ -248,31 +248,43 @@ if [ ${stage} -le 7 ] && $use_wordlm; then
 fi
 
 if [ ${stage} -le 8 ]; then
-  echo "Stage 8: Model Training"
-  train_feat=$(pwd)/$train_feat_dir/feats.scp
-  train_token_text=$(pwd)/data/$train_set/token_text
+  echo "Stage 8: Dump Json Files"
+  train_feat=$train_feat_dir/feats.scp
+  train_token_text=data/$train_set/token_text
   train_utt2num_frames=data/$train_set/utt2num_frames
-  valid_feat=$(pwd)/$valid_feat_dir/feats.scp
-  valid_token_text=$(pwd)/data/$valid_set/token_text
+  valid_feat=$valid_feat_dir/feats.scp
+  valid_token_text=data/$valid_set/token_text
   valid_utt2num_frames=data/$valid_set/utt2num_frames
-  mkdir -p $dir
-  asr_prep_json.py --feat-files $train_feat --text-files $train_token_text --utt2num-frames-files $train_utt2num_frames --output $dir/train.json
-  asr_prep_json.py --feat-files $valid_feat --text-files $valid_token_text --utt2num-frames-files $valid_utt2num_frames --output $dir/valid.json
+  train_subset_feat=$train_subset_feat_dir/feats.scp
+  train_subset_token_text=data/${train_set}_${train_subset_size}/token_text
+  train_subset_utt2num_frames=data/${train_set}_${train_subset_size}/utt2num_frames
+  asr_prep_json.py --feat-files $train_feat --token-text-files $train_token_text --utt2num-frames-files $train_utt2num_frames --output data/train.json
+  asr_prep_json.py --feat-files $valid_feat --token-text-files $valid_token_text --utt2num-frames-files $valid_utt2num_frames --output data/valid.json
+  asr_prep_json.py --feat-files $train_subset_feat --token-text-files $train_subset_token_text --utt2num-frames-files $train_subset_utt2num_frames --output data/train_subset.json
+  for dataset in $valid_set $test_set; do
+    if [ "$dataset" == "$valid_set" ]; then
+      feat=$valid_feat_dir/feats.scp
+    elif [ "$dataset" == "$test_set" ]; then
+      feat=$test_feat_dir/feats.scp
+    fi
+    token_text=data/$dataset/token_text
+    utt2num_frames=data/$dataset/utt2num_frames
+    asr_prep_json.py --feat-files $feat --token-text-files $token_text --utt2num-frames-files $utt2num_frames --output data/$dataset.json
+  done
+fi
 
+if [ ${stage} -le 9 ]; then
+  echo "Stage 9: Model Training"
   opts=""
   valid_subset=valid
   if $validate_on_train_subset; then
-    train_subset_feat=$(pwd)/$train_subset_feat_dir/feats.scp
-    train_subset_token_text=$(pwd)/data/${train_set}_${train_subset_size}/token_text
-    train_subset_utt2num_frames=$(pwd)/data/${train_set}_${train_subset_size}/utt2num_frames
-    asr_prep_json.py --feat-files $train_subset_feat --text-files $train_subset_token_text --utt2num-frames-files $train_subset_utt2num_frames --output $dir/train_subset.json
     valid_subset="$valid_subset,train_subset"
   fi
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
   mkdir -p $dir/logs
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py $dir --task speech_recognition_espresso --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval 400 --log-format simple --print-training-sample-interval 1000 \
     --num-workers 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
@@ -288,8 +300,8 @@ if [ ${stage} -le 8 ]; then
     --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
 fi
 
-if [ ${stage} -le 9 ]; then
-  echo "Stage 9: Decoding"
+if [ ${stage} -le 10 ]; then
+  echo "Stage 10: Decoding"
   opts=""
   path=$dir/$checkpoint
   decode_affix=
@@ -306,19 +318,10 @@ if [ ${stage} -le 9 ]; then
   fi
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
   for dataset in $valid_set $test_set; do
-    if [ "$dataset" == "$valid_set" ]; then
-      feat=$valid_feat_dir/feats.scp
-    elif [ "$dataset" == "$test_set" ]; then
-      feat=$test_feat_dir/feats.scp
-    fi
-    text=data/$dataset/token_text
-    utt2num_frames=data/$dataset/utt2num_frames
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
-    mkdir -p $decode_dir
-    asr_prep_json.py --feat-files $feat --text-files $text --utt2num-frames-files $utt2num_frames --output $decode_dir/test.json
-    CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py $decode_dir \
+    CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 20000 --max-sentences 32 \
-      --num-shards 1 --shard-id 0 --dict $dict --non-lang-syms $nlsyms \
+      --num-shards 1 --shard-id 0 --dict $dict --non-lang-syms $nlsyms --gen-subset $dataset \
       --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 50 --max-len-a 0.2 --max-len-b 0 --lenpen 1.0 \
       --results-path $decode_dir $opts --print-alignment

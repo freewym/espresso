@@ -3,6 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from collections import OrderedDict
+import itertools
 import json
 import logging
 import os
@@ -23,6 +25,89 @@ from espresso.data import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def get_asr_dataset_from_json(
+    data_path, split, tgt_dict,
+    combine, upsample_primary,
+    max_source_positions, max_target_positions,
+):
+    """
+    Parse data json and create dataset.
+    See espresso/tools/asr_prep_json.py which pack json from raw files
+    Json example:
+    {
+        "011c0202": {
+            "rxfile": "fbank/raw_fbank_pitch_train_si284.1.ark:54819",
+            "token_text": "T H E <space> H O T E L",
+            "utt2num_frames": "693",
+        },
+        "011c0203": {
+            ...
+        }
+    }
+    """
+    src_datasets = []
+    tgt_datasets = []
+    for k in itertools.count():
+        split_k = split + (str(k) if k > 0 else "")
+        data_json_path = os.path.join(data_path, "{}.json".format(split_k))
+        if not os.path.isfile(data_json_path):
+            if k > 0:
+                break
+            else:
+                raise FileNotFoundError("Dataset not found: {}".format(data_json_path))
+
+        with open(data_json_path, "rb") as f:
+            loaded_json = json.load(f, object_pairs_hook=OrderedDict)
+
+        utt_ids, rxfiles, token_text, utt2num_frames = [], [], [], []
+        for utt_id, val in loaded_json.items():
+            utt_ids.append(utt_id)
+            rxfiles.append(val["rxfile"])
+            if "token_text" in val:
+                token_text.append(val["token_text"])
+            if "utt2num_frames" in val:
+                utt2num_frames.append(int(val["utt2num_frames"]))
+
+        src_datasets.append(ScpCachedDataset(
+            utt_ids, rxfiles, utt2num_frames=utt2num_frames, ordered_prefetch=True
+        ))
+        if token_text is not None and len(token_text) > 0:
+            tgt_datasets.append(AsrTextDataset(utt_ids, token_text, tgt_dict))
+
+        logger.info("{} {} examples".format(data_json_path, len(src_datasets[-1])))
+
+        if not combine:
+            break
+
+    if len(tgt_datasets) > 0:
+        assert len(src_datasets) == len(tgt_datasets)
+
+    feat_dim = src_datasets[0].feat_dim
+
+    if len(src_datasets) == 1:
+        src_dataset = src_datasets[0]
+        tgt_dataset = tgt_datasets[0] if len(tgt_datasets) > 0 else None
+    else:
+        for i in range(1, len(src_datasets)):
+            assert feat_dim == src_datasets[i].feat_dim, \
+                "feature dimension does not match across multiple json files"
+        sample_ratios = [1] * len(src_datasets)
+        sample_ratios[0] = upsample_primary
+        src_dataset = ConcatDataset(src_datasets, sample_ratios)
+        tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios) \
+            if len(tgt_datasets) > 0 else None
+
+    return SpeechDataset(
+        src_dataset, src_dataset.sizes,
+        tgt_dataset, tgt_dataset.sizes if tgt_dataset is not None else None,
+        tgt_dict,
+        left_pad_source=False,
+        left_pad_target=False,
+        max_source_positions=max_source_positions,
+        max_target_positions=max_target_positions,
+    )
 
 
 @register_task('speech_recognition_espresso')
@@ -124,76 +209,25 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         Args:
             split (str): name of the split (e.g., train, valid, test)
         """
-        data_json_path = os.path.join(self.args.data, "{}.json".format(split))
-        if not os.path.isfile(data_json_path):
-            raise FileNotFoundError("Dataset not found: {}".format(data_json_path))
+        paths = self.args.data.split(os.pathsep)
+        assert len(paths) > 0
+        data_path = paths[epoch % len(paths)]
 
-        with open(data_json_path, "rb") as f:
-            loaded_json = json.load(f)
-            feat_files = loaded_json["feat_files"]
-            text_files = loaded_json.get("text_files", [None] * len(feat_files))
-            utt2num_frames_files = loaded_json.get("utt2num_frames_files", [None] * len(feat_files))
-
-        if split == "train":
-            assert len(feat_files) > 0 and len(feat_files) == len(text_files)
-            assert utt2num_frames_files is None or len(feat_files) == len(utt2num_frames_files)
-            # iterated upon during epochs in round-robin manner
-            feat_files = [feat_files[epoch % len(feat_files)]]
-            text_files = [text_files[epoch % len(text_files)]]
-            utt2num_frames_files = [utt2num_frames_files[epoch % len(utt2num_frames_files)]]
-        elif split not in ["valid", "test", "train_subset"]:
-            raise ValueError("split should be one of 'train', 'valid', 'test', 'train_subset'")
-
-        assert len(feat_files) > 0 and len(feat_files) == len(text_files) and \
-            len(feat_files) == len(utt2num_frames_files)
-        src_datasets, tgt_datasets = [], []
-        file_tuples = zip(feat_files, text_files, utt2num_frames_files)
-        for feat, text, utt2num_frames in file_tuples:
-            assert ScpCachedDataset.exists(feat), feat + " does not exists"
-            assert text is None or AsrTextDataset.exists(text), text + " does not exists"
-            assert utt2num_frames is None or ScpCachedDataset.exists(utt2num_frames), \
-                utt2num_frames + " does not exists"
-            src_datasets.append(ScpCachedDataset(
-                feat, utt2num_frames_path=utt2num_frames, ordered_prefetch=True
-            ))
-            logger.info("{} {} examples".format(feat, len(src_datasets[-1])))
-            if text is not None:
-                tgt_datasets.append(AsrTextDataset(text, self.tgt_dict))
-                logger.info("{} {} examples".format(text, len(tgt_datasets[-1])))
-
-            if not combine:
-                break
-
-        if len(tgt_datasets) > 0:
-            assert len(src_datasets) == len(tgt_datasets)
-
-        self.feat_dim = src_datasets[0].feat_dim
-
-        if len(src_datasets) == 1:
-            src_dataset = src_datasets[0]
-            tgt_dataset = tgt_datasets[0] if len(tgt_datasets) > 0 else None
-        else:
-            for i in range(1, len(src_datasets)):
-                assert self.feat_dim == src_datasets[i].feat_dim, \
-                    "feature dimension does not match across multiple scp files"
-            sample_ratios = [1] * len(src_datasets)
-            sample_ratios[0] = self.args.upsample_primary
-            src_dataset = ConcatDataset(src_datasets, sample_ratios)
-            tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios) \
-                if len(tgt_datasets) > 0 else None
-
-        self.datasets[split] = SpeechDataset(
-            src_dataset, src_dataset.sizes,
-            tgt_dataset, tgt_dataset.sizes if tgt_dataset is not None else None,
-            self.tgt_dict,
-            left_pad_source=False,
-            left_pad_target=False,
+        self.datasets[split] = get_asr_dataset_from_json(
+            data_path, split, self.tgt_dict,
+            combine=combine,
+            upsample_primary=self.args.upsample_primary,
             max_source_positions=self.args.max_source_positions,
             max_target_positions=self.args.max_target_positions,
         )
 
+        src_dataset = self.datasets[split].src
+        self.feat_dim = src_dataset.feat_dim if not isinstance(src_dataset, ConcatDataset) \
+            else src_dataset.datasets[0].feat_dim
+
         # update the counts of <eos> and <unk> in tgt_dict with training data
         if split == "train":
+            tgt_dataset = self.datasets[split].tgt
             self.tgt_dict.count[self.tgt_dict.eos()] = len(tgt_dataset)
             unk_count = 0
             for i in range(len(tgt_dataset)):

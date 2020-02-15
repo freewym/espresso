@@ -8,7 +8,6 @@
 Recognize pre-processed speech with a trained model.
 """
 
-import json
 import logging
 import math
 import os
@@ -63,9 +62,6 @@ def _main(args, output_file):
     # Load dataset split
     task = tasks.setup_task(args)
     task.load_dataset(args.gen_subset)
-    data_json_path = os.path.join(args.data, '{}.json'.format('test'))
-    with open(data_json_path, 'rb') as f:
-        test_text_files = json.load(f).get('text_files', None)
 
     # Set dictionary
     dictionary = task.target_dictionary
@@ -214,8 +210,7 @@ def _main(args, output_file):
         logger.info('Saved attention plots in ' + save_dir)
 
     if has_target:
-        assert test_text_files is not None
-        scorer.add_ordered_utt_list(*test_text_files)
+        scorer.add_ordered_utt_list(task.datasets[args.gen_subset].tgt.utt_ids)
 
     fn = 'decoded_char_results.txt'
     with open(os.path.join(args.results_path, fn), 'w', encoding='utf-8') as f:
