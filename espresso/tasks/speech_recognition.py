@@ -212,7 +212,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         Args:
             split (str): name of the split (e.g., train, valid, test)
         """
-        paths = self.args.data.split(os.pathsep)
+        paths = utils.split_paths(self.args.data)
         assert len(paths) > 0
         data_path = paths[epoch % len(paths)]
 
