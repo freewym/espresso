@@ -8,7 +8,7 @@ import os
 
 import torch
 
-from fairseq import tokenizer
+from fairseq import tokenizer, utils
 from fairseq.data import TruncatedDictionary
 from fairseq.tasks import register_task
 from fairseq.tasks.language_modeling import LanguageModelingTask
@@ -105,7 +105,7 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         dictionary = None
         output_dictionary = None
         if args.data:
-            paths = args.data.split(os.pathsep)
+            paths = utils.split_paths(args.data)
             assert len(paths) > 0
             dict_path = os.path.join(paths[0], "dict.txt") if args.dict is None \
                 else args.dict

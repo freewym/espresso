@@ -97,7 +97,7 @@ class ScpCachedDataset(ScpDataset):
         self.cache = None
         self.cache_index = {}
         self.cache_size = cache_size  # in terms of number of examples
-        self.start_search_for_next_pos_start = 0
+        self.start_pos_for_next_cache = 0
         self.ordered_indices = list(range(self.size))
         # set to True ONLY if examples are queried in the same order as
         # self.ordered_indices, and doing this will speed up search of the
