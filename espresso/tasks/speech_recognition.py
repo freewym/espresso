@@ -84,8 +84,7 @@ def get_asr_dataset_from_json(
         if not combine:
             break
 
-    if len(tgt_datasets) > 0:
-        assert len(src_datasets) == len(tgt_datasets)
+    assert len(src_datasets) == len(tgt_datasets) or len(tgt_datasets) == 0
 
     feat_dim = src_datasets[0].feat_dim
 
@@ -99,12 +98,15 @@ def get_asr_dataset_from_json(
         sample_ratios = [1] * len(src_datasets)
         sample_ratios[0] = upsample_primary
         src_dataset = ConcatDataset(src_datasets, sample_ratios)
-        tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios) \
-            if len(tgt_datasets) > 0 else None
+        if len(tgt_datasets) > 0:
+            tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios)
+        else:
+            tgt_dataset = None
 
+    tgt_dataset_sizes = tgt_dataset.sizes if tgt_dataset is not None else None
     return SpeechDataset(
         src_dataset, src_dataset.sizes,
-        tgt_dataset, tgt_dataset.sizes if tgt_dataset is not None else None,
+        tgt_dataset, tgt_dataset_sizes,
         tgt_dict,
         left_pad_source=False,
         left_pad_target=False,

@@ -92,6 +92,24 @@ def convert_padding_direction(
     return src_frames.gather(1, index)
 
 
+def eval_str_nested_list_or_tuple(x, type=int):
+    if x is None:
+        return None
+    if isinstance(x, str):
+        x = eval(x)
+    if isinstance(x, list):
+        return list(
+            map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
+    elif isinstance(x, tuple):
+        return tuple(
+            map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
+    else:
+        try:
+            return type(x)
+        except TypeError:
+            raise TypeError
+
+
 def plot_attention(attention, hypo_sent, utt_id, save_dir):
     """This function plots the attention for an example and save the plot in
     save_dir with <utt_id>.pdf as its filename.

@@ -308,7 +308,7 @@ if [ ${stage} -le 10 ]; then
   if $lm_shallow_fusion; then
     if ! $use_wordlm; then
       path="$path:$lmdir/$lm_checkpoint"
-      opts="$opts --lm-weight 0.7 --coverage-weight 0.01 --eos-factor 1.5"
+      opts="$opts --lm-weight 0.7 --eos-factor 1.5"
       decode_affix=shallow_fusion
     else
       path="$path:$wordlmdir/$lm_checkpoint"

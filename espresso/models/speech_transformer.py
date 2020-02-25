@@ -98,26 +98,9 @@ class SpeechTransformerModel(TransformerModel):
             dict, args.decoder_embed_dim, args.decoder_embed_path
         )
 
-        def eval_str_nested_list_or_tuple(x, type=int):
-            if x is None:
-                return None
-            if isinstance(x, str):
-                x = eval(x)
-            if isinstance(x, list):
-                return list(
-                    map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
-            elif isinstance(x, tuple):
-                return tuple(
-                    map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
-            else:
-                try:
-                    return type(x)
-                except TypeError:
-                    raise TypeError
-
-        out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
-        kernel_sizes = eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
-        strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
+        out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
+        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
+        strides = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
         logger.info('input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
         assert task.feat_dim % task.feat_in_channels == 0
         conv_layers = ConvBNReLU(
