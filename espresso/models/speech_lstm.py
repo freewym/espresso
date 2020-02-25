@@ -161,26 +161,9 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         if args.decoder_freeze_embed:
             pretrained_decoder_embed.weight.requires_grad = False
 
-        def eval_str_nested_list_or_tuple(x, type=int):
-            if x is None:
-                return None
-            if isinstance(x, str):
-                x = eval(x)
-            if isinstance(x, list):
-                return list(
-                    map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
-            elif isinstance(x, tuple):
-                return tuple(
-                    map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
-            else:
-                try:
-                    return type(x)
-                except TypeError:
-                    raise TypeError
-
-        out_channels = eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
-        kernel_sizes = eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
-        strides = eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
+        out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
+        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
+        strides = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
         logger.info('input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
         assert task.feat_dim % task.feat_in_channels == 0
         conv_layers = ConvBNReLU(
@@ -198,6 +181,8 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                     s = stride
                 rnn_encoder_input_size = (rnn_encoder_input_size + s - 1) // s
             rnn_encoder_input_size *= out_channels[-1]
+        else:
+            rnn_encoder_input_size = task.feat_dim
 
         scheduled_sampling_rate_scheduler = ScheduledSamplingRateScheduler(
             args.scheduled_sampling_probs, args.start_scheduled_sampling_epoch,
@@ -320,7 +305,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
     def __init__(
         self, conv_layers_before=None, input_size=83, hidden_size=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, bidirectional=False,
-        residual=False, left_pad=False, pretrained_embed=None, padding_value=0.,
+        residual=False, left_pad=False, padding_value=0.,
         max_source_positions=DEFAULT_MAX_SOURCE_POSITIONS,
     ):
         super().__init__(None)  # no src dictionary
