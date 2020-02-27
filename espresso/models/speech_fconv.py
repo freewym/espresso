@@ -55,6 +55,10 @@ class SpeechFConvModel(FConvModel):
     def hub_models(cls):
         raise NotImplementedError
 
+    def __init__(self, encoder, decoder):
+        super().__init__(encoder, decoder)
+        self.num_updates = 0
+
     @staticmethod
     def add_args(parser):
         """Add model-specific arguments to the parser."""
@@ -121,7 +125,11 @@ class SpeechFConvModel(FConvModel):
             share_embed=args.share_input_output_embed,
             positional_embeddings=args.decoder_positional_embed,
         )
-        return SpeechFConvModel(encoder, decoder)
+        return cls(encoder, decoder)
+
+    def set_num_updates(self, num_updates):
+        self.num_updates = num_updates
+        super().set_num_updates(num_updates)
 
 
 class SpeechFConvEncoder(FConvEncoder):
