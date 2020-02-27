@@ -57,6 +57,10 @@ class SpeechTransformerModel(TransformerModel):
     def hub_models(cls):
         raise NotImplementedError
 
+    def __init__(self, args, encoder, decoder):
+        super().__init__(args, encoder, decoder)
+        self.num_updates = 0
+
     @staticmethod
     def add_args(parser):
         """Add model-specific arguments to the parser."""
@@ -124,7 +128,11 @@ class SpeechTransformerModel(TransformerModel):
             args, conv_layers_before=conv_layers, input_size=transformer_encoder_input_size,
         )
         decoder = cls.build_decoder(args, dict, decoder_embed_tokens)
-        return SpeechTransformerModel(encoder, decoder)
+        return cls(encoder, decoder)
+
+    def set_num_updates(self, num_updates):
+        self.num_updates = num_updates
+        super().set_num_updates(num_updates)
 
     @classmethod
     def build_encoder(cls, args, conv_layers_before=None, input_size=83):
