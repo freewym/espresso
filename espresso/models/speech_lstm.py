@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 class SpeechLSTMModel(FairseqEncoderDecoderModel):
     def __init__(self, encoder, decoder, pretrained_lm=None):
         super().__init__(encoder, decoder)
+        self.num_updates = 0
         self.pretrained_lm = pretrained_lm
         if pretrained_lm is not None:
             assert isinstance(self.pretrained_lm, FairseqDecoder)
@@ -231,6 +232,10 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             for param in pretrained_lm.parameters():
                 param.requires_grad = False
         return cls(encoder, decoder, pretrained_lm)
+
+    def set_num_updates(self, num_updates):
+        self.num_updates = num_updates
+        super().set_num_updates(num_updates)
 
     def max_positions(self):
         """Maximum length supported by the model."""

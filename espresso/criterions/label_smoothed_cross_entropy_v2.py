@@ -46,21 +46,21 @@ def temporal_label_smoothing_prob_mask(
 
 def label_smoothed_nll_loss(
     lprobs, target, epsilon, ignore_index=None, reduce=True,
-    smoothing_type='uniform', prob_mask=None, unigram_tensor=None,
+    smoothing_type="uniform", prob_mask=None, unigram_tensor=None,
 ):
     if target.dim() == lprobs.dim() - 1:
         target = target.unsqueeze(-1)
     nll_loss = -lprobs.gather(dim=-1, index=target)
-    if smoothing_type == 'temporal':
+    if smoothing_type == "temporal":
         assert torch.is_tensor(prob_mask)
         smooth_loss = -lprobs.mul(prob_mask).sum(-1, keepdim=True)
-    elif smoothing_type == 'unigram':
+    elif smoothing_type == "unigram":
         assert torch.is_tensor(unigram_tensor)
         smooth_loss = -lprobs.matmul(unigram_tensor.to(lprobs))
-    elif smoothing_type == 'uniform':
+    elif smoothing_type == "uniform":
         smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
     else:
-        raise ValueError('Unsupported smoothing type: {}'.format(smoothing_type))
+        raise ValueError("Unsupported smoothing type: {}".format(smoothing_type))
     if ignore_index is not None:
         pad_mask = target.eq(ignore_index)
         if pad_mask.any():
@@ -72,22 +72,21 @@ def label_smoothed_nll_loss(
     if reduce:
         nll_loss = nll_loss.sum()
         smooth_loss = smooth_loss.sum()
-    eps_i = epsilon / lprobs.size(-1) if smoothing_type == 'uniform' else epsilon
+    eps_i = epsilon / lprobs.size(-1) if smoothing_type == "uniform" else epsilon
     loss = (1. - epsilon) * nll_loss + eps_i * smooth_loss
     return loss, nll_loss
 
 
-@register_criterion('label_smoothed_cross_entropy_v2')
+@register_criterion("label_smoothed_cross_entropy_v2")
 class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
 
     def __init__(self, args, task):
         super().__init__(args, task)
 
         self.dictionary = task.target_dictionary
-        self.num_updates = -1
         self.epoch = 0
         self.unigram_tensor = None
-        if args.smoothing_type == 'unigram':
+        if args.smoothing_type == "unigram":
             self.unigram_tensor = torch.cuda.FloatTensor(self.dictionary.count).unsqueeze(-1) \
                 if torch.cuda.is_available() and not args.cpu \
                 else torch.FloatTensor(self.dictionary.count).unsqueeze(-1)
@@ -99,16 +98,16 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
         """Add criterion-specific arguments to the parser."""
         # fmt: off
         LabelSmoothedCrossEntropyCriterion.add_args(parser)
-        parser.add_argument('--print-training-sample-interval', type=int,
-                            metavar='N', dest='print_interval', default=500,
-                            help='print a training sample (reference + '
-                                 'prediction) every this number of updates')
-        parser.add_argument('--smoothing-type', type=str, default='uniform',
-                            choices=['uniform', 'unigram', 'temporal'],
-                            help='label smoothing type. Default: uniform')
-        parser.add_argument('--unigram-pseudo-count', type=float, default=1.0,
-                            metavar='C', help='pseudo count for unigram label '
-                            'smoothing. Only relevant if --smoothing-type=unigram')
+        parser.add_argument("--print-training-sample-interval", type=int,
+                            metavar="N", dest="print_interval", default=500,
+                            help="print a training sample (reference + "
+                                 "prediction) every this number of updates")
+        parser.add_argument("--smoothing-type", type=str, default="uniform",
+                            choices=["uniform", "unigram", "temporal"],
+                            help="label smoothing type. Default: uniform")
+        parser.add_argument("--unigram-pseudo-count", type=float, default=1.0,
+                            metavar="C", help="pseudo count for unigram label "
+                            "smoothing. Only relevant if --smoothing-type=unigram")
         # fmt: on
 
     def forward(self, model, sample, reduce=True):
@@ -120,29 +119,30 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
-        net_output = model(**sample['net_input'], epoch=self.epoch)
+        net_output = model(**sample["net_input"], epoch=self.epoch)
         loss, nll_loss, lprobs = self.compute_loss(
             model, net_output, sample, reduce=reduce, smoothing_type=self.args.smoothing_type
         )
-        sample_size = sample['target'].size(0) if self.args.sentence_avg else sample['ntokens']
+        sample_size = sample["target"].size(0) if self.args.sentence_avg else sample["ntokens"]
         logging_output = {
-            'loss': loss.data,
-            'nll_loss': nll_loss.data,
-            'ntokens': sample['ntokens'],
-            'nsentences': sample['target'].size(0),
-            'sample_size': sample_size,
+            "loss": loss.data,
+            "nll_loss": nll_loss.data,
+            "ntokens": sample["ntokens"],
+            "nsentences": sample["target"].size(0),
+            "sample_size": sample_size,
         }
 
         if (
-            model.training and self.num_updates // self.args.print_interval >
-            (self.num_updates - 1) // self.args.print_interval
+            hasattr(model, "num_updates") and model.training and
+            model.num_updates // self.args.print_interval >
+            (model.num_updates - 1) // self.args.print_interval
         ):  # print a randomly sampled result every print_interval updates
             target = model.get_targets(sample, net_output)
             pred = lprobs.argmax(-1).cpu()  # bsz x len
             assert pred.size() == target.size()
-            with data_utils.numpy_seed(self.num_updates):
-                i = np.random.randint(0, len(sample['id']))
-            ref_tokens = sample['target_raw_text'][i]
+            with data_utils.numpy_seed(model.num_updates):
+                i = np.random.randint(0, len(sample["id"]))
+            ref_tokens = sample["target_raw_text"][i]
             length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
             ref_one = self.dictionary.tokens_to_sentence(
                 ref_tokens, use_unk_sym=False, bpe_symbol=self.args.remove_bpe,
@@ -151,19 +151,19 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
                 self.dictionary.string(pred.data[i][:length]), use_unk_sym=True,
                 bpe_symbol=self.args.remove_bpe,
             )
-            logger.info('sample REF: ' + ref_one)
-            logger.info('sample PRD: ' + pred_one)
+            logger.info("sample REF: " + ref_one)
+            logger.info("sample PRD: " + pred_one)
 
         return loss, sample_size, logging_output
 
     def compute_loss(
-        self, model, net_output, sample, reduce=True, smoothing_type='uniform'
+        self, model, net_output, sample, reduce=True, smoothing_type="uniform"
     ):
         lprobs = model.get_normalized_probs(net_output, log_probs=True)
         target = model.get_targets(sample, net_output)
         prob_mask = temporal_label_smoothing_prob_mask(
             lprobs, target, padding_index=self.padding_idx,
-        ) if smoothing_type == 'temporal' else None
+        ) if smoothing_type == "temporal" else None
         loss, nll_loss = label_smoothed_nll_loss(
             lprobs.view(-1, lprobs.size(-1)), target.view(-1, 1), self.eps,
             ignore_index=self.padding_idx, reduce=reduce,
@@ -171,9 +171,6 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
             unigram_tensor=self.unigram_tensor,
         )
         return loss, nll_loss, lprobs
-
-    def set_num_updates(self, num_updates):
-        self.num_updates = num_updates
 
     def set_epoch(self, epoch):
         self.epoch = epoch

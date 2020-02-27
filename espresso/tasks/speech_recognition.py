@@ -11,9 +11,9 @@ import os
 
 import torch
 
-from fairseq import metrics, search, utils
+from fairseq import search, utils
 from fairseq.data import ConcatDataset
-
+from fairseq.logging import metrics
 from fairseq.tasks import FairseqTask, register_task
 
 from espresso.data import (
@@ -173,7 +173,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         return AsrDictionary.load(filename, f_non_lang_syms=non_lang_syms)
 
     @classmethod
-    def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8):
+    def build_dictionary(
+        cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8
+    ):
         """Disable this method
         """
         raise NotImplementedError
@@ -240,11 +242,12 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             self.tgt_dict.count[self.tgt_dict.unk()] = unk_count
 
     def build_generator(self, args):
-        if args.score_reference:
+        if getattr(args, "score_reference", False):
             args.score_reference = False
             logger.warning(
                 "--score-reference is not applicable to speech recognition, ignoring it."
             )
+
         from fairseq.sequence_generator import SequenceGenerator
 
         # Choose search strategy. Defaults to Beam Search.
@@ -272,19 +275,28 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         assert sampling_topp < 0 or sampling, "--sampling-topp requires --sampling"
 
         if sampling:
-            search_strategy = search.Sampling(self.target_dictionary, sampling_topk, sampling_topp)
+            search_strategy = search.Sampling(
+                self.target_dictionary, sampling_topk, sampling_topp
+            )
         elif diverse_beam_groups > 0:
             search_strategy = search.DiverseBeamSearch(
-                self.target_dictionary, diverse_beam_groups, diverse_beam_strength)
+                self.target_dictionary, diverse_beam_groups, diverse_beam_strength
+            )
         elif match_source_len:
             # this is useful for tagging applications where the output
             # length should match the input length, so we hardcode the
             # length constraints for simplicity
             search_strategy = search.LengthConstrainedBeamSearch(
-                self.target_dictionary, min_len_a=1, min_len_b=0, max_len_a=1, max_len_b=0,
+                self.target_dictionary,
+                min_len_a=1,
+                min_len_b=0,
+                max_len_a=1,
+                max_len_b=0,
             )
         elif diversity_rate > -1:
-            search_strategy = search.DiverseSiblingsSearch(self.target_dictionary, diversity_rate)
+            search_strategy = search.DiverseSiblingsSearch(
+                self.target_dictionary, diversity_rate
+            )
         else:
             search_strategy = search.BeamSearch(self.target_dictionary)
 

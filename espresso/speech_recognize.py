@@ -15,8 +15,9 @@ import sys
 
 import torch
 
-from fairseq import checkpoint_utils, options, progress_bar, tasks, utils
-from fairseq.meters import StopwatchMeter, TimeMeter
+from fairseq import checkpoint_utils, options, tasks, utils
+from fairseq.logging import progress_bar
+from fairseq.logging.meters import StopwatchMeter, TimeMeter
 from fairseq.models import FairseqLanguageModel
 
 from espresso.models.external_language_model import MultiLevelLanguageModel
@@ -125,6 +126,12 @@ def _main(args, output_file):
         shard_id=args.shard_id,
         num_workers=args.num_workers,
     ).next_epoch_itr(shuffle=False)
+    progress = progress_bar.progress_bar(
+        itr,
+        log_format=args.log_format,
+        log_interval=args.log_interval,
+        default_log_format=('tqdm' if not args.no_progress_bar else 'none'),
+    )
 
     # Initialize generator
     if args.match_source_len:
@@ -138,70 +145,69 @@ def _main(args, output_file):
     scorer = wer.Scorer(dictionary, wer_output_filter=args.wer_output_filter)
     num_sentences = 0
     has_target = True
-    with progress_bar.build_progress_bar(args, itr) as t:
-        wps_meter = TimeMeter()
-        for sample in t:
-            sample = utils.move_to_cuda(sample) if use_cuda else sample
-            if 'net_input' not in sample:
-                continue
+    wps_meter = TimeMeter()
+    for sample in progress:
+        sample = utils.move_to_cuda(sample) if use_cuda else sample
+        if 'net_input' not in sample:
+            continue
 
-            prefix_tokens = None
-            if args.prefix_size > 0:
-                prefix_tokens = sample['target'][:, :args.prefix_size]
+        prefix_tokens = None
+        if args.prefix_size > 0:
+            prefix_tokens = sample['target'][:, :args.prefix_size]
 
-            gen_timer.start()
-            hypos = task.inference_step(
-                generator, models, sample, prefix_tokens, lm_weight=args.lm_weight,
-            )
-            num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
-            gen_timer.stop(num_generated_tokens)
+        gen_timer.start()
+        hypos = task.inference_step(
+            generator, models, sample, prefix_tokens, lm_weight=args.lm_weight,
+        )
+        num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
+        gen_timer.stop(num_generated_tokens)
 
-            # obtain nonpad mask of encoder output to plot attentions
-            if args.print_alignment:
-                net_input = sample['net_input']
-                src_tokens = net_input['src_tokens']
-                output_lengths = models[0].encoder.output_lengths(net_input['src_lengths'])
-                nonpad_idxs = sequence_mask(output_lengths, models[0].encoder.output_lengths(src_tokens.size(1)))
+        # obtain nonpad mask of encoder output to plot attentions
+        if args.print_alignment:
+            net_input = sample['net_input']
+            src_tokens = net_input['src_tokens']
+            output_lengths = models[0].encoder.output_lengths(net_input['src_lengths'])
+            nonpad_idxs = sequence_mask(output_lengths, models[0].encoder.output_lengths(src_tokens.size(1)))
 
-            for i in range(len(sample['id'])):
-                has_target = sample['target'] is not None
-                utt_id = sample['utt_id'][i]
+        for i in range(len(sample['id'])):
+            has_target = sample['target'] is not None
+            utt_id = sample['utt_id'][i]
 
-                # Retrieve the original sentences
-                if has_target:
-                    target_str = sample['target_raw_text'][i]
-                    if not args.quiet:
-                        target_sent = dictionary.tokens_to_sentence(
-                            target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,
-                        )
-                        print('T-{}\t{}'.format(utt_id, target_sent), file=output_file)
+            # Retrieve the original sentences
+            if has_target:
+                target_str = sample['target_raw_text'][i]
+                if not args.quiet:
+                    target_sent = dictionary.tokens_to_sentence(
+                        target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,
+                    )
+                    print('T-{}\t{}'.format(utt_id, target_sent), file=output_file)
 
-                # Process top predictions
-                for j, hypo in enumerate(hypos[i][:args.nbest]):
-                    hypo_str = dictionary.string(hypo['tokens'].int().cpu())  # not removing bpe at this point
-                    if not args.quiet or i == 0:
-                        hypo_sent = dictionary.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
+            # Process top predictions
+            for j, hypo in enumerate(hypos[i][:args.nbest]):
+                hypo_str = dictionary.string(hypo['tokens'].int().cpu())  # not removing bpe at this point
+                if not args.quiet or i == 0:
+                    hypo_sent = dictionary.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
 
-                    if not args.quiet:
-                        score = hypo['score'] / math.log(2)  # convert to base 2
-                        print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, score), file=output_file)
+                if not args.quiet:
+                    score = hypo['score'] / math.log(2)  # convert to base 2
+                    print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, score), file=output_file)
 
-                    # Score and obtain attention only the top hypothesis
-                    if j == 0:
-                        # src_len x tgt_len
-                        attention = hypo['attention'][nonpad_idxs[i]].float().cpu() \
-                            if args.print_alignment and hypo['attention'] is not None else None
-                        if args.print_alignment and attention is not None:
-                            save_dir = os.path.join(args.results_path, 'attn_plots')
-                            os.makedirs(save_dir, exist_ok=True)
-                            plot_attention(attention, hypo_sent, utt_id, save_dir)
-                        scorer.add_prediction(utt_id, hypo_str, bpe_symbol=args.remove_bpe)
-                        if has_target:
-                            scorer.add_evaluation(utt_id, target_str, hypo_str, bpe_symbol=args.remove_bpe)
+                # Score and obtain attention only the top hypothesis
+                if j == 0:
+                    # src_len x tgt_len
+                    attention = hypo['attention'][nonpad_idxs[i]].float().cpu() \
+                        if args.print_alignment and hypo['attention'] is not None else None
+                    if args.print_alignment and attention is not None:
+                        save_dir = os.path.join(args.results_path, 'attn_plots')
+                        os.makedirs(save_dir, exist_ok=True)
+                        plot_attention(attention, hypo_sent, utt_id, save_dir)
+                    scorer.add_prediction(utt_id, hypo_str, bpe_symbol=args.remove_bpe)
+                    if has_target:
+                        scorer.add_evaluation(utt_id, target_str, hypo_str, bpe_symbol=args.remove_bpe)
 
-            wps_meter.update(num_generated_tokens)
-            t.log({'wps': round(wps_meter.avg)})
-            num_sentences += sample['nsentences']
+        wps_meter.update(num_generated_tokens)
+        progress.log({'wps': round(wps_meter.avg)})
+        num_sentences += sample['nsentences']
 
     logger.info('NOTE: hypothesis and token scores are output in base 2')
     logger.info('Recognized {} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
