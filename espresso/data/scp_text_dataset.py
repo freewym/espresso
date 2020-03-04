@@ -59,7 +59,7 @@ class ScpDataset(torch.utils.data.Dataset):
 
         self.seed = seed
         self.specaugment_config = specaugment_config
-        self.epoch = 0
+        self.epoch = 1
 
     def check_index(self, i):
         if i < 0 or i >= self.size:

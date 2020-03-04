@@ -236,6 +236,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             upsample_primary=self.args.upsample_primary,
             max_source_positions=self.args.max_source_positions,
             max_target_positions=self.args.max_target_positions,
+            seed=self.args.seed,
+            specaugment_config=self.specaugment_config,
         )
 
         src_dataset = self.datasets[split].src
