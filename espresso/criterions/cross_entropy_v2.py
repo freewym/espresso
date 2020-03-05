@@ -20,11 +20,13 @@ logger = logging.getLogger(__name__)
 @register_criterion("cross_entropy_v2")
 class CrossEntropyV2Criterion(CrossEntropyCriterion):
 
-    def __init__(self, args, task):
-        super().__init__(args, task)
+    def __init__(self, task, sentence_avg, print_interval, remove_bpe):
+        super().__init__(task, sentence_avg)
 
         self.dictionary = task.target_dictionary
-        self.epoch = 0
+        self.print_interval = print_interval
+        self.remove_bpe = remove_bpe
+        self.epoch = 1
 
     @staticmethod
     def add_args(parser):
@@ -47,7 +49,7 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
         """
         net_output = model(**sample["net_input"], epoch=self.epoch)
         loss, _, lprobs = self.compute_loss(model, net_output, sample, reduce=reduce)
-        sample_size = sample["target"].size(0) if self.args.sentence_avg else sample["ntokens"]
+        sample_size = sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
         logging_output = {
             "loss": loss.data,
             "ntokens": sample["ntokens"],
@@ -57,8 +59,8 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
 
         if (
             hasattr(model, "num_updates") and model.training and
-            model.num_updates // self.args.print_interval >
-            (model.num_updates - 1) // self.args.print_interval
+            model.num_updates // self.print_interval >
+            (model.num_updates - 1) // self.print_interval
         ):  # print a randomly sampled result every print_interval updates
             target = model.get_targets(sample, net_output)
             pred = lprobs.argmax(-1).cpu()  # bsz x len
@@ -68,11 +70,11 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
             ref_tokens = sample["target_raw_text"][i]
             length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
             ref_one = self.dictionary.tokens_to_sentence(
-                ref_tokens, use_unk_sym=False, bpe_symbol=self.args.remove_bpe,
+                ref_tokens, use_unk_sym=False, bpe_symbol=self.remove_bpe,
             )
             pred_one = self.dictionary.tokens_to_sentence(
                 self.dictionary.string(pred.data[i][:length]), use_unk_sym=True,
-                bpe_symbol=self.args.remove_bpe,
+                bpe_symbol=self.remove_bpe,
             )
             logger.info("sample REF: " + ref_one)
             logger.info("sample PRD: " + pred_one)
