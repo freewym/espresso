@@ -485,14 +485,13 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 - attention weights of shape `(batch, tgt_len, src_len)`
         """
         if self.scheduled_sampling_rate_scheduler is not None:
-            epoch = kwargs.get('epoch', 0)
-            if epoch > 0:
-                sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
-                if sampling_prob < 1.0:  # apply scheduled sampling
-                    return self._forward_with_scheduled_sampling(
-                        prev_output_tokens, sampling_prob, encoder_out=encoder_out,
-                        incremental_state={},  # use empty dict to preserve forward state
-                    )
+            epoch = kwargs.get('epoch', 1)
+            sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
+            if sampling_prob < 1.0:  # apply scheduled sampling
+                return self._forward_with_scheduled_sampling(
+                    prev_output_tokens, sampling_prob, encoder_out=encoder_out,
+                    incremental_state={},  # use empty dict to preserve forward state
+                )
 
         x, attn_scores = self.extract_features(
             prev_output_tokens, encoder_out, incremental_state,
