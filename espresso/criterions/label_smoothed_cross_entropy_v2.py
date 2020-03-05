@@ -80,17 +80,21 @@ def label_smoothed_nll_loss(
 @register_criterion("label_smoothed_cross_entropy_v2")
 class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
 
-    def __init__(self, args, task):
-        super().__init__(args, task)
+    def __init__(
+        self, task, sentence_avg, label_smoothing, smoothing_type, print_interval,
+        remove_bpe, unigram_pseudo_count,
+    ):
+        super().__init__(task, sentence_avg, label_smoothing)
 
         self.dictionary = task.target_dictionary
-        self.epoch = 0
+        self.smoothing_type = smoothing_type
+        self.print_interval = print_interval
+        self.remove_bpe = remove_bpe
+        self.epoch = 1
         self.unigram_tensor = None
-        if args.smoothing_type == "unigram":
-            self.unigram_tensor = torch.cuda.FloatTensor(self.dictionary.count).unsqueeze(-1) \
-                if torch.cuda.is_available() and not args.cpu \
-                else torch.FloatTensor(self.dictionary.count).unsqueeze(-1)
-            self.unigram_tensor += args.unigram_pseudo_count  # for further backoff
+        if smoothing_type == "unigram":
+            self.unigram_tensor = torch.FloatTensor(self.dictionary.count).unsqueeze(-1)
+            self.unigram_tensor += unigram_pseudo_count  # for further backoff
             self.unigram_tensor.div_(self.unigram_tensor.sum())
 
     @staticmethod
@@ -121,9 +125,9 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
         """
         net_output = model(**sample["net_input"], epoch=self.epoch)
         loss, nll_loss, lprobs = self.compute_loss(
-            model, net_output, sample, reduce=reduce, smoothing_type=self.args.smoothing_type
+            model, net_output, sample, reduce=reduce, smoothing_type=self.smoothing_type
         )
-        sample_size = sample["target"].size(0) if self.args.sentence_avg else sample["ntokens"]
+        sample_size = sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
         logging_output = {
             "loss": loss.data,
             "nll_loss": nll_loss.data,
@@ -134,8 +138,8 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
 
         if (
             hasattr(model, "num_updates") and model.training and
-            model.num_updates // self.args.print_interval >
-            (model.num_updates - 1) // self.args.print_interval
+            model.num_updates // self.print_interval >
+            (model.num_updates - 1) // self.print_interval
         ):  # print a randomly sampled result every print_interval updates
             target = model.get_targets(sample, net_output)
             pred = lprobs.argmax(-1).cpu()  # bsz x len
@@ -145,11 +149,11 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
             ref_tokens = sample["target_raw_text"][i]
             length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
             ref_one = self.dictionary.tokens_to_sentence(
-                ref_tokens, use_unk_sym=False, bpe_symbol=self.args.remove_bpe,
+                ref_tokens, use_unk_sym=False, bpe_symbol=self.remove_bpe,
             )
             pred_one = self.dictionary.tokens_to_sentence(
                 self.dictionary.string(pred.data[i][:length]), use_unk_sym=True,
-                bpe_symbol=self.args.remove_bpe,
+                bpe_symbol=self.remove_bpe,
             )
             logger.info("sample REF: " + ref_one)
             logger.info("sample PRD: " + pred_one)
