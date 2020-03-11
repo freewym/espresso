@@ -194,13 +194,13 @@ if [ ${stage} -le 4 ] && ! $use_wordlm; then
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
-    --log-interval 2000 --log-format simple \
+    --log-interval $((4000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 25600 --max-sentences 128 \
     --valid-subset $valid_subset --max-sentences-valid 256 \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 5e-06 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 2000 \
+    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((4000/ngpus)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_lm_wsj --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
 fi
@@ -224,13 +224,13 @@ if [ ${stage} -le 6 ] && $use_wordlm; then
   [ -f $wordlmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $wordlmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $wordlmdict \
-    --log-interval 2000 --log-format simple \
+    --log-interval $((4000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 6400 --max-sentences 256 \
     --valid-subset $valid_subset --max-sentences-valid 512 \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $wordlmdir --restore-file checkpoint_last.pt --save-interval-updates 2000 \
+    --save-dir $wordlmdir --restore-file checkpoint_last.pt --save-interval-updates $((4000/ngpus)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_wordlm_wsj --criterion cross_entropy \
     --sample-break-mode eos 2>&1 | tee $log_file
@@ -285,13 +285,13 @@ if [ ${stage} -le 9 ]; then
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
-    --log-interval 400 --log-format simple --print-training-sample-interval 1000 \
+    --log-interval $((800/ngpus)) --log-format simple --print-training-sample-interval $((2000/ngpus)) \
     --num-workers 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 35 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 11 \
-    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 400 \
+    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
     --arch speech_conv_lstm_wsj --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.05 --smoothing-type temporal \
