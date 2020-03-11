@@ -20,7 +20,7 @@ except ImportError:
     raise ImportError('Please install kaldi_io with: pip install kaldi_io')
 
 
-class ScpDataset(torch.utils.data.Dataset):
+class FeatScpDataset(torch.utils.data.Dataset):
     """
     A dataset for audio features prepared in Kaldi scp format (e.g., feats.scp).
     See http://kaldi-asr.org/doc/tutorial_running.html#tutorial_running_feats
@@ -96,7 +96,7 @@ class ScpDataset(torch.utils.data.Dataset):
         return os.path.exists(path)
 
 
-class ScpCachedDataset(ScpDataset):
+class FeatScpCachedDataset(FeatScpDataset):
     """
     This class loads a batch of feature matrices (specified as *cache_size*)
     every time an entry is inquired. The inquire order should be known in advance.
@@ -179,7 +179,7 @@ class ScpCachedDataset(ScpDataset):
         return torch.from_numpy(a).float()
 
 
-class ScpInMemoryDataset(ScpDataset):
+class FeatScpInMemoryDataset(FeatScpDataset):
     """
     This class loads all feature matrices into memory at once.
     It has the maximum memory usage and least I/O.

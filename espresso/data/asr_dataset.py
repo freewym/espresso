@@ -80,7 +80,7 @@ def collate(
     return batch
 
 
-class SpeechDataset(FairseqDataset):
+class AsrDataset(FairseqDataset):
     """
     A pair of torch.utils.data.Datasets.
 

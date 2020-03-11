@@ -1,0 +1,1 @@
+../../asr_wsj/local/score_e2e.sh

@@ -11,11 +11,11 @@ import os
 import torch
 
 from espresso.data import (
+    AsrDataset,
     AsrDictionary,
     AsrTextDataset,
-    ScpCachedDataset,
-    ScpInMemoryDataset,
-    SpeechDataset,
+    FeatScpCachedDataset,
+    FeatScpInMemoryDataset,
 )
 
 try:
@@ -24,7 +24,7 @@ except ImportError:
     raise ImportError('Please install kaldi_io with: pip install kaldi_io')
 
 
-class TestSpeechDataset(unittest.TestCase):
+class TestAsrDataset(unittest.TestCase):
 
     @staticmethod
     def make_dictionary():
@@ -99,11 +99,11 @@ class TestSpeechDataset(unittest.TestCase):
 
         self.cuda = torch.cuda.is_available()
 
-    def _speech_dataset_helper(
+    def _asr_dataset_helper(
         self, all_in_memory=False, ordered_prefetch=False, has_utt2num_frames=False,
     ):
         if not all_in_memory:
-            src_dataset = ScpCachedDataset(
+            src_dataset = FeatScpCachedDataset(
                 utt_ids=self.feats_utt_ids,
                 rxfiles=self.rxfiles,
                 utt2num_frames=self.utt2num_frames if has_utt2num_frames else None,
@@ -111,7 +111,7 @@ class TestSpeechDataset(unittest.TestCase):
                 cache_size=self.cache_size,
             )
         else:
-            src_dataset = ScpInMemoryDataset(
+            src_dataset = FeatScpInMemoryDataset(
                 utt_ids=self.feats_utt_ids,
                 rxfiles=self.rxfiles,
                 utt2num_frames=self.utt2num_frames if has_utt2num_frames else None,
@@ -122,7 +122,7 @@ class TestSpeechDataset(unittest.TestCase):
             dictionary=self.dictionary,
         )
 
-        dataset = SpeechDataset(
+        dataset = AsrDataset(
             src_dataset, src_dataset.sizes,
             tgt_dataset, tgt_dataset.sizes, self.dictionary,
             left_pad_source=False,
@@ -170,17 +170,17 @@ class TestSpeechDataset(unittest.TestCase):
                     tgt_tokens[j],
                 )
 
-    def test_speech_dataset_cached_no_ordered_prefetch(self):
-        self._speech_dataset_helper(all_in_memory=False, ordered_prefetch=False)
+    def test_asr_dataset_cached_no_ordered_prefetch(self):
+        self._asr_dataset_helper(all_in_memory=False, ordered_prefetch=False)
 
-    def test_speech_dataset_cached_with_ordered_prefetch(self):
-        self._speech_dataset_helper(all_in_memory=False, ordered_prefetch=True)
+    def test_asr_dataset_cached_with_ordered_prefetch(self):
+        self._asr_dataset_helper(all_in_memory=False, ordered_prefetch=True)
 
-    def test_speech_dataset_all_in_memory(self):
-        self._speech_dataset_helper(all_in_memory=True)
+    def test_asr_dataset_all_in_memory(self):
+        self._asr_dataset_helper(all_in_memory=True)
 
-    def test_speech_dataset_has_utt2num_frames(self):
-        self._speech_dataset_helper(has_utt2num_frames=True)
+    def test_asr_dataset_has_utt2num_frames(self):
+        self._asr_dataset_helper(has_utt2num_frames=True)
 
     def assertTensorEqual(self, t1, t2):
         self.assertEqual(t1.size(), t2.size(), "size mismatch")
