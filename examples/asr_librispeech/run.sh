@@ -144,10 +144,10 @@ fi
 lmdict=$dict
 if [ ${stage} -le 4 ]; then
   echo "Stage 4: Text Binarization for subword LM Training"
-  mkdir -p $lmdatadir/logs
+  mkdir -p $lmdatadir/log
   for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
-  ${decode_cmd} $lmdatadir/logs/preprocess.log \
+  ${decode_cmd} $lmdatadir/log/preprocess.log \
     python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
       --workers 50 --srcdict $lmdict --only-source \
       --trainpref $lmdatadir/train.tokens \
@@ -165,8 +165,8 @@ fi
 if [ ${stage} -le 5 ]; then
   echo "Stage 5: subword LM Training"
   valid_subset=valid
-  mkdir -p $lmdir/logs
-  log_file=$lmdir/logs/train.log
+  mkdir -p $lmdir/log
+  log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
@@ -188,7 +188,7 @@ if [ ${stage} -le 6 ]; then
   for i in $(seq $num); do gen_set_array[$i]="test$i"; done
   test_set_array=($test_set)
   for i in $(seq 0 $num); do
-    log_file=$lmdir/logs/evaluation_${test_set_array[$i]}.log
+    log_file=$lmdir/log/evaluation_${test_set_array[$i]}.log
     python3 ../../eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
       --max-tokens 40960 --max-sentences 1536 --sample-break-mode eos \
@@ -217,8 +217,8 @@ fi
 if [ ${stage} -le 8 ]; then
   echo "Stage 8: Model Training"
   valid_subset=valid
-  mkdir -p $dir/logs
-  log_file=$dir/logs/train.log
+  mkdir -p $dir/log
+  log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   opts=""
   if $apply_specaug; then
@@ -270,7 +270,7 @@ if [ ${stage} -le 9 ]; then
     echo "log saved in ${decode_dir}/decode.log"
     if $kaldi_scoring; then
       echo "verify WER by scoring with Kaldi..."
-      local/score.sh data/$dataset $decode_dir
+      local/score_e2e.sh data/$dataset $decode_dir
       cat ${decode_dir}/scoring_kaldi/wer
     fi
   done
