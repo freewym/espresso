@@ -40,6 +40,7 @@ fi
 
 # feature configuration
 do_delta=false
+apply_specaug=false
 
 
 . ./path.sh
@@ -207,13 +208,13 @@ if [ $stage -le 4 ]; then
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
-    --log-interval 500 --log-format simple \
+    --log-interval $((1000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 25600 --max-sentences 1024 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 25 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 500 \
+    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((1000/ngpus)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_lm_swbd --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
 fi
@@ -260,20 +261,28 @@ if [ $stage -le 7 ]; then
   mkdir -p $dir/logs
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
+  if $apply_specaug; then
+    opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((1000/ngpus)) --hold-steps $((140000/ngpus)) --decay-steps $((330000/ngpus))"
+    opts="$opts --encoder-rnn-hidden-size 1024 --encoder-rnn-layers 5 --decoder-embed-dim 512 --decoder-hidden-size 1024"
+    opts="$opts --decoder-out-embed-dim 3072 --attention-dim 512 --dropout 0.4"
+    specaug_config="{'W': 40, 'F': 18, 'T': 70, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 0.2}"
+  else
+    opts="$opts --max-epoch 35 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 14"
+  fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
-    --log-interval 1500 --log-format simple --print-training-sample-interval 2000 \
+    --log-interval $((3000/ngpus)) --log-format simple --print-training-sample-interval $((4000/ngpus)) \
     --num-workers 0 --max-tokens 26000 --max-sentences 48 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
-    --max-epoch 35 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
-    --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 14 \
-    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 1500 \
+    --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
+    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((3000/ngpus)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
     --arch speech_conv_lstm_swbd --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.1 --smoothing-type uniform \
     --scheduled-sampling-probs 0.9,0.8,0.7,0.6 --start-scheduled-sampling-epoch 6 \
     --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms \
-    --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
+    --max-source-positions 9999 --max-target-positions 999 \
+    $opts --specaugment-config "$specaug_config" 2>&1 | tee $log_file
 fi
 
 if [ $stage -le 8 ]; then

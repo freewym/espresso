@@ -35,6 +35,7 @@ kaldi_scoring=true
 
 # feature configuration
 do_delta=false
+apply_specaug=false
 
 
 . ./path.sh
@@ -169,13 +170,13 @@ if [ ${stage} -le 5 ]; then
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
-    --log-interval 8000 --log-format simple \
+    --log-interval $((16000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 32000 --max-sentences 1024 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 30 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates 8000 \
+    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((16000/ngpus)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_lm_librispeech --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
 fi
@@ -219,20 +220,28 @@ if [ ${stage} -le 8 ]; then
   mkdir -p $dir/logs
   log_file=$dir/logs/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
+  opts=""
+  if $apply_specaug; then
+    opts="$opts --max-epoch 95 --lr-scheduler tri_stage --warmup-steps $((2000/ngpus)) --hold-steps $((600000/ngpus)) --decay-steps $((1040000/ngpus))"
+    opts="$opts --encoder-rnn-layers 5"
+    specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
+  else
+    opts="$opts --max-epoch 30 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10"
+  fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
-    --log-interval 4000 --log-format simple --print-training-sample-interval 2000 \
+    --log-interval $((8000/ngpus)) --log-format simple --print-training-sample-interval $((4000/ngpus)) \
     --num-workers 0 --max-tokens 26000 --max-sentences 24 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 48 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
-    --max-epoch 30 --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
-    --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10 \
-    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates 3000 \
+    --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
+    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((6000/ngpus)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
     --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.1 --smoothing-type uniform \
     --scheduled-sampling-probs 1.0 --start-scheduled-sampling-epoch 1 \
     --dict $dict --remove-bpe sentencepiece \
-    --max-source-positions 9999 --max-target-positions 999 2>&1 | tee $log_file
+    --max-source-positions 9999 --max-target-positions 999 \
+    $opts --specaugment-config "$specaug_config" 2>&1 | tee $log_file
 fi
 
 if [ ${stage} -le 9 ]; then
@@ -243,6 +252,10 @@ if [ ${stage} -le 9 ]; then
   if $lm_shallow_fusion; then
     path="$path:$lmdir/$lm_checkpoint"
     opts="$opts --lm-weight 0.47 --eos-factor 1.5"
+    if $apply_specaug; then
+      # overwrite the existing opts
+      opts="$opts --lm-weight 0.4"
+    fi
     decode_affix=shallow_fusion
   fi
   for dataset in $test_set; do
