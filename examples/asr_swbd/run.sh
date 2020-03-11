@@ -182,10 +182,10 @@ fi
 lmdict=$dict
 if [ $stage -le 3 ]; then
   echo "Stage 3: Text Binarization for subword LM Training"
-  mkdir -p $lmdatadir/logs
+  mkdir -p $lmdatadir/log
   test_paths= && for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
-  ${decode_cmd} $lmdatadir/logs/preprocess.log \
+  ${decode_cmd} $lmdatadir/log/preprocess.log \
     python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
       --workers 50 --srcdict $lmdict --only-source \
       --trainpref $lmdatadir/train.tokens \
@@ -203,8 +203,8 @@ fi
 if [ $stage -le 4 ]; then
   echo "Stage 4: subword LM Training"
   valid_subset=valid
-  mkdir -p $lmdir/logs
-  log_file=$lmdir/logs/train.log
+  mkdir -p $lmdir/log
+  log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
@@ -226,7 +226,7 @@ if [ $stage -le 5 ]; then
   for i in $(seq $num); do gen_set_array[$i]="test$i"; done  #gen_set_array=(test test1 test2)
   test_set_array=($test_set)
   for i in $(seq 0 $num); do
-    log_file=$lmdir/logs/evaluation_${test_set_array[$i]}.log
+    log_file=$lmdir/log/evaluation_${test_set_array[$i]}.log
     python3 ../../eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
       --max-tokens 40960 --max-sentences 1536 --sample-break-mode eos \
@@ -258,8 +258,8 @@ if [ $stage -le 7 ]; then
   valid_subset=valid
   opts=""
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
-  mkdir -p $dir/logs
-  log_file=$dir/logs/train.log
+  mkdir -p $dir/log
+  log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   if $apply_specaug; then
     opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((1000/ngpus)) --hold-steps $((140000/ngpus)) --decay-steps $((330000/ngpus))"
@@ -298,6 +298,7 @@ if [ $stage -le 8 ]; then
   fi
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
   for dataset in $test_set; do
+    decode_dir=$dir/decode_${dataset}${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 24000 --max-sentences 48 \
       --num-shards 1 --shard-id 0 --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms --gen-subset $dataset \
@@ -307,7 +308,7 @@ if [ $stage -le 8 ]; then
 
     echo "log saved in ${decode_dir}/decode.log"
     echo "Scoring with kaldi..."
-    local/score.sh data/$dataset $decode_dir
+    local/score_e2e.sh data/$dataset $decode_dir
     if [ "$dataset" == "train_dev" ]; then
       echo -n "tran_dev: " && cat $decode_dir/scoring/wer | grep WER
     elif [ "$dataset" == "eval2000" ] || [ "$dataset" == "rt03" ]; then
