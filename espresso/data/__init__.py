@@ -3,15 +3,20 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from .asr_dataset import AsrDataset
 from .asr_dictionary import AsrDictionary
-from .scp_text_dataset import AsrTextDataset, ScpCachedDataset, ScpDataset, ScpInMemoryDataset
-from .speech_dataset import SpeechDataset
+from .feat_text_dataset import (
+    AsrTextDataset,
+    FeatScpCachedDataset,
+    FeatScpDataset,
+    FeatScpInMemoryDataset,
+)
 
 __all__ = [
+    'AsrDataset',
     'AsrDictionary',
     'AsrTextDataset',
-    'ScpCachedDataset',
-    'ScpDataset',
-    'ScpInMemoryDataset',
-    'SpeechDataset',
+    'FeatScpCachedDataset',
+    'FeatScpDataset',
+    'FeatScpInMemoryDataset',
 ]
