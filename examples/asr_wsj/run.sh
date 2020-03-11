@@ -16,7 +16,6 @@ train_set=train_si284
 valid_set=test_dev93
 test_set=test_eval92
 checkpoint=checkpoint_best.pt
-validate_on_train_subset=false # for monitoring E2E model training
 
 # LM related
 lm_affix=
@@ -34,7 +33,6 @@ if [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
   wsj0=/export/corpora5/LDC/LDC93S6B
   wsj1=/export/corpora5/LDC/LDC94S13B
 fi
-train_subset_size=500 # for validation if validate_on_train_subset is set to true
 kaldi_scoring=true
 
 # feature configuration
@@ -66,7 +64,6 @@ if [ ${stage} -le 0 ]; then
 fi
 
 train_feat_dir=${dumpdir}/${train_set}/delta${do_delta}; mkdir -p ${train_feat_dir}
-train_subset_feat_dir=${dumpdir}/${train_set}_${train_subset_size}/delta${do_delta}; mkdir -p ${train_subset_feat_dir}
 valid_feat_dir=${dumpdir}/${valid_set}/delta${do_delta}; mkdir -p ${valid_feat_dir}
 test_feat_dir=${dumpdir}/${test_set}/delta${do_delta}; mkdir -p ${test_feat_dir}
 if [ ${stage} -le 1 ]; then
@@ -93,11 +90,6 @@ if [ ${stage} -le 1 ]; then
     data/${valid_set}/feats.scp data/${train_set}/cmvn.ark exp/dump_feats/valid ${valid_feat_dir}
   dump.sh --cmd "$train_cmd" --nj 4 --do_delta $do_delta \
     data/${test_set}/feats.scp data/${train_set}/cmvn.ark exp/dump_feats/test ${test_feat_dir}
-
-  # randomly select a subset of train set for optional diagnosis
-  utils/subset_data_dir.sh data/${train_set} ${train_subset_size} data/${train_set}_${train_subset_size}
-  utils/filter_scp.pl data/${train_set}_${train_subset_size}/utt2spk ${train_feat_dir}/feats.scp \
-    > ${train_subset_feat_dir}/feats.scp
 fi
 
 dict=data/lang/${train_set}_units.txt
@@ -115,7 +107,7 @@ if [ ${stage} -le 2 ]; then
   cat $nlsyms
 
   echo "$0: making a dictionary and tokenizing text for train/valid/test set..."
-  for dataset in $train_set ${train_set}_${train_subset_size} $valid_set $test_set; do
+  for dataset in $train_set $valid_set $test_set; do
     text=data/$dataset/text
     token_text=data/$dataset/token_text
     text2token.py --skip-ncols 1 --space "<space>" --non-lang-syms $nlsyms $text > $token_text
@@ -159,8 +151,8 @@ if [ ${stage} -le 3 ]; then
   echo "Stage 3: Text Binarization for LM Training"
   if ! $use_wordlm; then
     echo "$0: binarizing char text..."
-    mkdir -p $lmdatadir/logs
-    ${decode_cmd} $lmdatadir/logs/preprocess.log \
+    mkdir -p $lmdatadir/log
+    ${decode_cmd} $lmdatadir/log/preprocess.log \
       python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
         --workers 30 --srcdict $lmdict --only-source \
         --trainpref $lmdatadir/train.tokens \
@@ -169,8 +161,8 @@ if [ ${stage} -le 3 ]; then
         --destdir $lmdatadir
   else
     echo "$0: binarizing word text..."
-    mkdir -p $wordlmdatadir/logs
-    ${decode_cmd} $wordlmdatadir/logs/preprocess.log \
+    mkdir -p $wordlmdatadir/log
+    ${decode_cmd} $wordlmdatadir/log/preprocess.log \
       python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
         --workers 30 --srcdict $wordlmdict --only-source \
         --trainpref $wordlmdatadir/train \
@@ -189,8 +181,8 @@ fi
 if [ ${stage} -le 4 ] && ! $use_wordlm; then
   echo "Stage 4: char LM Training"
   valid_subset=valid
-  mkdir -p $lmdir/logs
-  log_file=$lmdir/logs/train.log
+  mkdir -p $lmdir/log
+  log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
@@ -208,7 +200,7 @@ fi
 if [ ${stage} -le 5 ] && ! $use_wordlm; then
   echo "Stage 5: char LM Evaluation"
   for gen_subset in valid test; do
-    log_file=$lmdir/logs/evaluation_$gen_subset.log
+    log_file=$lmdir/log/evaluation_$gen_subset.log
     python3 ../../eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset $gen_subset \
       --max-tokens 192000 --max-sentences 256 --sample-break-mode eos \
@@ -219,8 +211,8 @@ fi
 if [ ${stage} -le 6 ] && $use_wordlm; then
   echo "Stage 6: word LM Training"
   valid_subset=valid
-  mkdir -p $wordlmdir/logs
-  log_file=$wordlmdir/logs/train.log
+  mkdir -p $wordlmdir/log
+  log_file=$wordlmdir/log/train.log
   [ -f $wordlmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $wordlmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $wordlmdict \
@@ -239,7 +231,7 @@ fi
 if [ ${stage} -le 7 ] && $use_wordlm; then
   echo "Stage 7: word LM Evaluation"
   for gen_subset in valid test; do
-    log_file=$wordlmdir/logs/evaluation_$gen_subset.log
+    log_file=$wordlmdir/log/evaluation_$gen_subset.log
     python3 ../../eval_lm.py $wordlmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $wordlmdict --gen-subset $gen_subset \
       --max-tokens 12800 --max-sentences 512 --sample-break-mode eos \
@@ -255,12 +247,8 @@ if [ ${stage} -le 8 ]; then
   valid_feat=$valid_feat_dir/feats.scp
   valid_token_text=data/$valid_set/token_text
   valid_utt2num_frames=data/$valid_set/utt2num_frames
-  train_subset_feat=$train_subset_feat_dir/feats.scp
-  train_subset_token_text=data/${train_set}_${train_subset_size}/token_text
-  train_subset_utt2num_frames=data/${train_set}_${train_subset_size}/utt2num_frames
   asr_prep_json.py --feat-files $train_feat --token-text-files $train_token_text --utt2num-frames-files $train_utt2num_frames --output data/train.json
   asr_prep_json.py --feat-files $valid_feat --token-text-files $valid_token_text --utt2num-frames-files $valid_utt2num_frames --output data/valid.json
-  asr_prep_json.py --feat-files $train_subset_feat --token-text-files $train_subset_token_text --utt2num-frames-files $train_subset_utt2num_frames --output data/train_subset.json
   for dataset in $valid_set $test_set; do
     if [ "$dataset" == "$valid_set" ]; then
       feat=$valid_feat_dir/feats.scp
@@ -277,12 +265,9 @@ if [ ${stage} -le 9 ]; then
   echo "Stage 9: Model Training"
   opts=""
   valid_subset=valid
-  if $validate_on_train_subset; then
-    valid_subset="$valid_subset,train_subset"
-  fi
   [ -f local/wer_output_filter ] && opts="$opts --wer-output-filter local/wer_output_filter"
-  mkdir -p $dir/logs
-  log_file=$dir/logs/train.log
+  mkdir -p $dir/log
+  log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval $((800/ngpus)) --log-format simple --print-training-sample-interval $((2000/ngpus)) \
@@ -329,7 +314,7 @@ if [ ${stage} -le 10 ]; then
     echo "log saved in ${decode_dir}/decode.log"
     if $kaldi_scoring; then
       echo "verify WER by scoring with Kaldi..."
-      local/score.sh data/$dataset $decode_dir
+      local/score_e2e.sh data/$dataset $decode_dir
       cat ${decode_dir}/scoring_kaldi/wer
     fi
   done
