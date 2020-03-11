@@ -230,3 +230,10 @@ class SpeechDataset(FairseqDataset):
     def prefetch(self, indices):
         """Only prefetch src."""
         self.src.prefetch(indices)
+
+    def set_epoch(self, epoch):
+        super().set_epoch(epoch)
+        if hasattr(self.src, 'set_epoch'):
+            self.src.set_epoch(epoch)
+        if self.tgt is not None and hasattr(self.tgt, 'set_epoch'):
+            self.tgt.set_epoch(epoch)
