@@ -31,6 +31,7 @@ def get_asr_dataset_from_json(
     data_path, split, tgt_dict,
     combine, upsample_primary,
     max_source_positions, max_target_positions,
+    seed=1, specaugment_config=None,
 ):
     """
     Parse data json and create dataset.
@@ -72,7 +73,9 @@ def get_asr_dataset_from_json(
 
         assert len(utt2num_frames) == 0 or len(utt_ids) == len(utt2num_frames)
         src_datasets.append(ScpCachedDataset(
-            utt_ids, feats, utt2num_frames=utt2num_frames, ordered_prefetch=True
+            utt_ids, feats, utt2num_frames=utt2num_frames, seed=seed,
+            specaugment_config=specaugment_config if split == "train" else None,
+            ordered_prefetch=True,
         ))
         if len(token_text) > 0:
             assert len(utt_ids) == len(token_text)
@@ -161,6 +164,12 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                             help="amount to upsample primary dataset")
         parser.add_argument("--feat-in-channels", default=1, type=int, metavar="N",
                             help="feature input channels")
+        parser.add_argument("--specaugment-config", default=None, type=str, metavar="EXPR",
+                            help="SpecAugment config string. If not None and not empty, "
+                            "then apply SpecAugment. Should be an evaluatable expression of "
+                            "a python dict. See speech_tools.specaug_interpolate.specaug() for "
+                            "all allowed arguments. Argments not appearing in this string "
+                            "will take on their default values")
         # fmt: off
 
     @classmethod
@@ -185,6 +194,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         self.tgt_dict = tgt_dict
         self.word_dict = word_dict
         self.feat_in_channels = args.feat_in_channels
+        self.specaugment_config = args.specaugment_config
         torch.backends.cudnn.deterministic = True
         # Compansate for the removel of :func:`torch.rand()` from
         # :func:`fairseq.distributed_utils.distributed_init()` by fairseq,
@@ -226,6 +236,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             upsample_primary=self.args.upsample_primary,
             max_source_positions=self.args.max_source_positions,
             max_target_positions=self.args.max_target_positions,
+            seed=self.args.seed,
+            specaugment_config=self.specaugment_config,
         )
 
         src_dataset = self.datasets[split].src
