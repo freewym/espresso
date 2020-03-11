@@ -28,8 +28,8 @@ data=$1
 
 if [ -f $data/stm ]; then # use sclite scoring.
   echo "$data/stm exists: using local/score_sclite.sh"
-  eval local/score_sclite.sh $orig_args
+  eval local/score_sclite_e2e.sh $orig_args
 else
   echo "$data/stm does not exist: using local/score_basic.sh"
-  eval local/score_basic.sh $orig_args
+  eval local/score_basic_e2e.sh $orig_args
 fi
