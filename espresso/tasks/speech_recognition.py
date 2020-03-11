@@ -17,10 +17,10 @@ from fairseq.logging import metrics
 from fairseq.tasks import FairseqTask, register_task
 
 from espresso.data import (
+    AsrDataset,
     AsrDictionary,
     AsrTextDataset,
-    ScpCachedDataset,
-    SpeechDataset,
+    FeatScpCachedDataset,
 )
 
 
@@ -72,7 +72,7 @@ def get_asr_dataset_from_json(
                 utt2num_frames.append(int(val["utt2num_frames"]))
 
         assert len(utt2num_frames) == 0 or len(utt_ids) == len(utt2num_frames)
-        src_datasets.append(ScpCachedDataset(
+        src_datasets.append(FeatScpCachedDataset(
             utt_ids, feats, utt2num_frames=utt2num_frames, seed=seed,
             specaugment_config=specaugment_config if split == "train" else None,
             ordered_prefetch=True,
@@ -107,7 +107,7 @@ def get_asr_dataset_from_json(
             tgt_dataset = None
 
     tgt_dataset_sizes = tgt_dataset.sizes if tgt_dataset is not None else None
-    return SpeechDataset(
+    return AsrDataset(
         src_dataset, src_dataset.sizes,
         tgt_dataset, tgt_dataset_sizes,
         tgt_dict,
@@ -329,7 +329,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
-        return SpeechDataset(src_tokens, src_lengths)
+        return AsrDataset(src_tokens, src_lengths)
 
     def build_model(self, args):
         # build the greedy decoder for validation with WER
@@ -353,10 +353,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
 
     def reduce_metrics(self, logging_outputs, criterion):
         super().reduce_metrics(logging_outputs, criterion)
-        word_error = utils.item(sum(log.get("word_error", 0) for log in logging_outputs))
-        word_count = utils.item(sum(log.get("word_count", 0) for log in logging_outputs))
-        char_error = utils.item(sum(log.get("char_error", 0) for log in logging_outputs))
-        char_count = utils.item(sum(log.get("char_count", 0) for log in logging_outputs))
+        word_error = sum(log.get("word_error", 0) for log in logging_outputs)
+        word_count = sum(log.get("word_count", 0) for log in logging_outputs)
+        char_error = sum(log.get("char_error", 0) for log in logging_outputs)
+        char_count = sum(log.get("char_count", 0) for log in logging_outputs)
         if word_count > 0:
             metrics.log_scalar("wer", float(word_error) / word_count * 100, word_count, round=4)
         if char_count > 0:
