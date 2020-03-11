@@ -63,9 +63,8 @@ def label_smoothed_nll_loss(
         raise ValueError("Unsupported smoothing type: {}".format(smoothing_type))
     if ignore_index is not None:
         pad_mask = target.eq(ignore_index)
-        if pad_mask.any():
-            nll_loss.masked_fill_(pad_mask, 0.)
-            smooth_loss.masked_fill_(pad_mask, 0.)
+        nll_loss.masked_fill_(pad_mask, 0.)
+        smooth_loss.masked_fill_(pad_mask, 0.)
     else:
         nll_loss = nll_loss.squeeze(-1)
         smooth_loss = smooth_loss.squeeze(-1)
