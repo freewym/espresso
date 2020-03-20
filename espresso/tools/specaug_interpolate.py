@@ -95,7 +95,7 @@ def freq_mask(spec, F=30, num_masks=1, pad_value=0.):
 
     for i in range(num_masks):
         f = np.random.randint(0, F + 1)
-        f_zero = np.random.randint(0, num_mel_channels - f)
+        f_zero = np.random.randint(0, num_mel_channels - f + 1)
 
         if f == 0:
             return cloned
@@ -124,7 +124,7 @@ def time_mask(spec, T=40, num_masks=1, p=0.2, pad_value=0.):
 
     for i in range(num_masks):
         t = np.random.randint(0, T + 1)
-        t_zero = np.random.randint(0, len_spectro - t)
+        t_zero = np.random.randint(0, len_spectro - t + 1)
 
         if t == 0:
             return cloned
