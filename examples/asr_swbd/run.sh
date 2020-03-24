@@ -280,7 +280,7 @@ if [ $stage -le 7 ]; then
     --arch speech_conv_lstm_swbd --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.1 --smoothing-type uniform \
     --scheduled-sampling-probs 0.9,0.8,0.7,0.6 --start-scheduled-sampling-epoch 6 \
-    --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms \
+    --dict $dict --bpe sentencepiece --sentencepiece-vocab ${sentencepiece_model}.model --non-lang-syms $nlsyms \
     --max-source-positions 9999 --max-target-positions 999 \
     $opts --specaugment-config "$specaug_config" 2>&1 | tee $log_file
 fi
@@ -301,8 +301,8 @@ if [ $stage -le 8 ]; then
     decode_dir=$dir/decode_${dataset}${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 24000 --max-sentences 48 \
-      --num-shards 1 --shard-id 0 --dict $dict --remove-bpe sentencepiece --non-lang-syms $nlsyms --gen-subset $dataset \
-      --max-source-positions 9999 --max-target-positions 999 \
+      --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-vocab ${sentencepiece_model}.model \
+      --non-lang-syms $nlsyms --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 35 --max-len-a 0.1 --max-len-b 0 --lenpen 1.0 \
       --results-path $decode_dir $opts
 

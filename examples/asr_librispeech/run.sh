@@ -239,7 +239,7 @@ if [ ${stage} -le 8 ]; then
     --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.1 --smoothing-type uniform \
     --scheduled-sampling-probs 1.0 --start-scheduled-sampling-epoch 1 \
-    --dict $dict --remove-bpe sentencepiece \
+    --dict $dict --bpe sentencepiece --sentencepiece-vocab ${sentencepiece_model}.model \
     --max-source-positions 9999 --max-target-positions 999 \
     $opts --specaugment-config "$specaug_config" 2>&1 | tee $log_file
 fi
@@ -262,8 +262,8 @@ if [ ${stage} -le 9 ]; then
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 15000 --max-sentences 24 \
-      --num-shards 1 --shard-id 0 --dict $dict --remove-bpe sentencepiece --gen-subset $dataset \
-      --max-source-positions 9999 --max-target-positions 999 \
+      --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-vocab ${sentencepiece_model}.model \
+      --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 60 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \
       --results-path $decode_dir $opts
 

@@ -5,9 +5,11 @@
 
 import torch
 
-from fairseq.data import Dictionary, data_utils
+from fairseq.data import Dictionary, encoders
 from fairseq.file_io import PathManager
-from fairseq.tokenizer import tokenize_line
+
+# will automatically load modules defined from there
+from espresso.data import encoders as encoders_espresso
 
 
 class AsrDictionary(Dictionary):
@@ -35,36 +37,8 @@ class AsrDictionary(Dictionary):
                 self.add_symbol(s, n=0)
         self.nspecial = len(self.symbols)
         self.non_lang_syms = None
-
-    def string(self, tensor, bpe_symbol=None, escape_unk=False):
-        """Helper for converting a tensor of token indices to a string.
-
-        Can optionally remove BPE symbols or escape <unk> words.
-
-        We overwrite this since we would like to also ignore <pad>.
-        """
-        if torch.is_tensor(tensor) and tensor.dim() == 2:
-            return "\n".join(self.string(t, bpe_symbol, escape_unk) for t in tensor)
-
-        def token_string(i):
-            if i == self.unk():
-                return self.unk_string(escape_unk)
-            else:
-                return self[i]
-
-        if hasattr(self, "bos_index"):
-            sent = " ".join(
-                token_string(i)
-                for i in tensor
-                if (i != self.eos()) and (i != self.bos()) and (i != self.pad())
-            )
-        else:
-            sent = " ".join(
-                token_string(i)
-                for i in tensor
-                if (i != self.eos()) and (i != self.pad())
-            )
-        return data_utils.process_bpe_symbol(sent, bpe_symbol)
+        self.tokenizer = None
+        self.bpe = None
 
     def bos(self):
         """Disallow beginning-of-sentence symbol"""
@@ -119,20 +93,28 @@ class AsrDictionary(Dictionary):
         t[-1] = self.eos()
         return t
 
-    def tokens_to_sentence(
-        self, line, line_tokenizer=tokenize_line, use_unk_sym=True, bpe_symbol=None,
-    ):
-        if bpe_symbol is not None:
-            return data_utils.process_bpe_symbol(line, bpe_symbol)
-        # use_unk_sym=False when we want to restore original transcripts from
-        # token sequences, e.g., obtain reference to compute WER
-        tokens = line_tokenizer(line)
-        sent = ""
-        for token in tokens:
-            if token == self.space_word:
-                sent += " "
-            elif use_unk_sym and self.index(token) == self.unk_index:
-                sent += self.unk_word
-            elif token != self.pad_word and token != self.eos_word:
-                sent += token
-        return sent.strip()
+    def build_tokenizer(self, args):
+        self.tokenizer = encoders.build_tokenizer(args)
+
+    def build_bpe(self, args):
+        if args.bpe == "characters_asr":
+            self.bpe = encoders.build_bpe(
+                args, space_symbol=self.space_word, ends_with_space=True,
+                non_lang_syms=self.non_lang_syms,
+            )
+        else:
+            self.bpe = encoders.build_bpe(args)
+
+    def wordpiece_encode(self, x):
+        if self.tokenizer is not None:
+            x = self.tokenizer.encode(x)
+        if self.bpe is not None:
+            x = self.bpe.encode(x)
+        return x
+
+    def wordpiece_decode(self, x):
+        if self.bpe is not None:
+            x = self.bpe.decode(x)
+        if self.tokenizer is not None:
+            x = self.tokenizer.decode(x)
+        return x
