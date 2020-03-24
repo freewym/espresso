@@ -21,6 +21,7 @@ from fairseq import checkpoint_utils, distributed_utils, options, tasks, utils
 from fairseq.data import iterators
 from fairseq.logging import meters, metrics, progress_bar
 from fairseq.trainer import Trainer
+from fairseq.model_parallel.megatron_trainer import MegatronTrainer
 
 
 logging.basicConfig(
@@ -37,6 +38,7 @@ def main(args, init_distributed=False):
 
     assert args.max_tokens is not None or args.max_sentences is not None, \
         'Must specify batch size either with --max-tokens or --max-sentences'
+    metrics.reset()
 
     # Initialize CUDA and distributed training
     if torch.cuda.is_available() and not args.cpu:
@@ -70,7 +72,11 @@ def main(args, init_distributed=False):
     ))
 
     # Build trainer
-    trainer = Trainer(args, task, model, criterion)
+    if args.model_parallel_size == 1:
+        trainer = Trainer(args, task, model, criterion)
+    else:
+        trainer = MegatronTrainer(args, task, model, criterion)
+
     logger.info('training on {} GPUs'.format(args.distributed_world_size))
     logger.info('max input frames per GPU = {} and max sentences per GPU = {}'.format(
         args.max_tokens,
@@ -87,31 +93,17 @@ def main(args, init_distributed=False):
     lr = trainer.get_lr()
     train_meter = meters.StopwatchMeter()
     train_meter.start()
-    valid_subsets = args.valid_subset.split(',')
     while (
         lr > args.min_lr
         and epoch_itr.next_epoch_idx <= max_epoch
-        and trainer.get_num_updates() < max_update
     ):
         # train for one epoch
-        train(args, trainer, task, epoch_itr)
-
-        if not args.disable_validation and epoch_itr.epoch % args.validate_interval == 0:
-            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
-        else:
-            valid_losses = [None]
+        valid_losses = train(args, trainer, task, epoch_itr, max_update)
+        if should_stop_early(args, valid_losses[0]) or trainer.get_num_updates() >= max_update:
+            break
 
         # only use first validation loss to update the learning rate
         lr = trainer.lr_step(epoch_itr.epoch, valid_losses[0])
-
-        # save checkpoint
-        if epoch_itr.epoch % args.save_interval == 0:
-            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
-
-        # early stop
-        if should_stop_early(args, valid_losses[0]):
-            logger.info('early stop since valid performance hasn\'t improved for last {} runs'.format(args.patience))
-            break
 
         epoch_itr = trainer.get_train_iterator(
             epoch_itr.next_epoch_idx,
@@ -139,12 +131,16 @@ def should_stop_early(args, valid_loss):
         return False
     else:
         should_stop_early.num_runs += 1
-        return should_stop_early.num_runs >= args.patience
+        if should_stop_early.num_runs >= args.patience:
+            logger.info('early stop since valid performance hasn\'t improved for last {} runs'.format(args.patience))
+            return True
+        else:
+            return False
 
 
 @metrics.aggregate('train')
-def train(args, trainer, task, epoch_itr):
-    """Train the model for one epoch."""
+def train(args, trainer, task, epoch_itr, max_update=math.inf):
+    """Train the model for one epoch and return validation losses."""
     # Initialize data iterator
     itr = epoch_itr.next_epoch_itr(
         fix_batches_to_gpus=args.fix_batches_to_gpus,
@@ -170,10 +166,10 @@ def train(args, trainer, task, epoch_itr):
     # task specific setup per epoch
     task.begin_epoch(epoch_itr.epoch, trainer.get_model())
 
-    valid_subsets = args.valid_subset.split(',')
-    max_update = args.max_update or math.inf
     if hasattr(trainer.criterion, 'set_epoch'):
         trainer.criterion.set_epoch(epoch_itr.epoch)
+
+    valid_subsets = args.valid_subset.split(',')
     for samples in progress:
         with metrics.aggregate('train_inner'):
             log_output = trainer.train_step(samples)
@@ -190,16 +186,8 @@ def train(args, trainer, task, epoch_itr):
             # the end-of-epoch stats will still be preserved
             metrics.reset_meters('train_inner')
 
-        if (
-            not args.disable_validation
-            and args.save_interval_updates > 0
-            and num_updates % args.save_interval_updates == 0
-            and num_updates > 0
-        ):
-            valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
-            checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
-
-        if num_updates >= max_update:
+        valid_losses = validate_and_save(args, trainer, task, epoch_itr, valid_subsets)
+        if should_stop_early(args, valid_losses[0]) or num_updates >= max_update:
             break
 
     # log end-of-epoch stats
@@ -208,6 +196,41 @@ def train(args, trainer, task, epoch_itr):
 
     # reset epoch-level meters
     metrics.reset_meters('train')
+    return valid_losses
+
+
+def validate_and_save(args, trainer, task, epoch_itr, valid_subsets):
+    num_updates = trainer.get_num_updates()
+    do_save = (
+        (
+            args.save_interval_updates > 0
+            and num_updates > 0
+            and num_updates % args.save_interval_updates == 0
+        )
+        or (
+            epoch_itr.end_of_epoch()
+            and epoch_itr.epoch % args.save_interval == 0
+        )
+    )
+    do_validate = (
+        (
+            do_save  # saving requires validation
+            or (
+                epoch_itr.end_of_epoch()
+                and epoch_itr.epoch % args.validate_interval == 0
+            )
+        )
+        and not args.disable_validation
+    )
+
+    # Validate
+    valid_losses = [None]
+    if do_validate:
+        valid_losses = validate(args, trainer, task, epoch_itr, valid_subsets)
+    # Save
+    if do_save:
+        checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
+    return valid_losses
 
 
 def get_training_stats(stats):
@@ -298,10 +321,6 @@ def print_options_meaning_changes(args):
 
 def cli_main(modify_parser=None):
     parser = options.get_training_parser()
-    parser.add_argument('--remove-bpe', nargs='?', const='@@ ', default=None,
-                        help='remove BPE tokens before scoring '
-                        '(can be set to sentencepiece). Being used for monitoring '
-                        'and validation')
     args = options.parse_args_and_arch(parser, modify_parser=modify_parser)
     print_options_meaning_changes(args)
 

@@ -16,6 +16,7 @@ import sys
 import torch
 
 from fairseq import checkpoint_utils, options, tasks, utils
+from fairseq.data import encoders
 from fairseq.logging import progress_bar
 from fairseq.logging.meters import StopwatchMeter, TimeMeter
 from fairseq.models import FairseqLanguageModel
@@ -139,7 +140,18 @@ def _main(args, output_file):
             'The option match_source_len is not applicable to speech recognition. Ignoring it.'
         )
     gen_timer = StopwatchMeter()
-    generator = task.build_generator(args)
+    generator = task.build_generator(models, args)
+
+    # Handle tokenization and BPE
+    tokenizer = encoders.build_tokenizer(args)
+    bpe = encoders.build_bpe(args)
+
+    def decode_fn(x):
+        if bpe is not None:
+            x = bpe.decode(x)
+        if tokenizer is not None:
+            x = tokenizer.decode(x)
+        return x
 
     # Generate and compute WER
     scorer = wer.Scorer(dictionary, wer_output_filter=args.wer_output_filter)
@@ -177,20 +189,20 @@ def _main(args, output_file):
             if has_target:
                 target_str = sample['target_raw_text'][i]
                 if not args.quiet:
-                    target_sent = dictionary.tokens_to_sentence(
-                        target_str, use_unk_sym=False, bpe_symbol=args.remove_bpe,
-                    )
-                    print('T-{}\t{}'.format(utt_id, target_sent), file=output_file)
+                    detok_target_str = decode_fn(target_str)
+                    print('T-{}\t{}'.format(utt_id, detok_target_str), file=output_file)
 
             # Process top predictions
             for j, hypo in enumerate(hypos[i][:args.nbest]):
-                hypo_str = dictionary.string(hypo['tokens'].int().cpu())  # not removing bpe at this point
-                if not args.quiet or i == 0:
-                    hypo_sent = dictionary.tokens_to_sentence(hypo_str, bpe_symbol=args.remove_bpe)
-
+                hypo_str = dictionary.string(
+                    hypo['tokens'].int().cpu(),
+                    bpe_symbol=None,
+                    extra_symbols_to_ignore={dictionary.pad()},
+                )  # not removing bpe at this point
+                detok_hypo_str = decode_fn(hypo_str)
                 if not args.quiet:
                     score = hypo['score'] / math.log(2)  # convert to base 2
-                    print('H-{}\t{}\t{}'.format(utt_id, hypo_sent, score), file=output_file)
+                    print('H-{}\t{}\t{}'.format(utt_id, detok_hypo_str, score), file=output_file)
 
                 # Score and obtain attention only the top hypothesis
                 if j == 0:
@@ -200,10 +212,10 @@ def _main(args, output_file):
                     if args.print_alignment and attention is not None:
                         save_dir = os.path.join(args.results_path, 'attn_plots')
                         os.makedirs(save_dir, exist_ok=True)
-                        plot_attention(attention, hypo_sent, utt_id, save_dir)
-                    scorer.add_prediction(utt_id, hypo_str, bpe_symbol=args.remove_bpe)
+                        plot_attention(attention, detok_hypo_str, utt_id, save_dir)
+                    scorer.add_prediction(utt_id, hypo_str)
                     if has_target:
-                        scorer.add_evaluation(utt_id, target_str, hypo_str, bpe_symbol=args.remove_bpe)
+                        scorer.add_evaluation(utt_id, target_str, hypo_str)
 
         wps_meter.update(num_generated_tokens)
         progress.log({'wps': round(wps_meter.avg)})

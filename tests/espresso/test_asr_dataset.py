@@ -21,7 +21,7 @@ from espresso.data import (
 try:
     import kaldi_io
 except ImportError:
-    raise ImportError('Please install kaldi_io with: pip install kaldi_io')
+    raise ImportError("Please install kaldi_io with: pip install kaldi_io")
 
 
 class TestAsrDataset(unittest.TestCase):
@@ -33,9 +33,9 @@ class TestAsrDataset(unittest.TestCase):
         alphabet = string.ascii_lowercase
         for token in alphabet:
             d.add_symbol(token)
-        d.add_symbol('<space>')
+        d.add_symbol("<space>")
         d.finalize(padding_factor=1)  # don't add extra padding symbols
-        d.space_index = d.indices.get('<space>', -1)
+        d.space_index = d.indices.get("<space>", -1)
         return d
 
     @staticmethod
@@ -45,14 +45,14 @@ class TestAsrDataset(unittest.TestCase):
         np.random.seed(seed)
         utt_ids, rxfiles, utt2num_frames = [], [], []
         for i in range(num):
-            utt_id = 'utt_id_' + str(i)
-            ark_file = os.path.join(test_dir, 'mat_' + str(i) + '.ark')
+            utt_id = "utt_id_" + str(i)
+            ark_file = os.path.join(test_dir, "mat_" + str(i) + ".ark")
             length = np.random.randint(200, 800)
             m = np.random.uniform(-10.0, 10.0, (length, 40))
             expected_feats[utt_id] = m
             kaldi_io.write_mat(ark_file, m)
             utt_ids.append(utt_id)
-            rxfiles.append(ark_file + ':0')
+            rxfiles.append(ark_file + ":0")
             utt2num_frames.append(length)
         return expected_feats, utt_ids, rxfiles, utt2num_frames
 
@@ -62,13 +62,13 @@ class TestAsrDataset(unittest.TestCase):
         order from those in feats.scp."""
         expected_text = {}
         alphabet = string.ascii_lowercase
-        space = '<space>'
+        space = "<space>"
         vocab = list(alphabet)
         vocab.append(space)
         np.random.seed(seed)
         utt_ids, token_text = [], []
         for i in np.random.permutation(range(num)):
-            utt_id = 'utt_id_' + str(i)
+            utt_id = "utt_id_" + str(i)
             length = np.random.randint(10, 100)
             tokens = [
                 vocab[np.random.randint(0, len(vocab))] for _ in range(length)
@@ -79,11 +79,11 @@ class TestAsrDataset(unittest.TestCase):
                 tokens[-1] = vocab[np.random.randint(0, len(vocab) - 1)]
             expected_text[utt_id] = tokens
             utt_ids.append(utt_id)
-            token_text.append(' '.join(tokens))
+            token_text.append(" ".join(tokens))
         return expected_text, utt_ids, token_text
 
     def setUp(self):
-        self.test_dir = './temp'
+        self.test_dir = "./temp"
         os.makedirs(self.test_dir, exist_ok=True)
         self.num_audios = 150
         self.num_transripts = 100
@@ -155,8 +155,10 @@ class TestAsrDataset(unittest.TestCase):
             self.assertEqual(bsz, len(batch_sampler[i]))
             src_frames = batch["net_input"]["src_tokens"]
             src_lengths = batch["net_input"]["src_lengths"]
-            tgt_tokens = self.dictionary.string(batch["target"]).split('\n')
-            tgt_tokens = [line.split(' ') for line in tgt_tokens]
+            tgt_tokens = self.dictionary.string(
+                batch["target"], extra_symbols_to_ignore={self.dictionary.pad()}
+            ).split("\n")
+            tgt_tokens = [line.split(" ") for line in tgt_tokens]
             self.assertEqual(bsz, src_frames.size(0))
             self.assertEqual(bsz, src_lengths.numel())
             self.assertEqual(bsz, len(tgt_tokens))

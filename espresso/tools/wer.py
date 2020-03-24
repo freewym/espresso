@@ -46,7 +46,7 @@ class Scorer(object):
                     else:
                         logger.warning('Unsupported pattern: "{}". Ignoring it'.format(line))
 
-    def add_prediction(self, utt_id, pred, bpe_symbol=None):
+    def add_prediction(self, utt_id, pred):
         if not isinstance(utt_id, str):
             raise TypeError('utt_id must be a string(got {})'.format(type(utt_id)))
         if not isinstance(pred, str):
@@ -56,12 +56,12 @@ class Scorer(object):
             'Duplicated utterance id detected: {}'.format(utt_id)
         self.char_results[utt_id] = pred + '\n'
 
-        pred_words = self.dictionary.tokens_to_sentence(pred, bpe_symbol=bpe_symbol)
+        pred_words = self.dictionary.wordpiece_decode(pred)
         assert utt_id not in self.results, \
             'Duplicated utterance id detected: {}'.format(utt_id)
         self.results[utt_id] = pred_words + '\n'
 
-    def add_evaluation(self, utt_id, ref, pred, bpe_symbol=None):
+    def add_evaluation(self, utt_id, ref, pred):
         if not isinstance(utt_id, str):
             raise TypeError('utt_id must be a string(got {})'.format(type(utt_id)))
         if not isinstance(ref, str):
@@ -84,8 +84,8 @@ class Scorer(object):
         self.char_counter += counter
 
         # word level counts
-        ref_words = self.dictionary.tokens_to_sentence(ref, use_unk_sym=False, bpe_symbol=bpe_symbol)
-        pred_words = self.dictionary.tokens_to_sentence(pred, bpe_symbol=bpe_symbol)
+        ref_words = self.dictionary.wordpiece_decode(ref)
+        pred_words = self.dictionary.wordpiece_decode(pred)
 
         # filter words according to self.word_filters (support re.sub only)
         for pattern, repl in self.word_filters:
