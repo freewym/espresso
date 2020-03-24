@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from argparse import Namespace
 import logging
 import unittest
 import string
@@ -26,13 +27,16 @@ class TestSpeechUtils(unittest.TestCase):
         """construct dictionary."""
         assert isinstance(vocab, list) and isinstance(non_lang_syms, list)
         d = AsrDictionary()
+        d.non_lang_syms = non_lang_syms
+        args = Namespace(bpe="characters_asr")
+        d.build_bpe(args)
         for token in vocab:
             d.add_symbol(token)
-        d.add_symbol('<space>')
+        d.add_symbol("<space>")
         for token in non_lang_syms:
             d.add_symbol(token)
         d.finalize(padding_factor=1)  # don't add extra padding symbols
-        d.space_index = d.indices.get('<space>', -1)
+        d.space_index = d.indices.get("<space>", -1)
         return d
 
     @staticmethod
@@ -42,27 +46,27 @@ class TestSpeechUtils(unittest.TestCase):
             isinstance(non_lang_syms, list)
         np.random.seed(seed)
         sent_len = np.random.randint(2, 30)
-        sent = ''
+        sent = ""
         for _ in range(sent_len):
             if len(non_lang_syms) > 0 and np.random.randint(0, 20) == 0:
                 word = non_lang_syms[np.random.randint(0, len(non_lang_syms))]
             else:
-                word = ''
+                word = ""
                 word_len = np.random.randint(2, 11)
                 for _ in range(word_len):
                     if len(oovs) > 0 and np.random.randint(0, 20) == 0:
                         word += oovs[np.random.randint(0, len(oovs))]
                     else:
                         word += vocab[np.random.randint(0, len(vocab))]
-            sent += word + ' '
+            sent += word + " "
 
-        sent = ' '.join(sent.strip().split(' '))
+        sent = " ".join(sent.strip().split(" "))
         return sent
 
     def setUp(self):
         self.vocab = list(string.ascii_lowercase)
         self.oovs = list(string.ascii_uppercase)
-        self.non_lang_syms = ['<noise>', '<spnoise>', '<sil>']
+        self.non_lang_syms = ["<noise>", "<spnoise>", "<sil>"]
         self.num_sentences = 100
         self.dictionary = self.make_dictionary(
             self.vocab,
@@ -74,39 +78,38 @@ class TestSpeechUtils(unittest.TestCase):
 
     def test_speech_tokenizer(self):
         for i, sent in enumerate(self.text):
-            logger.info('test sentence {}:'.format(i))
+            logger.info("test sentence {}:".format(i))
             logger.info(sent)
-            tokens = utils.tokenize(
-                sent, space=self.dictionary.space_word,
-                non_lang_syms=self.non_lang_syms,
-            )
+            tokens = self.dictionary.wordpiece_encode(sent)
 
-            # test :func:`~speech_tools.utils.tokenize` with
+            # test :func:`~AsrDictionary.wordpiece_encode` with
             # :func:`~AsrDictionary.encode_line`
             tensor = self.dictionary.encode_line(
                 tokens, add_if_not_exist=False, append_eos=True,
             )
-            reconstructed_tokens = self.dictionary.string(tensor)
-            expected_tokens = ' '.join(
+            reconstructed_tokens = self.dictionary.string(
+                tensor, extra_symbols_to_ignore={self.dictionary.pad()}
+            )
+            expected_tokens = " ".join(
                 [token if self.dictionary.index(token) != self.dictionary.unk() else
-                    self.dictionary.unk_word for token in tokens.split(' ')]
+                    self.dictionary.unk_word for token in tokens.split(" ")]
             )
             self.assertEqual(reconstructed_tokens, expected_tokens)
 
-            # test :func:`~speech_tools.utils.tokenize` with
-            # :func:`~AsrDictionary.tokens_to_sentence`
-            reconstructed_sent = self.dictionary.tokens_to_sentence(tokens)
+            # test :func:`~AsrDictionary.wordpiece_encode` with
+            # :func:`~AsrDictionary.wordpiece_decode`
+            reconstructed_sent = self.dictionary.wordpiece_decode(reconstructed_tokens)
             expected_sent = []
-            words = sent.split(' ')
+            words = sent.split(" ")
             for w in words:
                 if w not in self.non_lang_syms:
-                    new_word = ''.join(
+                    new_word = "".join(
                         [self.dictionary.unk_word if c in self.oovs else c for c in w]
                     )
                     expected_sent.append(new_word)
                 else:
                     expected_sent.append(w)
-            expected_sent = ' '.join(expected_sent)
+            expected_sent = " ".join(expected_sent)
             self.assertEqual(reconstructed_sent, expected_sent)
 
     def test_collate_frames(self):
@@ -179,44 +182,43 @@ class TestSpeechUtils(unittest.TestCase):
         dist, steps, counter = utils.edit_distance(ref, hyp)
         self.assertEqual(
             counter,
-            Counter({'words': 0, 'corr': 0, 'sub': 0, 'ins': 0, 'del': 0}),
+            Counter({"words": 0, "corr": 0, "sub": 0, "ins": 0, "del": 0}),
         )
         self.assertEqual(steps, [])
 
-        ref, hyp = ['a', 'b', 'c'], []
+        ref, hyp = ["a", "b", "c"], []
         dist, steps, counter = utils.edit_distance(ref, hyp)
         self.assertEqual(
             counter,
-            Counter({'words': 3, 'corr': 0, 'sub': 0, 'ins': 0, 'del': 3}),
+            Counter({"words": 3, "corr": 0, "sub": 0, "ins": 0, "del": 3}),
         )
-        self.assertEqual(steps, ['del', 'del', 'del'])
+        self.assertEqual(steps, ["del", "del", "del"])
 
-        ref, hyp = ['a', 'b', 'c'], ['a', 'b', 'c']
+        ref, hyp = ["a", "b", "c"], ["a", "b", "c"]
         dist, steps, counter = utils.edit_distance(ref, hyp)
         self.assertEqual(
             counter,
-            Counter({'words': 3, 'corr': 3, 'sub': 0, 'ins': 0, 'del': 0}),
+            Counter({"words": 3, "corr": 3, "sub": 0, "ins": 0, "del": 0}),
         )
-        self.assertEqual(steps, ['corr', 'corr', 'corr'])
+        self.assertEqual(steps, ["corr", "corr", "corr"])
 
-        ref, hyp = ['a', 'b', 'c'], ['d', 'b', 'c', 'e', 'f']
+        ref, hyp = ["a", "b", "c"], ["d", "b", "c", "e", "f"]
         dist, steps, counter = utils.edit_distance(ref, hyp)
         self.assertEqual(
             counter,
-            Counter({'words': 3, 'corr': 2, 'sub': 1, 'ins': 2, 'del': 0}),
+            Counter({"words": 3, "corr": 2, "sub": 1, "ins": 2, "del": 0}),
         )
-        self.assertEqual(steps, ['sub', 'corr', 'corr', 'ins', 'ins'])
+        self.assertEqual(steps, ["sub", "corr", "corr", "ins", "ins"])
 
-        ref, hyp = ['b', 'c', 'd', 'e', 'f', 'h'], \
-            ['d', 'b', 'c', 'e', 'f', 'g']
+        ref, hyp = ["b", "c", "d", "e", "f", "h"], ["d", "b", "c", "e", "f", "g"]
         dist, steps, counter = utils.edit_distance(ref, hyp)
         self.assertEqual(
             counter,
-            Counter({'words': 6, 'corr': 4, 'sub': 1, 'ins': 1, 'del': 1}),
+            Counter({"words": 6, "corr": 4, "sub": 1, "ins": 1, "del": 1}),
         )
         self.assertEqual(
             steps,
-            ['ins', 'corr', 'corr', 'del', 'corr', 'corr', 'sub'],
+            ["ins", "corr", "corr", "del", "corr", "corr", "sub"],
         )
 
     def assertTensorEqual(self, t1, t2):
