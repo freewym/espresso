@@ -192,6 +192,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     def __init__(self, args, tgt_dict, word_dict=None):
         super().__init__(args)
         self.tgt_dict = tgt_dict
+        self.tgt_dict.build_tokenizer(args)
+        self.tgt_dict.build_bpe(args)
         self.word_dict = word_dict
         self.feat_in_channels = args.feat_in_channels
         self.specaugment_config = args.specaugment_config
@@ -253,7 +255,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 unk_count += (tgt_dataset[i][0] == self.tgt_dict.unk()).int().sum().item()
             self.tgt_dict.count[self.tgt_dict.unk()] = unk_count
 
-    def build_generator(self, args):
+    def build_generator(self, models, args):
         if getattr(args, "score_reference", False):
             args.score_reference = False
             logger.warning(
@@ -390,9 +392,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             utt_id = sample["utt_id"][i]
             ref_tokens = sample["target_raw_text"][i]
             pred_tokens = self.target_dictionary.string(pred.data[i])
-            scorer.add_evaluation(
-                utt_id, ref_tokens, pred_tokens, bpe_symbol=self.args.remove_bpe,
-            )
+            scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
         return (
             scorer.tot_word_error(), scorer.tot_word_count(),
             scorer.tot_char_error(), scorer.tot_char_count(),
