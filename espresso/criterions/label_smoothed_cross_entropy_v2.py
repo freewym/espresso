@@ -81,14 +81,13 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
 
     def __init__(
         self, task, sentence_avg, label_smoothing, smoothing_type, print_interval,
-        remove_bpe, unigram_pseudo_count,
+        unigram_pseudo_count,
     ):
         super().__init__(task, sentence_avg, label_smoothing)
 
         self.dictionary = task.target_dictionary
         self.smoothing_type = smoothing_type
         self.print_interval = print_interval
-        self.remove_bpe = remove_bpe
         self.epoch = 1
         self.unigram_tensor = None
         if smoothing_type == "unigram":
@@ -147,13 +146,8 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
                 i = np.random.randint(0, len(sample["id"]))
             ref_tokens = sample["target_raw_text"][i]
             length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
-            ref_one = self.dictionary.tokens_to_sentence(
-                ref_tokens, use_unk_sym=False, bpe_symbol=self.remove_bpe,
-            )
-            pred_one = self.dictionary.tokens_to_sentence(
-                self.dictionary.string(pred.data[i][:length]), use_unk_sym=True,
-                bpe_symbol=self.remove_bpe,
-            )
+            ref_one = self.dictionary.wordpiece_decode(ref_tokens)
+            pred_one = self.dictionary.wordpiece_decode(self.dictionary.string(pred.data[i][:length]))
             logger.info("sample REF: " + ref_one)
             logger.info("sample PRD: " + pred_one)
 

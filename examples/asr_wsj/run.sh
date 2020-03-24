@@ -281,7 +281,7 @@ if [ ${stage} -le 9 ]; then
     --arch speech_conv_lstm_wsj --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.05 --smoothing-type temporal \
     --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6 \
-    --dict $dict --non-lang-syms $nlsyms \
+    --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
     --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
 fi
 
@@ -306,8 +306,8 @@ if [ ${stage} -le 10 ]; then
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
       --task speech_recognition_espresso --user-dir espresso --max-tokens 20000 --max-sentences 32 \
-      --num-shards 1 --shard-id 0 --dict $dict --non-lang-syms $nlsyms --gen-subset $dataset \
-      --max-source-positions 9999 --max-target-positions 999 \
+      --num-shards 1 --shard-id 0 --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
+      --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 50 --max-len-a 0.2 --max-len-b 0 --lenpen 1.0 \
       --results-path $decode_dir $opts --print-alignment
 
