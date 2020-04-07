@@ -3,21 +3,30 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Dict, Optional
+
 import numpy as np
 
 import torch
+import torch.nn as nn
+from torch import Tensor
 
 
-class SimpleGreedyDecoder(object):
+class SimpleGreedyDecoder(nn.Module):
     def __init__(
-        self, dictionary, max_len_a=0, max_len_b=200, temperature=1., for_validation=True,
+        self, models, dictionary, max_len_a=0, max_len_b=200, retain_dropout=False,
+        temperature=1.0, for_validation=True,
     ):
         """Decode given speech audios with the simple greedy search.
 
         Args:
+            models (List[~fairseq.models.FairseqModel]): ensemble of models,
+                currently support fairseq.models.TransformerModel for scripting
             dictionary (~fairseq.data.Dictionary): dictionary
             max_len_a/b (int, optional): generate sequences of maximum length
                 ax + b, where x is the source length
+            retain_dropout (bool, optional): use dropout when generating
+                (default: False)
             temperature (float, optional): temperature, where values
                 >1.0 produce more uniform samples and values <1.0 produce
                 sharper samples (default: 1.0)
@@ -26,19 +35,32 @@ class SimpleGreedyDecoder(object):
                 whether a tensor of lprobs is returned. If true, target should be
                 not None
         """
+        super().__init__()
+        from fairseq.sequence_generator import EnsembleModel
+        if isinstance(models, EnsembleModel):
+            self.model = models
+        else:
+            self.model = EnsembleModel(models)
         self.pad = dictionary.pad()
         self.unk = dictionary.unk()
         self.eos = dictionary.eos()
         self.vocab_size = len(dictionary)
         self.max_len_a = max_len_a
         self.max_len_b = max_len_b
+        self.retain_dropout = retain_dropout
         self.temperature = temperature
-        assert temperature > 0, '--temperature must be greater than 0'
+        assert temperature > 0, "--temperature must be greater than 0"
+        if not self.retain_dropout:
+            self.model.eval()
         self.for_validation = for_validation
 
+    def cuda(self):
+        self.model.cuda()
+        return self
+
     @torch.no_grad()
-    def decode(self, models, sample, **kwargs):
-        """Generate a batch of translations.
+    def decode(self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs):
+        """Generate a batch of translations. Match the api of other fairseq generators.
 
         Args:
             models (List[~fairseq.models.FairseqModel]): ensemble of models
@@ -46,27 +68,23 @@ class SimpleGreedyDecoder(object):
             bos_token (int, optional): beginning of sentence token
                 (default: self.eos)
         """
-        from fairseq.sequence_generator import EnsembleModel
-        model = EnsembleModel(models)
-        return self._decode(model, sample, **kwargs)
+        self.model.reset_incremental_state()
+        return self._decode(sample, **kwargs)
 
     @torch.no_grad()
-    def _decode(self, model, sample, bos_token=None, **kwargs):
-        model.eval()
-
-        # model.forward normally channels prev_output_tokens into the decoder
-        # separately, but SimpleGreedyDecoder directly calls model.encoder
-        encoder_input = {
-            k: v for k, v in sample["net_input"].items()
-            if k != "prev_output_tokens"
-        }
+    def _decode(self, sample: Dict[str, Dict[str, Tensor]], bos_token: Optional[int] = None):
+        encoder_input: Dict[str, Tensor] = {}
+        for k, v in sample["net_input"].items():
+            if k != "prev_output_tokens":
+                encoder_input[k] = v
         src_tokens = encoder_input["src_tokens"]
         input_size = src_tokens.size()
-        # batch dimension goes first followed by source lengths
-        bsz = input_size[0]
-        src_len = input_size[1]
+        bsz, src_len = input_size[0], input_size[1]
 
-        encoder_outs = model.forward_encoder(encoder_input)
+        encoder_outs = self.model.forward_encoder(
+            src_tokens=encoder_input["src_tokens"],
+            src_lengths=encoder_input["src_lengths"],
+        )
         target = sample["target"]
         # target can only be None if not for validation
         assert target is not None or not self.for_validation
@@ -79,7 +97,7 @@ class SimpleGreedyDecoder(object):
             min(
                 int(self.max_len_a * src_len + self.max_len_b),
                 # exclude the EOS marker
-                model.max_decoder_positions() - 1,
+                self.model.max_decoder_positions() - 1,
             )
 
         tokens = src_tokens.new(bsz, max_len + 2).long().fill_(self.pad)
@@ -97,7 +115,7 @@ class SimpleGreedyDecoder(object):
                 if attn is not None:
                     attn = attn[:, :, :step + 1]
                 break
-            log_probs, avg_attn_scores = model.forward_decoder(
+            log_probs, avg_attn_scores = self.model.forward_decoder(
                 tokens[:, :step + 1], encoder_outs, temperature=self.temperature,
             )
             tokens[:, step + 1] = log_probs.argmax(-1)

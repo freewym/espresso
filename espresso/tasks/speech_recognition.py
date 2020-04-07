@@ -118,7 +118,7 @@ def get_asr_dataset_from_json(
     )
 
 
-@register_task('speech_recognition_espresso')
+@register_task("speech_recognition_espresso")
 class SpeechRecognitionEspressoTask(FairseqTask):
     """
     Transcribe from speech (source) to token text (target).
@@ -315,6 +315,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             search_strategy = search.BeamSearch(self.target_dictionary)
 
         return SequenceGenerator(
+            models,
             self.target_dictionary,
             beam_size=getattr(args, "beam", 5),
             max_len_a=getattr(args, "max_len_a", 0),
@@ -327,6 +328,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             match_source_len=getattr(args, "match_source_len", False),
             no_repeat_ngram_size=getattr(args, "no_repeat_ngram_size", 0),
             search_strategy=search_strategy,
+            lm_weight = getattr(args, "lm_weight", 0.0),
             eos_factor=getattr(args, "eos_factor", None),
         )
 
@@ -334,10 +336,13 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         return AsrDataset(src_tokens, src_lengths)
 
     def build_model(self, args):
+        model = super().build_model(args)
         # build the greedy decoder for validation with WER
         from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
-        self.decoder_for_validation = SimpleGreedyDecoder(self.target_dictionary, for_validation=True)
-        return super().build_model(args)
+        self.decoder_for_validation = SimpleGreedyDecoder(
+            [model], self.target_dictionary, for_validation=True,
+        )
+        return model
 
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
@@ -346,12 +351,6 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             logging_output["char_error"], logging_output["char_count"],
         ) = self._inference_with_wer(self.decoder_for_validation, sample, model)
         return loss, sample_size, logging_output
-
-    def inference_step(self, generator, models, sample, prefix_tokens=None, lm_weight=0.0):
-        with torch.no_grad():
-            return generator.generate(
-                models, sample, prefix_tokens=prefix_tokens, lm_weight=lm_weight,
-            )
 
     def reduce_metrics(self, logging_outputs, criterion):
         super().reduce_metrics(logging_outputs, criterion)
