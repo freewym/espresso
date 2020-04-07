@@ -168,9 +168,7 @@ def _main(args, output_file):
             prefix_tokens = sample['target'][:, :args.prefix_size]
 
         gen_timer.start()
-        hypos = task.inference_step(
-            generator, models, sample, prefix_tokens, lm_weight=args.lm_weight,
-        )
+        hypos = task.inference_step(generator, models, sample, prefix_tokens)
         num_generated_tokens = sum(len(h[0]['tokens']) for h in hypos)
         gen_timer.stop(num_generated_tokens)
 
