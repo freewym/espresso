@@ -14,7 +14,7 @@
 #export cuda_cmd="run.pl --mem 10G --gpu 1"
 #export decode_cmd="run.pl --mem 4G"
 
-# JHU setup
+# JHU setup (copy queue-freegpu.pl from ESPnet into utils/)
 export train_cmd="queue.pl --mem 10G"
-export cuda_cmd="queue.pl --mem 10G --gpu 1 --config conf/gpu.conf"
+export cuda_cmd="queue-freegpu.pl --mem 10G --gpu 1 --config conf/gpu.conf"
 export decode_cmd="queue.pl --mem 4G"

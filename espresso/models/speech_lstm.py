@@ -4,8 +4,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+from typing import Dict, List, Optional, Tuple
 
 import torch
+from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -38,7 +40,7 @@ DEFAULT_MAX_TARGET_POSITIONS = 1e5
 logger = logging.getLogger(__name__)
 
 
-@register_model('speech_lstm')
+@register_model("speech_lstm")
 class SpeechLSTMModel(FairseqEncoderDecoderModel):
     def __init__(self, encoder, decoder, pretrained_lm=None):
         super().__init__(encoder, decoder)
@@ -51,79 +53,79 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
     def add_args(parser):
         """Add model-specific arguments to the parser."""
         # fmt: off
-        parser.add_argument('--dropout', type=float, metavar='D',
-                            help='dropout probability')
-        parser.add_argument('--encoder-conv-channels', type=str, metavar='EXPR',
-                            help='list of encoder convolution\'s out channels')
-        parser.add_argument('--encoder-conv-kernel-sizes', type=str, metavar='EXPR',
-                            help='list of encoder convolution\'s kernel sizes')
-        parser.add_argument('--encoder-conv-strides', type=str, metavar='EXPR',
-                            help='list of encoder convolution\'s strides')
-        parser.add_argument('--encoder-rnn-hidden-size', type=int, metavar='N',
-                            help='encoder rnn\'s hidden size')
-        parser.add_argument('--encoder-rnn-layers', type=int, metavar='N',
-                            help='number of rnn encoder layers')
-        parser.add_argument('--encoder-rnn-bidirectional',
+        parser.add_argument("--dropout", type=float, metavar="D",
+                            help="dropout probability")
+        parser.add_argument("--encoder-conv-channels", type=str, metavar="EXPR",
+                            help="list of encoder convolution\'s out channels")
+        parser.add_argument("--encoder-conv-kernel-sizes", type=str, metavar="EXPR",
+                            help="list of encoder convolution\'s kernel sizes")
+        parser.add_argument("--encoder-conv-strides", type=str, metavar="EXPR",
+                            help="list of encoder convolution\'s strides")
+        parser.add_argument("--encoder-rnn-hidden-size", type=int, metavar="N",
+                            help="encoder rnn\'s hidden size")
+        parser.add_argument("--encoder-rnn-layers", type=int, metavar="N",
+                            help="number of rnn encoder layers")
+        parser.add_argument("--encoder-rnn-bidirectional",
                             type=lambda x: options.eval_bool(x),
-                            help='make all rnn layers of encoder bidirectional')
-        parser.add_argument('--encoder-rnn-residual',
+                            help="make all rnn layers of encoder bidirectional")
+        parser.add_argument("--encoder-rnn-residual",
                             type=lambda x: options.eval_bool(x),
-                            help='create residual connections for rnn encoder '
-                            'layers (starting from the 2nd layer), i.e., the actual '
-                            'output of such layer is the sum of its input and output')
-        parser.add_argument('--decoder-embed-dim', type=int, metavar='N',
-                            help='decoder embedding dimension')
-        parser.add_argument('--decoder-embed-path', type=str, metavar='STR',
-                            help='path to pre-trained decoder embedding')
-        parser.add_argument('--decoder-freeze-embed', action='store_true',
-                            help='freeze decoder embeddings')
-        parser.add_argument('--decoder-hidden-size', type=int, metavar='N',
-                            help='decoder hidden size')
-        parser.add_argument('--decoder-layers', type=int, metavar='N',
-                            help='number of decoder layers')
-        parser.add_argument('--decoder-out-embed-dim', type=int, metavar='N',
-                            help='decoder output embedding dimension')
-        parser.add_argument('--decoder-rnn-residual',
+                            help="create residual connections for rnn encoder "
+                            "layers (starting from the 2nd layer), i.e., the actual "
+                            "output of such layer is the sum of its input and output")
+        parser.add_argument("--decoder-embed-dim", type=int, metavar="N",
+                            help="decoder embedding dimension")
+        parser.add_argument("--decoder-embed-path", type=str, metavar="STR",
+                            help="path to pre-trained decoder embedding")
+        parser.add_argument("--decoder-freeze-embed", action="store_true",
+                            help="freeze decoder embeddings")
+        parser.add_argument("--decoder-hidden-size", type=int, metavar="N",
+                            help="decoder hidden size")
+        parser.add_argument("--decoder-layers", type=int, metavar="N",
+                            help="number of decoder layers")
+        parser.add_argument("--decoder-out-embed-dim", type=int, metavar="N",
+                            help="decoder output embedding dimension")
+        parser.add_argument("--decoder-rnn-residual",
                             type=lambda x: options.eval_bool(x),
-                            help='create residual connections for rnn decoder '
-                            'layers (starting from the 2nd layer), i.e., the actual '
-                            'output of such layer is the sum of its input and output')
-        parser.add_argument('--attention-type', type=str, metavar='STR',
-                            choices=['bahdanau', 'luong'],
-                            help='attention type')
-        parser.add_argument('--attention-dim', type=int, metavar='N',
-                            help='attention dimension')
-        parser.add_argument('--need-attention', action='store_true',
-                            help='need to return attention tensor for the caller')
-        parser.add_argument('--adaptive-softmax-cutoff', metavar='EXPR',
-                            help='comma separated list of adaptive softmax cutoff points. '
-                                 'Must be used with adaptive_loss criterion')
-        parser.add_argument('--share-decoder-input-output-embed',
+                            help="create residual connections for rnn decoder "
+                            "layers (starting from the 2nd layer), i.e., the actual "
+                            "output of such layer is the sum of its input and output")
+        parser.add_argument("--attention-type", type=str, metavar="STR",
+                            choices=["bahdanau", "luong"],
+                            help="attention type")
+        parser.add_argument("--attention-dim", type=int, metavar="N",
+                            help="attention dimension")
+        parser.add_argument("--need-attention", action="store_true",
+                            help="need to return attention tensor for the caller")
+        parser.add_argument("--adaptive-softmax-cutoff", metavar="EXPR",
+                            help="comma separated list of adaptive softmax cutoff points. "
+                                 "Must be used with adaptive_loss criterion")
+        parser.add_argument("--share-decoder-input-output-embed",
                             type=lambda x: options.eval_bool(x),
-                            help='share decoder input and output embeddings')
-        parser.add_argument('--pretrained-lm-checkpoint', type=str, metavar='STR',
-                            help='path to load checkpoint from pretrained language model(LM), '
-                            'which will be present and kept fixed during training.')
+                            help="share decoder input and output embeddings")
+        parser.add_argument("--pretrained-lm-checkpoint", type=str, metavar="STR",
+                            help="path to load checkpoint from pretrained language model(LM), "
+                            "which will be present and kept fixed during training.")
 
         # Granular dropout settings (if not specified these default to --dropout)
-        parser.add_argument('--encoder-rnn-dropout-in', type=float, metavar='D',
-                            help='dropout probability for encoder rnn\'s input')
-        parser.add_argument('--encoder-rnn-dropout-out', type=float, metavar='D',
-                            help='dropout probability for encoder rnn\'s output')
-        parser.add_argument('--decoder-dropout-in', type=float, metavar='D',
-                            help='dropout probability for decoder input embedding')
-        parser.add_argument('--decoder-dropout-out', type=float, metavar='D',
-                            help='dropout probability for decoder output')
+        parser.add_argument("--encoder-rnn-dropout-in", type=float, metavar="D",
+                            help="dropout probability for encoder rnn\'s input")
+        parser.add_argument("--encoder-rnn-dropout-out", type=float, metavar="D",
+                            help="dropout probability for encoder rnn\'s output")
+        parser.add_argument("--decoder-dropout-in", type=float, metavar="D",
+                            help="dropout probability for decoder input embedding")
+        parser.add_argument("--decoder-dropout-out", type=float, metavar="D",
+                            help="dropout probability for decoder output")
 
         # Scheduled sampling options
-        parser.add_argument('--scheduled-sampling-probs', type=lambda p: options.eval_str_list(p),
-                            metavar='P_1,P_2,...,P_N', default=[1.0],
-                            help='scheduled sampling probabilities of sampling the truth '
-                            'labels for N epochs starting from --start-schedule-sampling-epoch; '
-                            'all later epochs using P_N')
-        parser.add_argument('--start-scheduled-sampling-epoch', type=int,
-                            metavar='N', default=1,
-                            help='start scheduled sampling from the specified epoch')
+        parser.add_argument("--scheduled-sampling-probs", type=lambda p: options.eval_str_list(p),
+                            metavar="P_1,P_2,...,P_N", default=[1.0],
+                            help="scheduled sampling probabilities of sampling the truth "
+                            "labels for N epochs starting from --start-schedule-sampling-epoch; "
+                            "all later epochs using P_N")
+        parser.add_argument("--start-scheduled-sampling-epoch", type=int,
+                            metavar="N", default=1,
+                            help="start scheduled sampling from the specified epoch")
         # fmt: on
 
     @classmethod
@@ -132,8 +134,8 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         # make sure that all args are properly defaulted (in case there are any new ones)
         base_architecture(args)
 
-        max_source_positions = getattr(args, 'max_source_positions', DEFAULT_MAX_SOURCE_POSITIONS)
-        max_target_positions = getattr(args, 'max_target_positions', DEFAULT_MAX_TARGET_POSITIONS)
+        max_source_positions = getattr(args, "max_source_positions", DEFAULT_MAX_SOURCE_POSITIONS)
+        max_target_positions = getattr(args, "max_target_positions", DEFAULT_MAX_TARGET_POSITIONS)
 
         def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):
             num_embeddings = len(dictionary)
@@ -155,8 +157,8 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         if args.share_decoder_input_output_embed and (
                 args.decoder_embed_dim != args.decoder_out_embed_dim):
             raise ValueError(
-                '--share-decoder-input-output-embed requires '
-                '--decoder-embed-dim to match --decoder-out-embed-dim'
+                "--share-decoder-input-output-embed requires "
+                "--decoder-embed-dim to match --decoder-out-embed-dim"
             )
 
         if args.decoder_freeze_embed:
@@ -165,7 +167,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
         kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
         strides = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
-        logger.info('input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
+        logger.info("input feature dimension: {}, channels: {}".format(task.feat_dim, task.feat_in_channels))
         assert task.feat_dim % task.feat_in_channels == 0
         conv_layers = ConvBNReLU(
             out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,
@@ -217,14 +219,14 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             share_input_output_embed=args.share_decoder_input_output_embed,
             adaptive_softmax_cutoff=(
                 options.eval_str_list(args.adaptive_softmax_cutoff, type=int)
-                if args.criterion == 'adaptive_loss' else None
+                if args.criterion == "adaptive_loss" else None
             ),
             max_target_positions=max_target_positions,
             scheduled_sampling_rate_scheduler=scheduled_sampling_rate_scheduler,
         )
         pretrained_lm = None
         if args.pretrained_lm_checkpoint:
-            logger.info('loading pretrained LM from {}'.format(args.pretrained_lm_checkpoint))
+            logger.info("loading pretrained LM from {}".format(args.pretrained_lm_checkpoint))
             pretrained_lm = checkpoint_utils.load_model_ensemble(
                 args.pretrained_lm_checkpoint, task=task)[0][0]
             pretrained_lm.make_generation_fast_()
@@ -232,6 +234,21 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             for param in pretrained_lm.parameters():
                 param.requires_grad = False
         return cls(encoder, decoder, pretrained_lm)
+
+    def forward(
+        self,
+        src_tokens,
+        src_lengths,
+        prev_output_tokens,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
+        epoch=1,
+    ):
+        encoder_out = self.encoder(src_tokens, src_lengths=src_lengths)
+        decoder_out = self.decoder(
+            prev_output_tokens, encoder_out=encoder_out,
+            incremental_state=incremental_state, epoch=epoch,
+        )
+        return decoder_out
 
     def set_num_updates(self, num_updates):
         self.num_updates = num_updates
@@ -342,7 +359,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
         return in_lengths if self.conv_layers_before is None \
             else self.conv_layers_before.output_lengths(in_lengths)
 
-    def forward(self, src_tokens, src_lengths, **unused):
+    def forward(self, src_tokens, src_lengths: Tensor, **unused):
         if self.left_pad:
             # nn.utils.rnn.pack_padded_sequence requires right-padding;
             # convert left-padding to right-padding
@@ -372,13 +389,13 @@ class SpeechLSTMEncoder(FairseqEncoder):
             if self.residual and i > 0:  # residual connection starts from the 2nd layer
                 prev_x = x
             # pack embedded source tokens into a PackedSequence
-            packed_x = nn.utils.rnn.pack_padded_sequence(x, src_lengths.data.tolist())
+            packed_x = nn.utils.rnn.pack_padded_sequence(x, src_lengths.data)
 
             # apply LSTM
             packed_outs, (_, _) = self.lstm[i](packed_x, (h0, c0))
 
             # unpack outputs and apply dropout
-            x, _ = nn.utils.rnn.pad_packed_sequence(packed_outs, padding_value=self.padding_value)
+            x, _ = nn.utils.rnn.pad_packed_sequence(packed_outs, padding_value=self.padding_value*1.0)
             if i < len(self.lstm) - 1:  # not applying dropout for the last layer
                 x = F.dropout(x, p=self.dropout_out, training=self.training)
             x = x + prev_x if self.residual and i > 0 else x
@@ -387,18 +404,20 @@ class SpeechLSTMEncoder(FairseqEncoder):
         encoder_padding_mask = padding_mask.t()
 
         return {
-            'encoder_out': (x,),
-            'encoder_padding_mask': encoder_padding_mask if encoder_padding_mask.any() else None
+            "encoder_out": (x, src_lengths),
+            "encoder_padding_mask": (encoder_padding_mask if encoder_padding_mask.any() else None, torch.empty(0)),
         }
 
     def reorder_encoder_out(self, encoder_out, new_order):
-        encoder_out['encoder_out'] = tuple(
-            eo.index_select(1, new_order)
-            for eo in encoder_out['encoder_out']
+        encoder_out["encoder_out"] = (
+            encoder_out["encoder_out"][0].index_select(1, new_order),
+            encoder_out["encoder_out"][1].index_select(0, new_order),
         )
-        if encoder_out['encoder_padding_mask'] is not None:
-            encoder_out['encoder_padding_mask'] = \
-                encoder_out['encoder_padding_mask'].index_select(1, new_order)
+        if encoder_out["encoder_padding_mask"][0] is not None:
+            encoder_out["encoder_padding_mask"] = (
+                encoder_out["encoder_padding_mask"][0].index_select(1, new_order),
+                encoder_out['encoder_padding_mask'][1],
+            )
         return encoder_out
 
     def max_positions(self):
@@ -421,13 +440,14 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         self.dropout_out = dropout_out
         self.hidden_size = hidden_size
         self.share_input_output_embed = share_input_output_embed
-        if attn_type is None or attn_type.lower() == 'none':
+        if attn_type is None or attn_type.lower() == "none":
             # no attention, no encoder output needed (language model case)
             need_attn = False
             encoder_output_units = 0
         self.need_attn = need_attn
         self.residual = residual
         self.max_target_positions = max_target_positions
+        self.num_layers = num_layers
 
         self.adaptive_softmax = None
         num_embeddings = len(dictionary)
@@ -446,18 +466,18 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             )
             for layer in range(num_layers)
         ])
-        if attn_type is None or attn_type.lower() == 'none':
+        if attn_type is None or attn_type.lower() == "none":
             self.attention = None
-        elif attn_type.lower() == 'bahdanau':
+        elif attn_type.lower() == "bahdanau":
             self.attention = speech_attention.BahdanauAttention(
                 hidden_size, encoder_output_units, attn_dim,
             )
-        elif attn_type.lower() == 'luong':
+        elif attn_type.lower() == "luong":
             self.attention = speech_attention.LuongAttention(
                 hidden_size, encoder_output_units,
             )
         else:
-            raise ValueError('unrecognized attention type.')
+            raise ValueError("unrecognized attention type.")
         if hidden_size + encoder_output_units != out_embed_dim:
             self.additional_fc = Linear(hidden_size + encoder_output_units, out_embed_dim)
         if adaptive_softmax_cutoff is not None:
@@ -469,7 +489,25 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
 
         self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
 
-    def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None, **kwargs):
+    def get_cached_state(self, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]):
+        cached_state = self.get_incremental_state(incremental_state, "cached_state")
+        assert cached_state is not None
+        prev_hiddens_ = cached_state["prev_hiddens"]
+        assert prev_hiddens_ is not None
+        prev_cells_ = cached_state["prev_cells"]
+        assert prev_cells_ is not None
+        prev_hiddens = [prev_hiddens_[i] for i in range(self.num_layers)]
+        prev_cells = [prev_cells_[j] for j in range(self.num_layers)]
+        input_feed = cached_state["input_feed"]  # can be None for decoder-only language models
+        return prev_hiddens, prev_cells, input_feed
+
+    def forward(
+        self,
+        prev_output_tokens,
+        encoder_out: Optional[Dict[str, Tuple[Tensor, Tensor]]] = None,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
+        **kwargs,
+    ):
         """
         Args:
             prev_output_tokens (LongTensor): previous decoder outputs of shape
@@ -485,7 +523,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 - attention weights of shape `(batch, tgt_len, src_len)`
         """
         if self.scheduled_sampling_rate_scheduler is not None:
-            epoch = kwargs.get('epoch', 1)
+            epoch = kwargs.get("epoch", 1)
             sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
             if sampling_prob < 1.0:  # apply scheduled sampling
                 return self._forward_with_scheduled_sampling(
@@ -499,7 +537,11 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         return self.output_layer(x), attn_scores
 
     def _forward_with_scheduled_sampling(
-        self, prev_output_tokens, sampling_prob, encoder_out=None, incremental_state=None,
+        self,
+        prev_output_tokens,
+        sampling_prob,
+        encoder_out: Optional[Dict[str, Tuple[Tensor, Tensor]]] = None,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
     ):
         bsz, seqlen = prev_output_tokens.size()
         outs = []
@@ -523,7 +565,11 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         return x, None
 
     def extract_features(
-        self, prev_output_tokens, encoder_out=None, incremental_state=None, **unused,
+        self,
+        prev_output_tokens,
+        encoder_out: Dict[str, Tuple[Tensor, Tensor]],
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
+        **unused,
     ):
         """
         Similar to *forward* but only return features.
@@ -535,18 +581,19 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         """
         if encoder_out is not None:
             assert self.attention is not None
-            encoder_padding_mask = encoder_out['encoder_padding_mask']
-            encoder_out = encoder_out['encoder_out']
+            encoder_padding_mask, *_ = encoder_out["encoder_padding_mask"]
+            encoder_out = encoder_out["encoder_out"]
             # get outputs from encoder
             encoder_outs = encoder_out[0]
             srclen = encoder_outs.size(0)
         else:
             encoder_padding_mask = None
             encoder_out = None
-            srclen = None
+            srclen = 0
 
-        if incremental_state is not None:
+        if incremental_state is not None and len(incremental_state) > 0:
             prev_output_tokens = prev_output_tokens[:, -1:]
+
         bsz, seqlen = prev_output_tokens.size()
 
         # embed tokens
@@ -557,14 +604,13 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         x = x.transpose(0, 1)
 
         # initialize previous states (or get from cache during incremental generation)
-        cached_state = utils.get_incremental_state(self, incremental_state, 'cached_state')
-        if cached_state is not None:
-            prev_hiddens, prev_cells, input_feed = cached_state
+
+        if incremental_state is not None and len(incremental_state) > 0:
+            prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
         else:
-            num_layers = len(self.layers)
             zero_state = x.new_zeros(bsz, self.hidden_size)
-            prev_hiddens = [zero_state for i in range(num_layers)]
-            prev_cells = [zero_state for i in range(num_layers)]
+            prev_hiddens = [zero_state for i in range(self.num_layers)]
+            prev_cells = [zero_state for i in range(self.num_layers)]
             input_feed = x.new_zeros(bsz, self.encoder_output_units) \
                 if encoder_out is not None else None
 
@@ -586,6 +632,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 # compute and apply attention using the 1st layer's hidden state
                 if encoder_out is not None:
                     if i == 0:
+                        assert attn_scores is not None
                         context, attn_scores[:, j, :], _ = self.attention(
                             hidden, encoder_outs, encoder_padding_mask,
                         )
@@ -614,11 +661,14 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             # save final output
             outs.append(input)
 
-        # cache previous states (no-op except during incremental generation)
-        utils.set_incremental_state(
-            self, incremental_state, 'cached_state',
-            (prev_hiddens, prev_cells, input_feed),
+        # Stack all the necessary tensors together and store
+        prev_hiddens_tensor = torch.stack(prev_hiddens)
+        prev_cells_tensor = torch.stack(prev_cells)
+        cache_state = torch.jit.annotate(
+            Dict[str, Optional[Tensor]],
+            {"prev_hiddens": prev_hiddens_tensor, "prev_cells": prev_cells_tensor, "input_feed": input_feed}
         )
+        self.set_incremental_state(incremental_state, "cached_state", cache_state)
 
         # collect outputs across time steps
         x = torch.cat(outs, dim=0).view(seqlen, bsz, -1)
@@ -627,12 +677,12 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         # T x B x C -> B x T x C
         x = x.transpose(1, 0)
 
-        if hasattr(self, 'additional_fc') and self.adaptive_softmax is None:
+        if hasattr(self, "additional_fc") and self.adaptive_softmax is None:
             x = self.additional_fc(x)
             x = F.dropout(x, p=self.dropout_out, training=self.training)
-
         # srclen x tgtlen x bsz -> bsz x tgtlen x srclen
         if not self.training and encoder_out is not None and self.need_attn:
+            assert attn_scores is not None
             attn_scores = attn_scores.transpose(0, 2)
         else:
             attn_scores = None
@@ -650,48 +700,62 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         else:
             return features
 
-    def reorder_incremental_state(self, incremental_state, new_order):
+    def reorder_state(self, state: List[Tensor], new_order):
+        return [
+            state_i.index_select(0, new_order) if state_i is not None else None
+            for state_i in state
+        ]
+
+    def reorder_incremental_state(self, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]], new_order):
         super().reorder_incremental_state(incremental_state, new_order)
-        cached_state = utils.get_incremental_state(self, incremental_state, 'cached_state')
-        if cached_state is None:
+        if incremental_state is None or len(incremental_state) == 0:
             return
-
-        def reorder_state(state):
-            if isinstance(state, list):
-                return [reorder_state(state_i) for state_i in state]
-            elif state is not None:
-                return state.index_select(0, new_order)
-            else:
-                return None
-
-        new_state = tuple(map(reorder_state, cached_state))
-        utils.set_incremental_state(self, incremental_state, 'cached_state', new_state)
+        prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
+        cached_state = (prev_hiddens, prev_cells, [input_feed])
+        new_state = [self.reorder_state(state, new_order) for state in cached_state]
+        prev_hiddens_tensor = torch.stack(new_state[0])
+        prev_cells_tensor = torch.stack(new_state[1])
+        cached_state_new = torch.jit.annotate(
+            Dict[str, Optional[Tensor]],
+            {"prev_hiddens": prev_hiddens_tensor, "prev_cells": prev_cells_tensor, "input_feed": new_state[2][0]}
+        )
+        self.set_incremental_state(incremental_state, "cached_state", cached_state_new),
+        return
 
     def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
-        cached_state = utils.get_incremental_state(self, incremental_state, 'cached_state')
-        if cached_state is None:
-            assert another_cached_state is None
+        if incremental_state is None or len(incremental_state) == 0:
+            assert another_cached_state is None or len(another_cached_state) == 0
             return
+        prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
+        cached_state = (prev_hiddens, prev_cells, [input_feed])
+        another_cached_state = (another_cached_state[0], another_cached_state[1], [another_cached_state[2]])
 
-        def mask_copy_state(state, another_state):
-            if isinstance(state, list):
-                assert isinstance(another_state, list) and len(state) == len(another_state)
-                return [
-                    mask_copy_state(state_i, another_state_i)
-                    for state_i, another_state_i in zip(state, another_state)
-                ]
-            if state is not None:
-                assert state.size(0) == mask.size(0) and another_state is not None and \
-                    state.size() == another_state.size()
-                for _ in range(1, len(state.size())):
-                    mask_unsqueezed = mask.unsqueeze(-1)
-                return torch.where(mask_unsqueezed, state, another_state)
-            else:
-                assert another_state is None
-                return None
+        def mask_copy_state(state: List[Tensor], another_state: List[Tensor]):
+            new_state = []
+            for state_i, another_state_i in zip(state, another_state):
+                if state_i is None:
+                    assert another_state_i is None
+                    new_state.append(None)
+                else:
+                    assert state_i.size(0) == mask.size(0) and another_state_i is not None and \
+                        state_i.size() == another_state_i.size()
+                    mask_unsqueezed = mask
+                    for _ in range(1, len(state_i.size())):
+                        mask_unsqueezed = mask_unsqueezed.unsqueeze(-1)
+                    new_state.append(torch.where(mask_unsqueezed, state_i, another_state_i))
+            return new_state
 
-        new_state = tuple(map(mask_copy_state, cached_state, another_cached_state))
-        utils.set_incremental_state(self, incremental_state, 'cached_state', new_state)
+        new_state = [
+            mask_copy_state(state, another_state)
+            for (state, another_state) in zip(cached_state, another_cached_state)
+        ]
+        prev_hiddens_tensor = torch.stack(new_state[0])
+        prev_cells_tensor = torch.stack(new_state[1])
+        cached_state_new = torch.jit.annotate(
+            Dict[str, Optional[Tensor]],
+            {"prev_hiddens": prev_hiddens_tensor, "prev_cells": prev_cells_tensor, "input_feed": new_state[2][0]}
+        )
+        self.set_incremental_state(incremental_state, "cached_state", cached_state_new)
 
     def max_positions(self):
         """Maximum output length supported by the decoder."""
@@ -724,71 +788,71 @@ def Convolution2d(in_channels, out_channels, kernel_size, stride):
     return m
 
 
-@register_model_architecture('speech_lstm', 'speech_lstm')
+@register_model_architecture("speech_lstm", "speech_lstm")
 def base_architecture(args):
-    args.dropout = getattr(args, 'dropout', 0.4)
+    args.dropout = getattr(args, "dropout", 0.4)
     args.encoder_conv_channels = getattr(
-        args, 'encoder_conv_channels', '[64, 64, 128, 128]',
+        args, "encoder_conv_channels", "[64, 64, 128, 128]",
     )
     args.encoder_conv_kernel_sizes = getattr(
-        args, 'encoder_conv_kernel_sizes', '[(3, 3), (3, 3), (3, 3), (3, 3)]',
+        args, "encoder_conv_kernel_sizes", "[(3, 3), (3, 3), (3, 3), (3, 3)]",
     )
     args.encoder_conv_strides = getattr(
-        args, 'encoder_conv_strides', '[(1, 1), (2, 2), (1, 1), (2, 2)]',
+        args, "encoder_conv_strides", "[(1, 1), (2, 2), (1, 1), (2, 2)]",
     )
-    args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 320)
-    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 3)
-    args.encoder_rnn_bidirectional = getattr(args, 'encoder_rnn_bidirectional', True)
-    args.encoder_rnn_residual = getattr(args, 'encoder_rnn_residual', False)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 48)
-    args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
-    args.decoder_freeze_embed = getattr(args, 'decoder_freeze_embed', False)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 320)
-    args.decoder_layers = getattr(args, 'decoder_layers', 3)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 960)
-    args.decoder_rnn_residual = getattr(args, 'decoder_rnn_residual', True)
-    args.attention_type = getattr(args, 'attention_type', 'bahdanau')
-    args.attention_dim = getattr(args, 'attention_dim', 320)
-    args.need_attention = getattr(args, 'need_attention', False)
-    args.encoder_rnn_dropout_in = getattr(args, 'encoder_rnn_dropout_in', args.dropout)
-    args.encoder_rnn_dropout_out = getattr(args, 'encoder_rnn_dropout_out', args.dropout)
-    args.decoder_dropout_in = getattr(args, 'decoder_dropout_in', args.dropout)
-    args.decoder_dropout_out = getattr(args, 'decoder_dropout_out', args.dropout)
-    args.adaptive_softmax_cutoff = getattr(args, 'adaptive_softmax_cutoff', None)
-    args.share_decoder_input_output_embed = getattr(args, 'share_decoder_input_output_embed', False)
-    args.pretrained_lm_checkpoint = getattr(args, 'pretrained_lm_checkpoint', None)
+    args.encoder_rnn_hidden_size = getattr(args, "encoder_rnn_hidden_size", 320)
+    args.encoder_rnn_layers = getattr(args, "encoder_rnn_layers", 3)
+    args.encoder_rnn_bidirectional = getattr(args, "encoder_rnn_bidirectional", True)
+    args.encoder_rnn_residual = getattr(args, "encoder_rnn_residual", False)
+    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 48)
+    args.decoder_embed_path = getattr(args, "decoder_embed_path", None)
+    args.decoder_freeze_embed = getattr(args, "decoder_freeze_embed", False)
+    args.decoder_hidden_size = getattr(args, "decoder_hidden_size", 320)
+    args.decoder_layers = getattr(args, "decoder_layers", 3)
+    args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 960)
+    args.decoder_rnn_residual = getattr(args, "decoder_rnn_residual", True)
+    args.attention_type = getattr(args, "attention_type", "bahdanau")
+    args.attention_dim = getattr(args, "attention_dim", 320)
+    args.need_attention = getattr(args, "need_attention", False)
+    args.encoder_rnn_dropout_in = getattr(args, "encoder_rnn_dropout_in", args.dropout)
+    args.encoder_rnn_dropout_out = getattr(args, "encoder_rnn_dropout_out", args.dropout)
+    args.decoder_dropout_in = getattr(args, "decoder_dropout_in", args.dropout)
+    args.decoder_dropout_out = getattr(args, "decoder_dropout_out", args.dropout)
+    args.adaptive_softmax_cutoff = getattr(args, "adaptive_softmax_cutoff", None)
+    args.share_decoder_input_output_embed = getattr(args, "share_decoder_input_output_embed", False)
+    args.pretrained_lm_checkpoint = getattr(args, "pretrained_lm_checkpoint", None)
 
 
-@register_model_architecture('speech_lstm', 'speech_conv_lstm_wsj')
+@register_model_architecture("speech_lstm", "speech_conv_lstm_wsj")
 def conv_lstm_wsj(args):
     base_architecture(args)
 
 
-@register_model_architecture('speech_lstm', 'speech_conv_lstm_librispeech')
+@register_model_architecture("speech_lstm", "speech_conv_lstm_librispeech")
 def speech_conv_lstm_librispeech(args):
-    args.dropout = getattr(args, 'dropout', 0.3)
-    args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 1024)
-    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 4)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 1024)
-    args.decoder_layers = getattr(args, 'decoder_layers', 3)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 3072)
-    args.decoder_rnn_residual = getattr(args, 'decoder_rnn_residual', True)
-    args.attention_type = getattr(args, 'attention_type', 'bahdanau')
-    args.attention_dim = getattr(args, 'attention_dim', 512)
+    args.dropout = getattr(args, "dropout", 0.3)
+    args.encoder_rnn_hidden_size = getattr(args, "encoder_rnn_hidden_size", 1024)
+    args.encoder_rnn_layers = getattr(args, "encoder_rnn_layers", 4)
+    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 512)
+    args.decoder_hidden_size = getattr(args, "decoder_hidden_size", 1024)
+    args.decoder_layers = getattr(args, "decoder_layers", 3)
+    args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 3072)
+    args.decoder_rnn_residual = getattr(args, "decoder_rnn_residual", True)
+    args.attention_type = getattr(args, "attention_type", "bahdanau")
+    args.attention_dim = getattr(args, "attention_dim", 512)
     base_architecture(args)
 
 
-@register_model_architecture('speech_lstm', 'speech_conv_lstm_swbd')
+@register_model_architecture("speech_lstm", "speech_conv_lstm_swbd")
 def speech_conv_lstm_swbd(args):
-    args.dropout = getattr(args, 'dropout', 0.5)
-    args.encoder_rnn_hidden_size = getattr(args, 'encoder_rnn_hidden_size', 640)
-    args.encoder_rnn_layers = getattr(args, 'encoder_rnn_layers', 4)
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 640)
-    args.decoder_hidden_size = getattr(args, 'decoder_hidden_size', 640)
-    args.decoder_layers = getattr(args, 'decoder_layers', 3)
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 1920)
-    args.decoder_rnn_residual = getattr(args, 'decoder_rnn_residual', True)
-    args.attention_type = getattr(args, 'attention_type', 'bahdanau')
-    args.attention_dim = getattr(args, 'attention_dim', 640)
+    args.dropout = getattr(args, "dropout", 0.5)
+    args.encoder_rnn_hidden_size = getattr(args, "encoder_rnn_hidden_size", 640)
+    args.encoder_rnn_layers = getattr(args, "encoder_rnn_layers", 4)
+    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 640)
+    args.decoder_hidden_size = getattr(args, "decoder_hidden_size", 640)
+    args.decoder_layers = getattr(args, "decoder_layers", 3)
+    args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 1920)
+    args.decoder_rnn_residual = getattr(args, "decoder_rnn_residual", True)
+    args.attention_type = getattr(args, "attention_type", "bahdanau")
+    args.attention_dim = getattr(args, "attention_dim", 640)
     base_architecture(args)
