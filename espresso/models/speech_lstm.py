@@ -20,6 +20,7 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
+from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.lstm import (
     Embedding,
     LSTM,
@@ -403,22 +404,24 @@ class SpeechLSTMEncoder(FairseqEncoder):
 
         encoder_padding_mask = padding_mask.t()
 
-        return {
-            "encoder_out": (x, src_lengths),
-            "encoder_padding_mask": (encoder_padding_mask if encoder_padding_mask.any() else None, torch.empty(0)),
-        }
-
-    def reorder_encoder_out(self, encoder_out, new_order):
-        encoder_out["encoder_out"] = (
-            encoder_out["encoder_out"][0].index_select(1, new_order),
-            encoder_out["encoder_out"][1].index_select(0, new_order),
+        return EncoderOut(
+            encoder_out=x,  # T x B x C
+            encoder_padding_mask=encoder_padding_mask if encoder_padding_mask.any() else None,  # T x B
+            encoder_embedding=None,
+            encoder_states=None,
+            src_tokens=None,
+            src_lengths=src_lengths,  # B
         )
-        if encoder_out["encoder_padding_mask"][0] is not None:
-            encoder_out["encoder_padding_mask"] = (
-                encoder_out["encoder_padding_mask"][0].index_select(1, new_order),
-                encoder_out['encoder_padding_mask'][1],
-            )
-        return encoder_out
+
+    def reorder_encoder_out(self, encoder_out: EncoderOut, new_order):
+        return EncoderOut(
+            encoder_out=encoder_out.encoder_out.index_select(1, new_order),
+            encoder_padding_mask=encoder_out.encoder_padding_mask.index_select(1, new_order) if encoder_out.encoder_padding_mask is not None else None,
+            encoder_embedding=None,
+            encoder_states=None,
+            src_tokens=None,
+            src_lengths=encoder_out.src_lengths.index_select(0, new_order),
+        )
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""
@@ -466,6 +469,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             )
             for layer in range(num_layers)
         ])
+
         if attn_type is None or attn_type.lower() == "none":
             self.attention = None
         elif attn_type.lower() == "bahdanau":
@@ -478,12 +482,15 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             )
         else:
             raise ValueError("unrecognized attention type.")
+
         if hidden_size + encoder_output_units != out_embed_dim:
             self.additional_fc = Linear(hidden_size + encoder_output_units, out_embed_dim)
+
         if adaptive_softmax_cutoff is not None:
             # setting adaptive_softmax dropout to dropout_out for now but can be redefined
-            self.adaptive_softmax = AdaptiveSoftmax(num_embeddings, hidden_size, adaptive_softmax_cutoff,
-                                                    dropout=dropout_out)
+            self.adaptive_softmax = AdaptiveSoftmax(
+                num_embeddings, hidden_size, adaptive_softmax_cutoff, dropout=dropout_out
+            )
         elif not self.share_input_output_embed:
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
 
@@ -504,7 +511,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
     def forward(
         self,
         prev_output_tokens,
-        encoder_out: Optional[Dict[str, Tuple[Tensor, Tensor]]] = None,
+        encoder_out: Optional[EncoderOut] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         **kwargs,
     ):
@@ -512,7 +519,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         Args:
             prev_output_tokens (LongTensor): previous decoder outputs of shape
                 `(batch, tgt_len)`, for input feeding/teacher forcing
-            encoder_out (Tensor, optional): output from the encoder, used for
+            encoder_out (EncoderOut, optional): output from the encoder, used for
                 encoder-side attention
             incremental_state (dict): dictionary used for storing state during
                 :ref:`Incremental decoding`
@@ -540,7 +547,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         self,
         prev_output_tokens,
         sampling_prob,
-        encoder_out: Optional[Dict[str, Tuple[Tensor, Tensor]]] = None,
+        encoder_out: Optional[EncoderOut] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
     ):
         bsz, seqlen = prev_output_tokens.size()
@@ -567,7 +574,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
     def extract_features(
         self,
         prev_output_tokens,
-        encoder_out: Dict[str, Tuple[Tensor, Tensor]],
+        encoder_out: Optional[EncoderOut] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         **unused,
     ):
@@ -579,17 +586,15 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 - the decoder's features of shape `(batch, tgt_len, embed_dim)`
                 - attention weights of shape `(batch, tgt_len, src_len)`
         """
+        # get outputs from encoder
         if encoder_out is not None:
             assert self.attention is not None
-            encoder_padding_mask, *_ = encoder_out["encoder_padding_mask"]
-            encoder_out = encoder_out["encoder_out"]
-            # get outputs from encoder
-            encoder_outs = encoder_out[0]
-            srclen = encoder_outs.size(0)
+            encoder_outs = encoder_out.encoder_out
+            encoder_padding_mask = encoder_out.encoder_padding_mask
         else:
-            encoder_padding_mask = None
-            encoder_out = None
-            srclen = 0
+            encoder_outs = torch.empty(0)
+            encoder_padding_mask = torch.empty(0)
+        srclen = encoder_outs.size(0)
 
         if incremental_state is not None and len(incremental_state) > 0:
             prev_output_tokens = prev_output_tokens[:, -1:]
@@ -604,7 +609,6 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         x = x.transpose(0, 1)
 
         # initialize previous states (or get from cache during incremental generation)
-
         if incremental_state is not None and len(incremental_state) > 0:
             prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
         else:
