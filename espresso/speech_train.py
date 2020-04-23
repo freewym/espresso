@@ -17,7 +17,14 @@ import sys
 import numpy as np
 import torch
 
-from fairseq import checkpoint_utils, distributed_utils, options, tasks, utils
+from fairseq import (
+    checkpoint_utils,
+    distributed_utils,
+    options,
+    quantization_utils,
+    tasks,
+    utils,
+)
 from fairseq.data import iterators
 from fairseq.logging import meters, metrics, progress_bar
 from fairseq.trainer import Trainer
@@ -71,9 +78,19 @@ def main(args, init_distributed=False):
         sum(p.numel() for p in model.parameters() if p.requires_grad),
     ))
 
+    # (optionally) Configure quantization
+    if args.quantization_config_path is not None:
+        quantizer = quantization_utils.Quantizer(
+            config_path=args.quantization_config_path,
+            max_epoch=args.max_epoch,
+            max_update=args.max_update,
+        )
+    else:
+        quantizer = None
+
     # Build trainer
     if args.model_parallel_size == 1:
-        trainer = Trainer(args, task, model, criterion)
+        trainer = Trainer(args, task, model, criterion, quantizer)
     else:
         trainer = MegatronTrainer(args, task, model, criterion)
 
@@ -163,8 +180,7 @@ def train(args, trainer, task, epoch_itr, max_update=math.inf):
         default_log_format=('tqdm' if not args.no_progress_bar else 'simple'),
     )
 
-    # task specific setup per epoch
-    task.begin_epoch(epoch_itr.epoch, trainer.get_model())
+    trainer.begin_epoch(epoch_itr.epoch)
 
     if hasattr(trainer.criterion, 'set_epoch'):
         trainer.criterion.set_epoch(epoch_itr.epoch)
