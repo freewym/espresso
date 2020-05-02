@@ -202,6 +202,10 @@ def train(args, trainer, task, epoch_itr, max_update=math.inf):
             # the end-of-epoch stats will still be preserved
             metrics.reset_meters('train_inner')
 
+        # update the state prior stored in the model for cross-entropy training
+        if hasattr(task, 'update_state_prior'):
+            task.update_state_prior(trainer.get_model())
+
         valid_losses = validate_and_save(args, trainer, task, epoch_itr, valid_subsets)
         if should_stop_early(args, valid_losses[0]) or num_updates >= max_update:
             break

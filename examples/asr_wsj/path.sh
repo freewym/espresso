@@ -11,5 +11,6 @@ export LC_ALL=C
 
 export PATH=~/anaconda3/bin:$PATH
 export PATH=$MAIN_ROOT:$MAIN_ROOT/espresso:$MAIN_ROOT/espresso/tools:$PATH
-export PYTHONPATH=$MAIN_ROOT:$MAIN_ROOT/espresso:$MAIN_ROOT/espresso/tools:$PYTHONPATH
+export LD_LIBRARY_PATH=$MAIN_ROOT/espresso/tools/openfst/lib:$LD_LIBRARY_PATH
+export PYTHONPATH=$MAIN_ROOT:$MAIN_ROOT/espresso:$MAIN_ROOT/espresso/tools:$MAIN_ROOT/espresso/tools/pychain:$PYTHONPATH
 export PYTHONUNBUFFERED=1

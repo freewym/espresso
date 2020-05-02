@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import torch
 from torch import Tensor
@@ -414,9 +414,11 @@ class SpeechLSTMEncoder(FairseqEncoder):
         )
 
     def reorder_encoder_out(self, encoder_out: EncoderOut, new_order):
+        encoder_padding_mask = encoder_out.encoder_padding_mask.index_select(1, new_order) \
+            if encoder_out.encoder_padding_mask is not None else None
         return EncoderOut(
             encoder_out=encoder_out.encoder_out.index_select(1, new_order),
-            encoder_padding_mask=encoder_out.encoder_padding_mask.index_select(1, new_order) if encoder_out.encoder_padding_mask is not None else None,
+            encoder_padding_mask=encoder_padding_mask,
             encoder_embedding=None,
             encoder_states=None,
             src_tokens=None,

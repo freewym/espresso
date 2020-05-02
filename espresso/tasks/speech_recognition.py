@@ -328,7 +328,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             match_source_len=getattr(args, "match_source_len", False),
             no_repeat_ngram_size=getattr(args, "no_repeat_ngram_size", 0),
             search_strategy=search_strategy,
-            lm_weight = getattr(args, "lm_weight", 0.0),
+            lm_weight=getattr(args, "lm_weight", 0.0),
             eos_factor=getattr(args, "eos_factor", None),
         )
 

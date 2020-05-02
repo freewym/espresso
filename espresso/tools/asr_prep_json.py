@@ -43,6 +43,12 @@ def main():
                         help="path(s) to scp feature file(s)")
     parser.add_argument("--token-text-files", nargs="+", default=None,
                         help="path(s) to token_text file(s)")
+    parser.add_argument("--text-files", nargs="+", default=None,
+                        help="path(s) to text file(s)")
+    parser.add_argument("--numerator-fst-files", nargs="+", default=None,
+                        help="path(s) to numerator fst file(s)")
+    parser.add_argument("--alignment-files", nargs="+", default=None,
+                        help="path(s) to alignment file(s)")
     parser.add_argument("--utt2num-frames-files", nargs="+", default=None,
                         help="path(s) to utt2num_frames file(s)")
     parser.add_argument("--output", required=True, type=argparse.FileType("w"),
@@ -54,6 +60,12 @@ def main():
     obj = read_file(obj, "feat", str, *(args.feat_files))
     if args.token_text_files is not None:
         obj = read_file(obj, "token_text", str, *(args.token_text_files))
+    if args.text_files is not None:
+        obj = read_file(obj, "text", str, *(args.text_files))
+    if args.numerator_fst_files is not None:
+        obj = read_file(obj, "numerator_fst", str, *(args.numerator_fst_files))
+    if args.alignment_files is not None:
+        obj = read_file(obj, "alignment", str, *(args.alignment_files))
     if args.utt2num_frames_files is not None:
         obj = read_file(obj, "utt2num_frames", int, *(args.utt2num_frames_files))
 

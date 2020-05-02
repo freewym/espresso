@@ -11,6 +11,7 @@ import numpy as np
 import torch
 
 from fairseq.data import data_utils
+from fairseq.tokenizer import tokenize_line
 
 from espresso.tools.specaug_interpolate import specaug
 
@@ -225,30 +226,33 @@ class AsrTextDataset(torch.utils.data.Dataset):
     Original lines are also kept in memory. Each line of the text file is in the
     format of 'utt_id tokenized_text'."""
 
-    def __init__(self, utt_ids: List[str], token_text: List[str], dictionary, append_eos=True):
+    def __init__(self, utt_ids: List[str], token_text: List[str], dictionary=None, append_eos=True):
         super().__init__()
         self.dtype = np.float
         self.append_eos = append_eos
         self.read_text(utt_ids, token_text, dictionary)
 
-    def read_text(self, utt_ids: List[str], token_text: List[str], dictionary):
+    def read_text(self, utt_ids: List[str], token_text: List[str], dictionary=None):
         assert len(utt_ids) == len(token_text)
         self.utt_ids = utt_ids
         self.tokens_list = token_text
         self.tensor_list = []
         self.size = len(self.utt_ids)  # number of utterances
         self.sizes = []
-        for tokens in self.tokens_list:
-            tensor = dictionary.encode_line(
-                tokens, add_if_not_exist=False, append_eos=self.append_eos,
-            ).long()
-            self.tensor_list.append(tensor)
-            self.sizes.append(len(self.tensor_list[-1]))
+        if dictionary is not None:
+            for tokens in self.tokens_list:
+                tensor = dictionary.encode_line(
+                    tokens, add_if_not_exist=False, append_eos=self.append_eos,
+                ).long()
+                self.tensor_list.append(tensor)
+                self.sizes.append(len(self.tensor_list[-1]))
+        else:
+            self.sizes = [len(tokenize_line(tokens)) for tokens in self.tokens_list]
 
         self.sizes = np.array(self.sizes, dtype=np.int32)
 
         assert len(self.utt_ids) == len(self.tokens_list) and \
-            len(self.utt_ids) == len(self.tensor_list) and \
+            (dictionary is None or len(self.utt_ids) == len(self.tensor_list)) and \
             len(self.utt_ids) == len(self.sizes)
 
     def check_index(self, i):
@@ -263,13 +267,14 @@ class AsrTextDataset(torch.utils.data.Dataset):
             'Duplicate elements in indices.'
         self.utt_ids = [self.utt_ids[i] for i in indices]
         self.tokens_list = [self.tokens_list[i] for i in indices]
-        self.tensor_list = [self.tensor_list[i] for i in indices]
+        if len(self.tensor_list) > 0:
+            self.tensor_list = [self.tensor_list[i] for i in indices]
         self.sizes = self.sizes[indices]
         self.size = len(self.utt_ids)
 
     def __getitem__(self, i):
         self.check_index(i)
-        return self.tensor_list[i], self.tokens_list[i]
+        return self.tensor_list[i] if len(self.tensor_list) > 0 else None, self.tokens_list[i]
 
     def __len__(self):
         return self.size
