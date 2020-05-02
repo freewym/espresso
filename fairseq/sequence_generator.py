@@ -993,8 +993,8 @@ class LMFusionModel(EnsembleModel):
     @torch.jit.export
     def forward_encoder(self, src_tokens, src_lengths):
         return [
-            model.encoder(src_tokens=src_tokens, src_lengths=src_lengths) if hasattr(model, "encoder") \
-                else None for model in self.models
+            model.encoder(src_tokens=src_tokens, src_lengths=src_lengths) if hasattr(model, "encoder")
+            else None for model in self.models
         ]
 
     @torch.jit.export
