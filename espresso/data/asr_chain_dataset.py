@@ -6,13 +6,13 @@
 import logging
 import os
 import re
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 
 import torch
 
-from fairseq.data import data_utils, FairseqDataset
+from fairseq.data import FairseqDataset
 
 import espresso.tools.utils as speech_utils
 

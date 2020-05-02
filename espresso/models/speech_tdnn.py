@@ -6,14 +6,12 @@
 import logging
 from typing import Optional
 
-import numpy as np
-
 import torch
 from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fairseq import options, utils, checkpoint_utils
+from fairseq import options
 from fairseq.models import (
     FairseqEncoder,
     FairseqEncoderModel,
@@ -182,7 +180,7 @@ class SpeechTdnnEncoder(FairseqEncoder):
         else:
             assert len(hidden_sizes) == num_layers
         if isinstance(kernel_sizes, int):
-             kernel_sizes = [kernel_sizes] * num_layers
+            kernel_sizes = [kernel_sizes] * num_layers
         else:
             assert len(kernel_sizes) == num_layers
         if isinstance(strides, int):
@@ -270,9 +268,11 @@ class SpeechTdnnEncoder(FairseqEncoder):
         return self.fc_out(features)  # T x B x C -> T x B x V
 
     def reorder_encoder_out(self, encoder_out: EncoderOut, new_order):
+        encoder_padding_mask = encoder_out.encoder_padding_mask.index_select(1, new_order) \
+            if encoder_out.encoder_padding_mask is not None else None
         return EncoderOut(
             encoder_out=encoder_out.encoder_out.index_select(1, new_order),
-            encoder_padding_mask=encoder_out.encoder_padding_mask.index_select(1, new_order) if encoder_out.encoder_padding_mask is not None else None,
+            encoder_padding_mask=encoder_padding_mask,
             encoder_embedding=None,
             encoder_states=None,
             src_tokens=None,

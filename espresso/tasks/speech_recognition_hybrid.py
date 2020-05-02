@@ -11,7 +11,7 @@ import os
 
 import torch
 
-from fairseq import options, utils
+from fairseq import utils
 from fairseq.data import ConcatDataset
 
 from fairseq.tasks import FairseqTask, register_task
@@ -158,7 +158,7 @@ def get_asr_dataset_from_json(
             max_target_positions=max_target_positions,
             seed=seed, chunk_width=chunk_width,
             chunk_left_context=chunk_left_context, chunk_right_context=chunk_right_context,
-            label_delay=label_delay, random_chunking = (split == "train" and chunk_width is not None),
+            label_delay=label_delay, random_chunking=(split == "train" and chunk_width is not None),
         )
 
 
@@ -369,7 +369,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
         if self.averaged_state_post is not None:
             assert hasattr(model, "update_state_prior")
             model.update_state_prior(self.averaged_state_post, self.state_prior_update_smoothing)
-    
+
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
         return (self.args.max_source_positions, self.args.max_target_positions)

@@ -4,9 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
-import numpy as np
-
-import torch.nn.functional as F
 
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion

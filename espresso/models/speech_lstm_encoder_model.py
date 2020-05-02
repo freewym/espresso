@@ -6,8 +6,6 @@
 import logging
 from typing import Optional
 
-import numpy as np
-
 import torch
 from torch import Tensor
 import torch.nn.functional as F
@@ -109,7 +107,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
             bidirectional=args.encoder_rnn_bidirectional,
             residual=args.encoder_rnn_residual,
             num_targets=getattr(task, "num_targets", None),  # targets for encoder-only model
-            chunk_width=getattr(task, "chunk_width", None),            
+            chunk_width=getattr(task, "chunk_width", None),
             chunk_left_context=getattr(task, "chunk_left_context", 0),
             training_stage=getattr(task, "training_stage", True),
             max_source_positions=max_source_positions,
@@ -118,7 +116,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
 
     def output_lengths(self, in_lengths):
         return self.encoder.output_lengths(in_lengths)
- 
+
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""
         encoder_out = net_output.encoder_out
@@ -140,7 +138,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
         state_dict = super().state_dict()
         state_dict["state_prior"] = self.state_prior
         return state_dict
-    
+
     def load_state_dict(self, state_dict, strict=True, args=None):
         state_dict_subset = state_dict.copy()
         self.state_prior = state_dict.get("state_prior", None)

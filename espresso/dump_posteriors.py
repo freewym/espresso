@@ -15,7 +15,7 @@ import torch
 
 from fairseq import checkpoint_utils, options, tasks, utils
 from fairseq.logging import progress_bar
-from fairseq.logging.meters import StopwatchMeter, TimeMeter
+from fairseq.logging.meters import StopwatchMeter
 
 try:
     import kaldi_io
