@@ -1042,9 +1042,9 @@ class LMFusionModel(EnsembleModel):
         assert self.has_encoder()
 
     @torch.jit.export
-    def forward_encoder(self, src_tokens, src_lengths):
+    def forward_encoder(self, net_input: Dict[str, Tensor]):
         return [
-            model.encoder(src_tokens=src_tokens, src_lengths=src_lengths) if hasattr(model, "encoder")
+            model.encoder.forward_torchscript(net_input) if hasattr(model, "encoder")
             else None for model in self.models
         ]
 
