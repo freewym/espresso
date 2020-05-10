@@ -159,6 +159,7 @@ if [ ${stage} -le 5 ]; then
   for dataset in $test_set; do
     nj=$(wc -l <data/${dataset}_hires/spk2utt)
     utils/split_data.sh data/${dataset}_hires $nj
+    utils/split_data.sh $dumpdir/${dataset}_hires $nj
     for n in $(seq $nj); do
       feat=$dumpdir/${dataset}_hires/split$nj/$n/feats.scp
       text=data/${dataset}_hires/split$nj/$n/text
