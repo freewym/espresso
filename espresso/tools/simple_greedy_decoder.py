@@ -73,18 +73,13 @@ class SimpleGreedyDecoder(nn.Module):
 
     @torch.no_grad()
     def _decode(self, sample: Dict[str, Dict[str, Tensor]], bos_token: Optional[int] = None):
-        encoder_input: Dict[str, Tensor] = {}
-        for k, v in sample["net_input"].items():
-            if k != "prev_output_tokens":
-                encoder_input[k] = v
-        src_tokens = encoder_input["src_tokens"]
+        net_input = sample["net_input"]
+        src_tokens = net_input["src_tokens"]
         input_size = src_tokens.size()
         bsz, src_len = input_size[0], input_size[1]
 
-        encoder_outs = self.model.forward_encoder(
-            src_tokens=encoder_input["src_tokens"],
-            src_lengths=encoder_input["src_lengths"],
-        )
+        # compute the encoder output
+        encoder_outs = self.model.forward_encoder(net_input)
         target = sample["target"]
         # target can only be None if not for validation
         assert target is not None or not self.for_validation
