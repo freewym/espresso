@@ -205,7 +205,7 @@ class SequenceGenerator(nn.Module):
         if "src_tokens" in net_input:
             src_tokens = net_input["src_tokens"]
             if src_tokens.dim() > 2:
-                src_lengths = encoder_input["src_lengths"]
+                src_lengths = net_input["src_lengths"]
             else:
                 # length of the source text being the character length except EndOfSentence and pad
                 src_lengths = (
@@ -991,9 +991,9 @@ class LMFusionModel(EnsembleModel):
         assert self.has_encoder()
 
     @torch.jit.export
-    def forward_encoder(self, src_tokens, src_lengths):
+    def forward_encoder(self, net_input: Dict[str, Tensor]):
         return [
-            model.encoder(src_tokens=src_tokens, src_lengths=src_lengths) if hasattr(model, "encoder")
+            model.encoder.forward_torchscript(net_input) if hasattr(model, "encoder")
             else None for model in self.models
         ]
 
