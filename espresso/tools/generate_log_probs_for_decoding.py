@@ -52,13 +52,12 @@ class GenerateLogProbsForDecoding(nn.Module):
         return self._generate(sample, **kwargs)
 
     def _generate(self, sample: Dict[str, Dict[str, Tensor]], **kwargs):
-        encoder_input = {k: v for k, v in sample["net_input"].items()}
-        src_tokens = encoder_input["src_tokens"]
+        net_input = sample["net_input"]
+        src_tokens = net_input["src_tokens"]
         bsz = src_tokens.size(0)
-        encoder_outs = self.model.forward_encoder(
-            src_tokens=encoder_input["src_tokens"],
-            src_lengths=encoder_input["src_lengths"],
-        )
+
+        # compute the encoder output
+        encoder_outs = self.model.forward_encoder(net_input)
         logits = encoder_outs[0].encoder_out.transpose(0, 1).float()  # T x B x V -> B x T x V
         assert logits.size(0) == bsz
         padding_mask = encoder_outs[0].encoder_padding_mask.t() \
