@@ -360,7 +360,24 @@ class SpeechLSTMEncoder(FairseqEncoder):
         return in_lengths if self.conv_layers_before is None \
             else self.conv_layers_before.output_lengths(in_lengths)
 
-    def forward(self, src_tokens, src_lengths: Tensor, **unused):
+    def forward(
+        self,
+        src_tokens: Tensor,
+        src_lengths: Tensor,
+        enforce_sorted: bool = True,
+        **unused,
+    ):
+        """
+        Args:
+            src_tokens (LongTensor): tokens in the source language of
+                shape `(batch, src_len)`
+            src_lengths (LongTensor): lengths of each source sentence of
+                shape `(batch)`
+            enforce_sorted (bool, optional): if True, `src_tokens` is
+                expected to contain sequences sorted by length in a
+                decreasing order. If False, this condition is not
+                required. Default: True.
+        """
         if self.left_pad:
             # nn.utils.rnn.pack_padded_sequence requires right-padding;
             # convert left-padding to right-padding
@@ -390,7 +407,9 @@ class SpeechLSTMEncoder(FairseqEncoder):
             if self.residual and i > 0:  # residual connection starts from the 2nd layer
                 prev_x = x
             # pack embedded source tokens into a PackedSequence
-            packed_x = nn.utils.rnn.pack_padded_sequence(x, src_lengths.data)
+            packed_x = nn.utils.rnn.pack_padded_sequence(
+                x, src_lengths.data, enforce_sorted=enforce_sorted
+            )
 
             # apply LSTM
             packed_outs, (_, _) = self.lstm[i](packed_x, (h0, c0))

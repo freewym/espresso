@@ -177,8 +177,25 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
         self.fc_out = Linear(self.output_units, num_targets, dropout=dropout_out) \
             if num_targets is not None else None
 
-    def forward(self, src_tokens, src_lengths: Tensor, **unused):
-        out = super().forward(src_tokens, src_lengths, **unused)
+    def forward(
+        self,
+        src_tokens,
+        src_lengths: Tensor,
+        enforce_sorted: bool = True,
+        **unused,
+    ):
+        """
+        Args:
+            src_tokens (LongTensor): tokens in the source language of
+                shape `(batch, src_len)`
+            src_lengths (LongTensor): lengths of each source sentence of
+                shape `(batch)`
+            enforce_sorted (bool, optional): if True, `src_tokens` is
+                expected to contain sequences sorted by length in a
+                decreasing order. If False, this condition is not
+                required. Default: True.
+        """
+        out = super().forward(src_tokens, src_lengths, enforce_sorted=enforce_sorted, **unused)
         x, encoder_padding_mask, x_lengths = out.encoder_out, out.encoder_padding_mask, out.src_lengths
 
         # determine which output frame to select for loss evaluation/test, assuming
