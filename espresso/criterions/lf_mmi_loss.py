@@ -54,7 +54,7 @@ class LatticeFreeMMICriterion(FairseqCriterion):
         net_output = model(**sample["net_input"])
         loss, _ = self.compute_loss(net_output, sample, reduce=reduce)
 
-        sample_size = sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
+        sample_size = sample["target"].batch_size if self.sentence_avg else sample["ntokens"]
         logging_output = {
             "loss": loss.data,
             "ntokens": sample["ntokens"],
