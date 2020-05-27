@@ -230,7 +230,7 @@ if [ ${stage} -le 8 ]; then
   fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval $((8000/ngpus)) --log-format simple --print-training-sample-interval $((4000/ngpus)) \
-    --num-workers 0 --max-tokens 26000 --max-sentences 24 --curriculum 1 \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 26000 --max-sentences 24 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 48 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
