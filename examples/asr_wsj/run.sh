@@ -271,7 +271,7 @@ if [ ${stage} -le 9 ]; then
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval $((800/ngpus)) --log-format simple --print-training-sample-interval $((2000/ngpus)) \
-    --num-workers 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 35 --optimizer adam --lr 0.001 --weight-decay 0.0 \

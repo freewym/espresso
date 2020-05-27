@@ -185,7 +185,7 @@ if [ ${stage} -le 6 ]; then
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/chain_e2e --task speech_recognition_hybrid --seed 1 --user-dir espresso \
-    --log-interval $((200/ngpus)) --log-format simple --num-workers 0 --max-tokens 120000 --max-sentences 128 \
+    --log-interval $((200/ngpus)) --log-format simple --num-workers 0 --data-buffer-size 0 --max-tokens 120000 --max-sentences 128 \
     --curriculum 1 --valid-subset $valid_subset --max-sentences-valid 128 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --max-epoch 26 --optimizer adam --lr 0.001 --weight-decay 0.0 --start-reduce-lr-epoch 11 \
