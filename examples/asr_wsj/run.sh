@@ -16,6 +16,7 @@ train_set=train_si284
 valid_set=test_dev93
 test_set=test_eval92
 checkpoint=checkpoint_best.pt
+use_transformer=false
 
 # LM related
 lm_affix=
@@ -269,16 +270,21 @@ if [ ${stage} -le 9 ]; then
   mkdir -p $dir/log
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
+  if $use_transformer; then
+    opts="$opts --max-epoch 70 --warmup-updates $((20000/ngpus)) --warmup-init-lr 0 --arch speech_transformer"
+  else
+    opts="$opts --max-epoch 35 --arch speech_conv_lstm_wsj"
+  fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval $((800/ngpus)) --log-format simple --print-training-sample-interval $((2000/ngpus)) \
     --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
-    --max-epoch 35 --optimizer adam --lr 0.001 --weight-decay 0.0 \
+    --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 11 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
-    --arch speech_conv_lstm_wsj --criterion label_smoothed_cross_entropy_v2 \
+    --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.05 --smoothing-type temporal \
     --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6 \
     --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
