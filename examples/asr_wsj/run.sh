@@ -46,7 +46,11 @@ do_delta=false
 
 lmdir=exp/lm_lstm${lm_affix:+_${lm_affix}}
 wordlmdir=exp/wordlm_lstm${wordlm_affix:+_${wordlm_affix}}
-dir=exp/lstm${affix:+_$affix}
+if $use_transformer; then
+  dir=exp/transformer${affix:+_$affix}
+else
+  dir=exp/lstm${affix:+_$affix}
+fi
 
 if [ ${stage} -le 0 ]; then
   echo "Stage 0: Data Preparation"
@@ -271,9 +275,11 @@ if [ ${stage} -le 9 ]; then
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   if $use_transformer; then
-    opts="$opts --max-epoch 70 --warmup-updates $((20000/ngpus)) --warmup-init-lr 0 --arch speech_transformer"
+    opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((15000/ngpus)) --hold-steps $((50000/ngpus)) --decay-steps $((100000/ngpus))"
+    opts="$opts --arch speech_transformer"
   else
-    opts="$opts --max-epoch 35 --arch speech_conv_lstm_wsj"
+    opts="$opts --max-epoch 35 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 11"
+    opts="$opts --arch speech_conv_lstm_wsj --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6"
   fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval $((800/ngpus)) --log-format simple --print-training-sample-interval $((2000/ngpus)) \
@@ -281,12 +287,10 @@ if [ ${stage} -le 9 ]; then
     --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
     --optimizer adam --lr 0.001 --weight-decay 0.0 \
-    --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 11 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
     --criterion label_smoothed_cross_entropy_v2 \
     --label-smoothing 0.05 --smoothing-type temporal \
-    --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6 \
     --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
     --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
 fi

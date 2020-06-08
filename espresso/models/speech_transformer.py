@@ -28,6 +28,7 @@ from fairseq.modules import (
     LayerDropModuleList,
     LayerNorm,
 )
+from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 
 from espresso.models.speech_lstm import ConvBNReLU
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
@@ -45,7 +46,7 @@ logger = logging.getLogger(__name__)
 class SpeechTransformerModel(TransformerModel):
     """
     Transformer model from `"Attention Is All You Need" (Vaswani, et al, 2017)
-    <https://arxiv.org/abs/1706.03762>`_. It adds 1D convolutions before
+    <https://arxiv.org/abs/1706.03762>`_. It adds 2D convolutions before
     transformer layers in the encoder to process speech input.
 
     Args:
@@ -79,6 +80,9 @@ class SpeechTransformerModel(TransformerModel):
                             help="list of encoder convolution\'s kernel sizes")
         parser.add_argument("--encoder-conv-strides", type=str, metavar="EXPR",
                             help="list of encoder convolution\'s strides")
+        parser.add_argument("--encoder-transformer-context", type=str, metavar="EXPR",
+                            help="left/right context for time-restricted self-attention; "
+                            "can be None or a tuple of two non-negative integers/None")
 
         # Scheduled sampling options
         parser.add_argument("--scheduled-sampling-probs", type=lambda p: options.eval_str_list(p),
@@ -111,7 +115,7 @@ class SpeechTransformerModel(TransformerModel):
         tgt_dict = task.target_dictionary
 
         decoder_embed_tokens = cls.build_embedding(
-            args, tgt_dict, args.decoder_embed_dim, args.decoder_embed_path
+            args, tgt_dict, args.decoder_input_dim, args.decoder_embed_path
         )
 
         out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
@@ -132,11 +136,24 @@ class SpeechTransformerModel(TransformerModel):
                 else:
                     assert isinstance(stride, int)
                     s = stride
-                transformer_encoder_input_size = \
-                    (transformer_encoder_input_size + s - 1) // s
+                transformer_encoder_input_size = (transformer_encoder_input_size + s - 1) // s
             transformer_encoder_input_size *= out_channels[-1]
         else:
             transformer_encoder_input_size = task.feat_dim
+
+        encoder_transformer_context = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_transformer_context, type=int,
+        )
+        if encoder_transformer_context is not None:
+            assert len(encoder_transformer_context) == 2
+            for i in range(2):
+                assert (
+                    encoder_transformer_context[i] is None
+                    or (
+                        isinstance(encoder_transformer_context[i], int)
+                        and encoder_transformer_context[i] >= 0
+                    )
+                )
 
         scheduled_sampling_rate_scheduler = ScheduledSamplingRateScheduler(
             args.scheduled_sampling_probs, args.start_scheduled_sampling_epoch,
@@ -144,6 +161,7 @@ class SpeechTransformerModel(TransformerModel):
 
         encoder = cls.build_encoder(
             args, conv_layers_before=conv_layers, input_size=transformer_encoder_input_size,
+            transformer_context=encoder_transformer_context,
         )
         decoder = cls.build_decoder(
             args, tgt_dict, decoder_embed_tokens,
@@ -156,9 +174,10 @@ class SpeechTransformerModel(TransformerModel):
         super().set_num_updates(num_updates)
 
     @classmethod
-    def build_encoder(cls, args, conv_layers_before=None, input_size=83):
+    def build_encoder(cls, args, conv_layers_before=None, input_size=83, transformer_context=None):
         return SpeechTransformerEncoder(
             args, conv_layers_before=conv_layers_before, input_size=input_size,
+            transformer_context=transformer_context,
         )
 
     @classmethod
@@ -207,14 +226,10 @@ class SpeechTransformerModel(TransformerModel):
         )
         return decoder_out
 
-    def set_num_updates(self, num_updates):
-        self.num_updates = num_updates
-        super().set_num_updates(num_updates)
-
 
 class SpeechTransformerEncoder(TransformerEncoder):
     """
-    Transformer encoder consisting of 1D convolutions layers and
+    Transformer encoder consisting of 2D convolution layers and
     *args.encoder_layers* layers. Each layer is a :class:`TransformerEncoderLayer`.
 
     Args:
@@ -225,7 +240,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
             before being projected to args.encoder_embed_dim
     """
 
-    def __init__(self, args, conv_layers_before=None, input_size=83):
+    def __init__(self, args, conv_layers_before=None, input_size=83, transformer_context=None):
         super(TransformerEncoder, self).__init__(None)  # no src dictionary
         self.register_buffer("version", torch.Tensor([3]))
 
@@ -268,9 +283,39 @@ class SpeechTransformerEncoder(TransformerEncoder):
         else:
             self.layernorm_embedding = None
 
+        self.transformer_context = transformer_context
+
     def output_lengths(self, in_lengths):
         return in_lengths if self.conv_layers_before is None \
             else self.conv_layers_before.output_lengths(in_lengths)
+
+    def get_attn_mask(self, in_lengths):
+        """
+        Create attention mask according to sequence lengths and transformer context.
+
+        Args:
+            in_lengths (LongTensor): lengths of each input sequence of shape `(batch)`
+
+        Returns:
+            attn_mask (ByteTensor|BoolTensor, optional): self attention mask of shape `((T_tgt, T_src))`,
+                where T_tgt is the length of query, while T_src is the length of key, though
+                here query and key are the same
+        """
+        if (
+            self.transformer_context is None
+            or (self.transformer_context[0] is None and self.transformer_context[1] is None)
+        ):
+            return None
+        max_len = in_lengths.data.max()
+        all_ones = in_lengths.ones([max_len, max_len], dtype=torch.bool)
+        # at this point left and right context cannot be both None
+        if self.transformer_context[0] is None:  # mask is a triu matrix
+            return all_ones.triu(self.transformer_context[1] + 1)
+        if self.transformer_context[1] is None:  # mask is a tril matrix
+            return all_ones.tril(-self.transformer_context[0] - 1)
+        return (
+            all_ones.triu(self.transformer_context[1] + 1) | all_ones.tril(-self.transformer_context[0] - 1)
+        )
 
     def forward(
         self,
@@ -316,11 +361,13 @@ class SpeechTransformerEncoder(TransformerEncoder):
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
+        attn_mask = self.get_attn_mask(src_lengths)
+
         encoder_states = [] if return_all_hiddens else None
 
         # encoder layers
         for layer in self.layers:
-            x = layer(x, encoder_padding_mask)
+            x = layer(x, encoder_padding_mask, attn_mask=attn_mask)
             if return_all_hiddens:
                 assert encoder_states is not None
                 encoder_states.append(x)
@@ -442,12 +489,6 @@ class SpeechTransformerDecoder(TransformerDecoder):
         x = torch.cat(outs, dim=1)  # B x T x V
         return x, extra
     
-    def reorder_state(self, state: List[Tensor], new_order):
-        return [
-            state_i.index_select(0, new_order) if state_i is not None else None
-            for state_i in state
-        ]
-    
     def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
         raise NotImplementedError
 
@@ -468,6 +509,7 @@ def base_architecture(args):
     args.encoder_layers = getattr(args, "encoder_layers", 12)
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
+    args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
     args.decoder_embed_path = getattr(args, "decoder_embed_path", None)
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
     args.decoder_ffn_embed_dim = getattr(
@@ -477,10 +519,10 @@ def base_architecture(args):
     args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 4)
     args.decoder_normalize_before = getattr(args, "decoder_normalize_before", True)
     args.decoder_learned_pos = getattr(args, "decoder_learned_pos", False)
-    args.attention_dropout = getattr(args, "attention_dropout", 0.0)
-    args.activation_dropout = getattr(args, "activation_dropout", 0.0)
+    args.attention_dropout = getattr(args, "attention_dropout", 0.2)
+    args.activation_dropout = getattr(args, "activation_dropout", 0.2)
     args.activation_fn = getattr(args, "activation_fn", "relu")
-    args.dropout = getattr(args, "dropout", 0.1)
+    args.dropout = getattr(args, "dropout", 0.2)
     args.adaptive_softmax_cutoff = getattr(args, "adaptive_softmax_cutoff", None)
     args.adaptive_softmax_dropout = getattr(args, "adaptive_softmax_dropout", 0)
     args.share_decoder_input_output_embed = getattr(
@@ -511,11 +553,21 @@ def speech_transformer_wsj(args):
 @register_model_architecture("speech_transformer", "speech_transformer_librispeech")
 def speech_transformer_librispeech(args):
     args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 512)
-    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 512)
-    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 1)
-    args.encoder_normalize_before = getattr(args, "encoder_normalize_before", False)
-    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 512)
-    args.decoder_ffn_embed_dim = getattr(args, "decoder_ffn_embed_dim", 512)
-    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 1)
-    args.dropout = getattr(args, "dropout", 0.3)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 2048)
+    args.encoder_layers = getattr(args, "encoder_layers", 12)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 8)
+    args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
+    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
+    args.decoder_ffn_embed_dim = getattr(
+        args, "decoder_ffn_embed_dim", args.encoder_ffn_embed_dim
+    )
+    args.decoder_layers = getattr(args, "decoder_layers", 6)
+    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 8)
+    args.attention_dropout = getattr(args, "attention_dropout", 0.1)
+    args.activation_dropout = getattr(args, "activation_dropout", 0.1)
+    args.dropout = getattr(args, "dropout", 0.1)
+    args.decoder_output_dim = getattr(
+        args, "decoder_output_dim", args.decoder_embed_dim
+    )
+    args.decoder_input_dim = getattr(args, "decoder_input_dim", args.decoder_embed_dim)
     base_architecture(args)
