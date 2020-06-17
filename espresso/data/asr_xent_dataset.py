@@ -316,10 +316,6 @@ class AsrXentDataset(FairseqDataset):
         tgt_sizes (List[int], optional): target sizes (num of states in the numerator graph)
         tgt_vocab_size (int, optional): used for setting padding index
         text  (torch.utils.data.Dataset, optional): text dataset to wrap
-        max_source_positions (int, optional): max number of frames in the
-            source (default: 1024).
-        max_target_positions (int, optional): max number of tokens in the target
-            sentence (default: 1024)
         shuffle (bool, optional): shuffle dataset elements before batching
             (default: True)
         seed (int, optional): random seed for generating a chunk from an utterance
@@ -334,8 +330,7 @@ class AsrXentDataset(FairseqDataset):
 
     def __init__(
         self, src, src_sizes, tgt: Optional[AliScpCachedDataset] = None, tgt_sizes=None, text=None,
-        max_source_positions=1024, max_target_positions=1024, shuffle=True,
-        seed=1, chunk_width=None, chunk_left_context=None, chunk_right_context=None,
+        shuffle=True, seed=1, chunk_width=None, chunk_left_context=None, chunk_right_context=None,
         label_delay=0, random_chunking=True,
     ):
         self.src = src
@@ -343,8 +338,6 @@ class AsrXentDataset(FairseqDataset):
         self.src_sizes = np.array(src_sizes)
         self.tgt_sizes = np.array(tgt_sizes) if tgt_sizes is not None else None
         self.text = text
-        self.max_source_positions = max_source_positions
-        self.max_target_positions = max_target_positions
         self.shuffle = shuffle
         self.seed = seed
         self.epoch = 1

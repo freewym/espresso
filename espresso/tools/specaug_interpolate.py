@@ -31,7 +31,7 @@ def specaug(spec, W=80, F=27, T=70, num_freq_masks=2, num_time_masks=2, p=0.2, r
         T (int): maximum width of each time mask
         num_freq_masks (int): number of frequency masks
         num_time_masks (int): number of time masks
-        p (int): toal mask width shouldn't exeed this times num of frames
+        p (int): time mask width shouldn't exeed this times num of frames
         replace_with_zero (bool): if True, masked parts will be filled with 0, if False, filled with mean
 
     Returns:
@@ -110,7 +110,7 @@ def time_mask(spec, T=40, num_masks=1, p=0.2, pad_value=0.):
         spec (torch.Tensor): input tensor of shape `(dim, T)`
         T (int): maximum width of each mask
         num_masks (int): number of masks
-        p (float): toal mask width shouldn't exeed this times num of frames
+        p (float): time mask width shouldn't exeed this times num of frames
         pad_value (float): value for padding
 
     Returns:
