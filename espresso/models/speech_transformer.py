@@ -27,6 +27,7 @@ from fairseq.models.transformer import (
 from fairseq.modules import (
     LayerDropModuleList,
     LayerNorm,
+    TransformerDecoderLayer,
 )
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 
@@ -83,6 +84,9 @@ class SpeechTransformerModel(TransformerModel):
         parser.add_argument("--encoder-transformer-context", type=str, metavar="EXPR",
                             help="left/right context for time-restricted self-attention; "
                             "can be None or a tuple of two non-negative integers/None")
+        parser.add_argument("--decoder-input-dim", type=int, metavar="N",
+                            help="decoder input dimension (extra linear layer "
+                                 "if different from decoder embed dim")
 
         # Scheduled sampling options
         parser.add_argument("--scheduled-sampling-probs", type=lambda p: options.eval_str_list(p),
@@ -210,9 +214,7 @@ class SpeechTransformerModel(TransformerModel):
         which are not supported by TorchScript.
         """
         encoder_out = self.encoder(
-            src_tokens,
-            src_lengths=src_lengths,
-            return_all_hiddens=return_all_hiddens,
+            src_tokens, src_lengths=src_lengths, return_all_hiddens=return_all_hiddens
         )
         decoder_out = self.decoder(
             prev_output_tokens,
@@ -268,10 +270,9 @@ class SpeechTransformerEncoder(TransformerEncoder):
             self.layers = LayerDropModuleList(p=self.encoder_layerdrop)
         else:
             self.layers = nn.ModuleList([])
-        self.layers.extend([
-            self.build_encoder_layer(args)
-            for i in range(args.encoder_layers)
-        ])
+        self.layers.extend(
+            [self.build_encoder_layer(args) for i in range(args.encoder_layers)]
+        )
         self.num_layers = len(self.layers)
 
         if args.encoder_normalize_before:
@@ -317,12 +318,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
             all_ones.triu(self.transformer_context[1] + 1) | all_ones.tril(-self.transformer_context[0] - 1)
         )
 
-    def forward(
-        self,
-        src_tokens,
-        src_lengths,
-        return_all_hiddens: bool = False,
-    ):
+    def forward(self, src_tokens, src_lengths, return_all_hiddens: bool = False):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape
@@ -396,6 +392,9 @@ class SpeechTransformerDecoder(TransformerDecoder):
     ):
         self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
         super().__init__(args, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn)
+        for layer in self.layers:
+            if isinstance(layer, TransformerDecoderLayer):
+                layer.need_attn = False  # make validation fast
 
     def forward(
         self,
@@ -425,14 +424,16 @@ class SpeechTransformerDecoder(TransformerDecoder):
                 - the decoder's output of shape `(batch, tgt_len, vocab)`
                 - a dictionary with any model-specific outputs
         """
+        if alignment_layer is None:  # no attention tensors during training to save memory
+            alignment_layer = self.num_layers  # can be any value no less than this
         if self.scheduled_sampling_rate_scheduler is not None:
             epoch = kwargs.get("epoch", 1)
             sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
             if sampling_prob < 1.0:  # apply scheduled sampling
+                assert not features_only
                 return self._forward_with_scheduled_sampling(
                     prev_output_tokens, sampling_prob, encoder_out=encoder_out,
                     incremental_state={},  # use empty dict to preserve forward state
-                    features_only=features_only,
                     alignment_layer=alignment_layer,
                     alignment_heads=alignment_heads,
                     src_lengths=src_lengths,
@@ -475,19 +476,18 @@ class SpeechTransformerDecoder(TransformerDecoder):
                 )
             else:
                 feed_tokens = prev_output_tokens[:, step:step + 1]  # B x 1
-            x, extra = self.extract_features(
+            x, _ = self.extract_features(
                 feed_tokens,
                 encoder_out=encoder_out,
                 incremental_state=incremental_state,
                 alignment_layer=alignment_layer,
                 alignment_heads=alignment_heads,
             )
-            if not features_only:
-                x = self.output_layer(x)  # B x 1 x V
+            x = self.output_layer(x)  # B x 1 x V
             outs.append(x)
             pred = x.argmax(-1)  # B x 1
         x = torch.cat(outs, dim=1)  # B x T x V
-        return x, extra
+        return x, None
     
     def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
         raise NotImplementedError

@@ -220,20 +220,27 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
         self.fc_out = Linear(args.encoder_embed_dim, num_targets, dropout=self.dropout) \
             if num_targets is not None else None
 
-    def forward(
-        self,
-        src_tokens,
-        src_lengths,
-        return_all_hiddens: bool = False,
-    ):
+    def forward(self, src_tokens, src_lengths, return_all_hiddens: bool = False):
         """
         Args:
-            src_tokens (LongTensor): tokens in the source language of
-                shape `(batch, src_len)`
+            src_tokens (LongTensor): tokens in the source language of shape
+                `(batch, src_len)`
             src_lengths (LongTensor): lengths of each source sentence of
                 shape `(batch)`
             return_all_hiddens (bool, optional): also return all of the
                 intermediate hidden states (default: False).
+
+        Returns:
+            namedtuple:
+                - **encoder_out** (Tensor): the last encoder layer's output of
+                  shape `(src_len, batch, embed_dim)`
+                - **encoder_padding_mask** (ByteTensor): the positions of
+                  padding elements of shape `(batch, src_len)`
+                - **encoder_embedding** (Tensor): the (scaled) embedding lookup
+                  of shape `(batch, src_len, embed_dim)`
+                - **encoder_states** (List[Tensor]): all intermediate
+                  hidden states of shape `(src_len, batch, embed_dim)`.
+                  Only populated if *return_all_hiddens* is True.
         """
         out = super().forward(src_tokens, src_lengths, return_all_hiddens=return_all_hiddens)
         x, x_lengths = out.encoder_out, out.src_lengths
