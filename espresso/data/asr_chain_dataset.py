@@ -154,25 +154,18 @@ class AsrChainDataset(FairseqDataset):
         tgt (espresso.data.NumeratorGraphDataset, optional): target numerator graph dataset to wrap
         tgt_sizes (List[int], optional): target sizes (num of states in the numerator graph)
         text  (torch.utils.data.Dataset, optional): text dataset to wrap
-        max_source_positions (int, optional): max number of frames in the
-            source (default: 1024).
-        max_target_positions (int, optional): max number of tokens in the target
-            sentence (default: 1024)
         shuffle (bool, optional): shuffle dataset elements before batching
             (default: True)
     """
 
     def __init__(
-        self, src, src_sizes, tgt=None, tgt_sizes=None, text=None,
-        max_source_positions=1024, max_target_positions=1024, shuffle=True,
+        self, src, src_sizes, tgt=None, tgt_sizes=None, text=None, shuffle=True,
     ):
         self.src = src
         self.tgt = tgt
         self.src_sizes = np.array(src_sizes)
         self.tgt_sizes = np.array(tgt_sizes) if tgt_sizes is not None else None
         self.text = text
-        self.max_source_positions = max_source_positions
-        self.max_target_positions = max_target_positions
         self.shuffle = shuffle
         self.epoch = 1
         num_before_matching = len(self.src.utt_ids)
