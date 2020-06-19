@@ -268,15 +268,25 @@ class SpeechTdnnEncoder(FairseqEncoder):
         return self.fc_out(features)  # T x B x C -> T x B x V
 
     def reorder_encoder_out(self, encoder_out: EncoderOut, new_order):
-        encoder_padding_mask = encoder_out.encoder_padding_mask.index_select(1, new_order) \
-            if encoder_out.encoder_padding_mask is not None else None
+        encoder_padding_mask: Optional[Tensor] = encoder_out.encoder_padding_mask
+        src_lengths: Optional[Tensor] = encoder_out.src_lengths
+        new_encoder_padding_mask = (
+            encoder_padding_mask
+            if encoder_padding_mask is None
+            else encoder_padding_mask.index_select(1, new_order)
+        )
+        new_src_lengths = (
+            src_lengths
+            if src_lengths is None
+            else src_lengths.index_select(0, new_order)
+        )
         return EncoderOut(
             encoder_out=encoder_out.encoder_out.index_select(1, new_order),
-            encoder_padding_mask=encoder_padding_mask,
+            encoder_padding_mask=new_encoder_padding_mask,
             encoder_embedding=None,
             encoder_states=None,
             src_tokens=None,
-            src_lengths=encoder_out.src_lengths.index_select(0, new_order),
+            src_lengths=new_src_lengths,
         )
 
     def max_positions(self):
