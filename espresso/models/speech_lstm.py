@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -433,15 +433,25 @@ class SpeechLSTMEncoder(FairseqEncoder):
         )
 
     def reorder_encoder_out(self, encoder_out: EncoderOut, new_order):
-        encoder_padding_mask = encoder_out.encoder_padding_mask.index_select(1, new_order) \
-            if encoder_out.encoder_padding_mask is not None else None
+        encoder_padding_mask: Optional[Tensor] = encoder_out.encoder_padding_mask
+        src_lengths: Optional[Tensor] = encoder_out.src_lengths
+        new_encoder_padding_mask = (
+            encoder_padding_mask
+            if encoder_padding_mask is None
+            else encoder_padding_mask.index_select(1, new_order)
+        )
+        new_src_lengths = (
+            src_lengths
+            if src_lengths is None
+            else src_lengths.index_select(0, new_order)
+        )
         return EncoderOut(
             encoder_out=encoder_out.encoder_out.index_select(1, new_order),
-            encoder_padding_mask=encoder_padding_mask,
+            encoder_padding_mask=new_encoder_padding_mask,
             encoder_embedding=None,
             encoder_states=None,
             src_tokens=None,
-            src_lengths=encoder_out.src_lengths.index_select(0, new_order),
+            src_lengths=new_src_lengths,
         )
 
     def max_positions(self):
@@ -516,18 +526,6 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
 
         self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
-
-    def get_cached_state(self, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]]):
-        cached_state = self.get_incremental_state(incremental_state, "cached_state")
-        assert cached_state is not None
-        prev_hiddens_ = cached_state["prev_hiddens"]
-        assert prev_hiddens_ is not None
-        prev_cells_ = cached_state["prev_cells"]
-        assert prev_cells_ is not None
-        prev_hiddens = [prev_hiddens_[i] for i in range(self.num_layers)]
-        prev_cells = [prev_cells_[j] for j in range(self.num_layers)]
-        input_feed = cached_state["input_feed"]  # can be None for decoder-only language models
-        return prev_hiddens, prev_cells, input_feed
 
     def forward(
         self,
@@ -691,7 +689,11 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         prev_cells_tensor = torch.stack(prev_cells)
         cache_state = torch.jit.annotate(
             Dict[str, Optional[Tensor]],
-            {"prev_hiddens": prev_hiddens_tensor, "prev_cells": prev_cells_tensor, "input_feed": input_feed}
+            {
+                "prev_hiddens": prev_hiddens_tensor,
+                "prev_cells": prev_cells_tensor,
+                "input_feed": input_feed,
+            }
         )
         self.set_incremental_state(incremental_state, "cached_state", cache_state)
 
@@ -725,24 +727,40 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         else:
             return features
 
-    def reorder_state(self, state: List[Tensor], new_order):
-        return [
-            state_i.index_select(0, new_order) if state_i is not None else None
-            for state_i in state
-        ]
+    def get_cached_state(
+        self,
+        incremental_state: Dict[str, Dict[str, Optional[Tensor]]],
+    ) -> Tuple[List[Tensor], List[Tensor], Optional[Tensor]]:
+        cached_state = self.get_incremental_state(incremental_state, "cached_state")
+        assert cached_state is not None
+        prev_hiddens_ = cached_state["prev_hiddens"]
+        assert prev_hiddens_ is not None
+        prev_cells_ = cached_state["prev_cells"]
+        assert prev_cells_ is not None
+        prev_hiddens = [prev_hiddens_[i] for i in range(self.num_layers)]
+        prev_cells = [prev_cells_[j] for j in range(self.num_layers)]
+        input_feed = cached_state["input_feed"]  # can be None for decoder-only language models
+        return prev_hiddens, prev_cells, input_feed
 
-    def reorder_incremental_state(self, incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]], new_order):
-        super().reorder_incremental_state(incremental_state, new_order)
+    def reorder_incremental_state(
+        self,
+        incremental_state: Dict[str, Dict[str, Optional[Tensor]]],
+        new_order: Tensor,
+    ):
         if incremental_state is None or len(incremental_state) == 0:
             return
         prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
-        cached_state = (prev_hiddens, prev_cells, [input_feed])
-        new_state = [self.reorder_state(state, new_order) for state in cached_state]
-        prev_hiddens_tensor = torch.stack(new_state[0])
-        prev_cells_tensor = torch.stack(new_state[1])
+        prev_hiddens = [p.index_select(0, new_order) for p in prev_hiddens]
+        prev_cells = [p.index_select(0, new_order) for p in prev_cells]
+        if input_feed is not None:
+            input_feed = input_feed.index_select(0, new_order)
         cached_state_new = torch.jit.annotate(
             Dict[str, Optional[Tensor]],
-            {"prev_hiddens": prev_hiddens_tensor, "prev_cells": prev_cells_tensor, "input_feed": new_state[2][0]}
+            {
+                "prev_hiddens": torch.stack(prev_hiddens),
+                "prev_cells": torch.stack(prev_cells),
+                "input_feed": input_feed,
+            }
         )
         self.set_incremental_state(incremental_state, "cached_state", cached_state_new),
         return
@@ -752,33 +770,37 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             assert another_cached_state is None or len(another_cached_state) == 0
             return
         prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
-        cached_state = (prev_hiddens, prev_cells, [input_feed])
-        another_cached_state = (another_cached_state[0], another_cached_state[1], [another_cached_state[2]])
+        another_prev_hiddens, another_prev_cells, another_input_feed = \
+            another_cached_state[0], another_cached_state[1], another_cached_state[2]
 
-        def mask_copy_state(state: List[Tensor], another_state: List[Tensor]):
-            new_state = []
-            for state_i, another_state_i in zip(state, another_state):
-                if state_i is None:
-                    assert another_state_i is None
-                    new_state.append(None)
-                else:
-                    assert state_i.size(0) == mask.size(0) and another_state_i is not None and \
-                        state_i.size() == another_state_i.size()
-                    mask_unsqueezed = mask
-                    for _ in range(1, len(state_i.size())):
-                        mask_unsqueezed = mask_unsqueezed.unsqueeze(-1)
-                    new_state.append(torch.where(mask_unsqueezed, state_i, another_state_i))
-            return new_state
+        def mask_copy_state(state: Optional[Tensor], another_state: Optional[Tensor]):
+            if state is None:
+                assert another_state is None
+                return None
+            else:
+                assert (
+                    state.size(0) == mask.size(0) and another_state is not None and
+                    state.size() == another_state.size()
+                )
+                mask_unsqueezed = mask
+                for _ in range(1, len(state.size())):
+                    mask_unsqueezed = mask_unsqueezed.unsqueeze(-1)
+                return torch.where(mask_unsqueezed, state, another_state)
 
-        new_state = [
-            mask_copy_state(state, another_state)
-            for (state, another_state) in zip(cached_state, another_cached_state)
+        prev_hiddens_new = [
+            mask_copy_state(p, another_p) for (p, another_p) in zip(prev_hiddens, another_prev_hiddens)
         ]
-        prev_hiddens_tensor = torch.stack(new_state[0])
-        prev_cells_tensor = torch.stack(new_state[1])
+        prev_cells_new = [
+            mask_copy_state(p, another_p) for (p, another_p) in zip(prev_cells, another_prev_cells)
+        ]
+        input_feed_new = mask_copy_state(input_feed, another_input_feed)
         cached_state_new = torch.jit.annotate(
             Dict[str, Optional[Tensor]],
-            {"prev_hiddens": prev_hiddens_tensor, "prev_cells": prev_cells_tensor, "input_feed": new_state[2][0]}
+            {
+                "prev_hiddens": torch.stack(prev_hiddens_new),
+                "prev_cells": torch.stack(prev_cells_new),
+                "input_feed": input_feed_new,
+            }
         )
         self.set_incremental_state(incremental_state, "cached_state", cached_state_new)
 
