@@ -201,6 +201,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             dropout_out=args.encoder_rnn_dropout_out,
             bidirectional=args.encoder_rnn_bidirectional,
             residual=args.encoder_rnn_residual,
+            src_bucketed=(getattr(task.args, "num_batch_buckets", 0) > 0),
             max_source_positions=max_source_positions,
         )
         decoder = SpeechLSTMDecoder(
@@ -328,7 +329,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
     def __init__(
         self, conv_layers_before=None, input_size=83, hidden_size=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, bidirectional=False,
-        residual=False, left_pad=False, padding_value=0.,
+        residual=False, left_pad=False, padding_value=0., src_bucketed=False,
         max_source_positions=DEFAULT_MAX_SOURCE_POSITIONS,
     ):
         super().__init__(None)  # no src dictionary
@@ -351,6 +352,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
         ])
         self.left_pad = left_pad
         self.padding_value = padding_value
+        self.src_bucketed = src_bucketed
 
         self.output_units = hidden_size
         if bidirectional:
@@ -408,7 +410,12 @@ class SpeechLSTMEncoder(FairseqEncoder):
                 prev_x = x
             # pack embedded source tokens into a PackedSequence
             packed_x = nn.utils.rnn.pack_padded_sequence(
-                x, src_lengths.data, enforce_sorted=enforce_sorted
+                x,
+                (
+                    src_lengths.data if not self.src_bucketed else
+                    src_lengths.new_full(src_lengths.size(), x.size(0))
+                ),
+                enforce_sorted=enforce_sorted
             )
 
             # apply LSTM
@@ -548,7 +555,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 - the decoder's output of shape `(batch, tgt_len, vocab)`
                 - attention weights of shape `(batch, tgt_len, src_len)`
         """
-        if self.scheduled_sampling_rate_scheduler is not None:
+        if self.training and self.scheduled_sampling_rate_scheduler is not None:
             epoch = kwargs.get("epoch", 1)
             sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
             if sampling_prob < 1.0:  # apply scheduled sampling

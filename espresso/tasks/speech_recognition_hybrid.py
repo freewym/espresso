@@ -12,7 +12,7 @@ import os
 import torch
 
 from fairseq import utils
-from fairseq.data import ConcatDataset
+from fairseq.data import BaseWrapperDataset, ConcatDataset
 
 from fairseq.tasks import FairseqTask, register_task
 
@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 def get_asr_dataset_from_json(
     data_path, split, dictionary,
     combine, upsample_primary,
+    num_buckets=0,
     lf_mmi=True,
     seed=1, specaugment_config=None,
     chunk_width=None, chunk_left_context=None, chunk_right_context=None, label_delay=0,
@@ -145,12 +146,14 @@ def get_asr_dataset_from_json(
             src_dataset, src_dataset.sizes,
             tgt_dataset, tgt_dataset_sizes,
             text=text_dataset,
+            num_buckets=num_buckets,
         )
     else:
         return AsrXentDataset(
             src_dataset, src_dataset.sizes,
             tgt_dataset, tgt_dataset_sizes,
             text=text_dataset,
+            num_buckets=num_buckets,
             seed=seed, chunk_width=chunk_width,
             chunk_left_context=chunk_left_context, chunk_right_context=chunk_right_context,
             label_delay=label_delay, random_chunking=(split == "train" and chunk_width is not None),
@@ -202,6 +205,10 @@ class SpeechRecognitionHybridTask(FairseqTask):
                             help="max number of tokens in the target sequence")
         parser.add_argument("--upsample-primary", default=1, type=int,
                             help="amount to upsample primary dataset")
+        parser.add_argument("--num-batch-buckets", default=0, type=int, metavar="N",
+                            help="if >0, then bucket source and target lengths into N "
+                            "buckets and pad accordingly; this is useful on TPUs "
+                            "to minimize the number of compilations")
         parser.add_argument("--feat-in-channels", default=1, type=int, metavar="N",
                             help="feature input channels")
         parser.add_argument("--specaugment-config", default=None, type=str, metavar="EXPR",
@@ -313,6 +320,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
             data_path, split, self.dictionary,
             combine=combine,
             upsample_primary=self.args.upsample_primary,
+            num_buckets=self.args.num_batch_buckets,
             lf_mmi=(self.args.criterion == "lattice_free_mmi"),
             seed=self.args.seed, specaugment_config=self.specaugment_config,
             chunk_width=None if self.training_stage and split in self.args.valid_subset.split(",") else self.chunk_width,
@@ -321,8 +329,12 @@ class SpeechRecognitionHybridTask(FairseqTask):
         )
 
         src_dataset = self.datasets[split].src
-        self.feat_dim = src_dataset.feat_dim if not isinstance(src_dataset, ConcatDataset) \
-            else src_dataset.datasets[0].feat_dim
+        if isinstance(src_dataset, ConcatDataset):
+            self.feat_dim = src_dataset.datasets[0].feat_dim
+        elif isinstance(src_dataset, BaseWrapperDataset):
+            self.feat_dim = src_dataset.dataset.feat_dim
+        else:
+            self.feat_dim = src_dataset.feat_dim
 
     def build_generator(self, models, args):
         if args.score_reference:

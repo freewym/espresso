@@ -48,7 +48,6 @@ class GenerateLogProbsForDecoding(nn.Module):
             models (List[~fairseq.models.FairseqModel]): ensemble of models
             sample (dict): batch
         """
-        self.model.reset_incremental_state()
         return self._generate(sample, **kwargs)
 
     def _generate(self, sample: Dict[str, Dict[str, Tensor]], **kwargs):

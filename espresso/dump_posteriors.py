@@ -57,6 +57,7 @@ def _main(args, output_file):
         utils.split_paths(args.path),
         arg_overrides=eval(args.model_overrides),
         task=task,
+        suffix=getattr(args, "checkpoint_suffix", ""),
     )
 
     # Load state prior for cross-entropy trained systems decoding

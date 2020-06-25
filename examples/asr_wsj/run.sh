@@ -153,7 +153,7 @@ if [ ${stage} -le 3 ]; then
     echo "$0: binarizing char text..."
     mkdir -p $lmdatadir/log
     ${decode_cmd} $lmdatadir/log/preprocess.log \
-      python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
+      python3 ../../fairseq_cli/preprocess.py --user-dir espresso --task language_modeling_for_asr \
         --workers 30 --srcdict $lmdict --only-source \
         --trainpref $lmdatadir/train.tokens \
         --validpref $lmdatadir/$valid_set.tokens \
@@ -163,7 +163,7 @@ if [ ${stage} -le 3 ]; then
     echo "$0: binarizing word text..."
     mkdir -p $wordlmdatadir/log
     ${decode_cmd} $wordlmdatadir/log/preprocess.log \
-      python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
+      python3 ../../fairseq_cli/preprocess.py --user-dir espresso --task language_modeling_for_asr \
         --workers 30 --srcdict $wordlmdict --only-source \
         --trainpref $wordlmdatadir/train \
         --validpref $wordlmdatadir/$valid_set \
@@ -184,7 +184,7 @@ if [ ${stage} -le 4 ] && ! $use_wordlm; then
   mkdir -p $lmdir/log
   log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval $((4000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 25600 --max-sentences 128 \
@@ -201,7 +201,7 @@ if [ ${stage} -le 5 ] && ! $use_wordlm; then
   echo "Stage 5: char LM Evaluation"
   for gen_subset in valid test; do
     log_file=$lmdir/log/evaluation_$gen_subset.log
-    python3 ../../eval_lm.py $lmdatadir --user-dir espresso --cpu \
+    python3 ../../fairseq_cli/eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset $gen_subset \
       --max-tokens 192000 --max-sentences 256 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
@@ -214,7 +214,7 @@ if [ ${stage} -le 6 ] && $use_wordlm; then
   mkdir -p $wordlmdir/log
   log_file=$wordlmdir/log/train.log
   [ -f $wordlmdir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $wordlmdatadir --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $wordlmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $wordlmdict \
     --log-interval $((4000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 6400 --max-sentences 256 \
@@ -232,7 +232,7 @@ if [ ${stage} -le 7 ] && $use_wordlm; then
   echo "Stage 7: word LM Evaluation"
   for gen_subset in valid test; do
     log_file=$wordlmdir/log/evaluation_$gen_subset.log
-    python3 ../../eval_lm.py $wordlmdatadir --user-dir espresso --cpu \
+    python3 ../../fairseq_cli/eval_lm.py $wordlmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $wordlmdict --gen-subset $gen_subset \
       --max-tokens 12800 --max-sentences 512 --sample-break-mode eos \
       --path $wordlmdir/$lm_checkpoint 2>&1 | tee $log_file

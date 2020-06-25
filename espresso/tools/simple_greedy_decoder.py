@@ -3,7 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -68,11 +68,17 @@ class SimpleGreedyDecoder(nn.Module):
             bos_token (int, optional): beginning of sentence token
                 (default: self.eos)
         """
-        self.model.reset_incremental_state()
         return self._decode(sample, **kwargs)
 
     @torch.no_grad()
     def _decode(self, sample: Dict[str, Dict[str, Tensor]], bos_token: Optional[int] = None):
+        incremental_states = torch.jit.annotate(
+            List[Dict[str, Dict[str, Optional[Tensor]]]],
+            [
+                torch.jit.annotate(Dict[str, Dict[str, Optional[Tensor]]], {})
+                for i in range(self.model.models_size)
+            ],
+        )
         net_input = sample["net_input"]
         src_tokens = net_input["src_tokens"]
         input_size = src_tokens.size()
@@ -111,7 +117,10 @@ class SimpleGreedyDecoder(nn.Module):
                     attn = attn[:, :, :step + 1]
                 break
             log_probs, avg_attn_scores = self.model.forward_decoder(
-                tokens[:, :step + 1], encoder_outs, temperature=self.temperature,
+                tokens[:, : step + 1],
+                encoder_outs,
+                incremental_states,
+                temperature=self.temperature,
             )
             tokens[:, step + 1] = log_probs.argmax(-1)
             if step > 0:  # deal with finished predictions

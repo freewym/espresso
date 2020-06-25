@@ -148,7 +148,7 @@ if [ ${stage} -le 4 ]; then
   for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
   ${decode_cmd} $lmdatadir/log/preprocess.log \
-    python3 ../../preprocess.py --user-dir espresso --task language_modeling_for_asr \
+    python3 ../../fairseq_cli/preprocess.py --user-dir espresso --task language_modeling_for_asr \
       --workers 50 --srcdict $lmdict --only-source \
       --trainpref $lmdatadir/train.tokens \
       --validpref $lmdatadir/$valid_set.tokens \
@@ -168,7 +168,7 @@ if [ ${stage} -le 5 ]; then
   mkdir -p $lmdir/log
   log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../train.py $lmdatadir --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval $((16000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 32000 --max-sentences 1024 --curriculum 1 \
@@ -189,7 +189,7 @@ if [ ${stage} -le 6 ]; then
   test_set_array=($test_set)
   for i in $(seq 0 $num); do
     log_file=$lmdir/log/evaluation_${test_set_array[$i]}.log
-    python3 ../../eval_lm.py $lmdatadir --user-dir espresso --cpu \
+    python3 ../../fairseq_cli/eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
       --max-tokens 40960 --max-sentences 1536 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file

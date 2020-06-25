@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import logging
 import numpy as np
 import torch
 
@@ -11,9 +12,17 @@ from fairseq.data import data_utils, FairseqDataset
 import espresso.tools.utils as speech_utils
 
 
+logger = logging.getLogger(__name__)
+
+
 def collate(
-    samples, pad_idx, eos_idx, left_pad_source=True, left_pad_target=False,
+    samples,
+    pad_idx,
+    eos_idx,
+    left_pad_source=True,
+    left_pad_target=False,
     input_feeding=True,
+    src_bucketed=False,
 ):
     if len(samples) == 0:
         return {}
@@ -34,7 +43,12 @@ def collate(
     id = torch.LongTensor([s['id'] for s in samples])
     src_frames = merge('source', left_pad=left_pad_source)
     # sort by descending source length
-    src_lengths = torch.IntTensor([s['source'].size(0) for s in samples])
+    if src_bucketed:
+        src_lengths = torch.IntTensor([
+            s['source'].ne(0.0).any(dim=1).int().sum() for s in samples
+        ])
+    else:
+        src_lengths = torch.IntTensor([s['source'].size(0) for s in samples])
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
     utt_id = [samples[i]['utt_id'] for i in sort_order.numpy()]
@@ -45,7 +59,7 @@ def collate(
     if samples[0].get('target', None) is not None:
         target = merge('target', left_pad=left_pad_target)
         target = target.index_select(0, sort_order)
-        ntokens = sum(len(s['target']) for s in samples)
+        ntokens = sum(s['target'].ne(pad_idx).int().sum().item() for s in samples)
 
         if input_feeding:
             # we create a shifted version of targets for feeding the
@@ -57,7 +71,7 @@ def collate(
             )
             prev_output_tokens = prev_output_tokens.index_select(0, sort_order)
     else:
-        ntokens = sum(s['source'].size(0) for s in samples)
+        ntokens = src_lengths.sum().item()
 
     target_raw_text = None
     if samples[0].get('target_raw_text', None) is not None:
@@ -95,9 +109,11 @@ class AsrDataset(FairseqDataset):
         left_pad_target (bool, optional): pad target tensors on the left side
             (default: False).
         shuffle (bool, optional): shuffle dataset elements before batching
-            (default: True)
+            (default: True).
         input_feeding (bool, optional): create a shifted version of the targets
             to be passed into the model for teacher forcing (default: True).
+        num_buckets (int, optional): if set to a value greater than 0, then
+            batches will be bucketed into the given number of batch shapes.
     """
 
     def __init__(
@@ -105,6 +121,7 @@ class AsrDataset(FairseqDataset):
         tgt=None, tgt_sizes=None, dictionary=None,
         left_pad_source=False, left_pad_target=False,
         shuffle=True, input_feeding=True,
+        num_buckets=0,
     ):
         self.src = src
         self.tgt = tgt
@@ -117,6 +134,39 @@ class AsrDataset(FairseqDataset):
         self.input_feeding = input_feeding
         if self.tgt is not None:
             self._match_src_tgt()
+
+        if num_buckets > 0:
+            from espresso.data import FeatBucketPadLengthDataset, TextBucketPadLengthDataset
+            self.src = FeatBucketPadLengthDataset(
+                self.src,
+                sizes=self.src_sizes,
+                num_buckets=num_buckets,
+                pad_idx=0.0,
+                left_pad=False,
+            )
+            self.src_sizes = self.src.sizes
+            logger.info('bucketing source lengths: {}'.format(list(self.src.buckets)))
+            if self.tgt is not None:
+                self.tgt = TextBucketPadLengthDataset(
+                    self.tgt,
+                    sizes=self.tgt_sizes,
+                    num_buckets=num_buckets,
+                    pad_idx=self.dictionary.pad(),
+                    left_pad=False,
+                )
+                self.tgt_sizes = self.tgt.sizes
+                logger.info('bucketing target lengths: {}'.format(list(self.tgt.buckets)))
+
+            # determine bucket sizes using self.num_tokens, which will return
+            # the padded lengths (thanks to FeatBucketPadLengthDataset)
+            num_tokens = np.vectorize(self.num_tokens, otypes=[np.long])
+            self.bucketed_num_tokens = num_tokens(np.arange(len(self.src)))
+            self.buckets = [
+                (None, num_tokens)
+                for num_tokens in np.unique(self.bucketed_num_tokens)
+            ]
+        else:
+            self.buckets = None
 
     def _match_src_tgt(self):
         """Makes utterances in src and tgt the same order in terms of
@@ -141,6 +191,9 @@ class AsrDataset(FairseqDataset):
         self.tgt_sizes = np.array(self.tgt.sizes)
         assert self.src.utt_ids == self.tgt.utt_ids
 
+    def get_batch_shapes(self):
+        return self.buckets
+    
     def __getitem__(self, index):
         tgt_item = self.tgt[index][0] if self.tgt is not None else None
         raw_text_item = self.tgt[index][1] if self.tgt is not None else None
@@ -190,9 +243,13 @@ class AsrDataset(FairseqDataset):
                 - `target_raw_text` (List[str]): list of original text
         """
         return collate(
-            samples, pad_idx=self.dictionary.pad(), eos_idx=self.dictionary.eos(),
-            left_pad_source=self.left_pad_source, left_pad_target=self.left_pad_target,
+            samples,
+            pad_idx=self.dictionary.pad(),
+            eos_idx=self.dictionary.eos(),
+            left_pad_source=self.left_pad_source,
+            left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding,
+            src_bucketed=(self.buckets is not None),
         )
 
     def num_tokens(self, index):
@@ -212,9 +269,18 @@ class AsrDataset(FairseqDataset):
             indices = np.random.permutation(len(self))
         else:
             indices = np.arange(len(self))
-        if self.tgt_sizes is not None:
-            indices = indices[np.argsort(self.tgt_sizes[indices], kind='mergesort')]
-        return indices[np.argsort(self.src_sizes[indices], kind='mergesort')]
+        if self.buckets is None:
+            # sort by target length, then source length
+            if self.tgt_sizes is not None:
+                indices = indices[
+                    np.argsort(self.tgt_sizes[indices], kind='mergesort')
+                ]
+            return indices[np.argsort(self.src_sizes[indices], kind='mergesort')]
+        else:
+            # sort by bucketed_num_tokens, which is padded_src_len
+            return indices[
+                np.argsort(self.bucketed_num_tokens[indices], kind='mergesort')
+            ]
 
     @property
     def supports_prefetch(self):

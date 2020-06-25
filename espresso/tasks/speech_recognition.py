@@ -12,7 +12,7 @@ import os
 import torch
 
 from fairseq import search, utils
-from fairseq.data import ConcatDataset
+from fairseq.data import BaseWrapperDataset, ConcatDataset
 from fairseq.logging import metrics
 from fairseq.tasks import FairseqTask, register_task
 
@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 def get_asr_dataset_from_json(
     data_path, split, tgt_dict,
     combine, upsample_primary,
+    num_buckets=0,
     seed=1, specaugment_config=None,
 ):
     """
@@ -112,6 +113,7 @@ def get_asr_dataset_from_json(
         tgt_dict,
         left_pad_source=False,
         left_pad_target=False,
+        num_buckets=num_buckets,
     )
 
 
@@ -159,6 +161,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                             help="max number of tokens in the target sequence")
         parser.add_argument("--upsample-primary", default=1, type=int,
                             help="amount to upsample primary dataset")
+        parser.add_argument("--num-batch-buckets", default=0, type=int, metavar="N",
+                            help="if >0, then bucket source and target lengths into N "
+                            "buckets and pad accordingly; this is useful on TPUs "
+                            "to minimize the number of compilations")
         parser.add_argument("--feat-in-channels", default=1, type=int, metavar="N",
                             help="feature input channels")
         parser.add_argument("--specaugment-config", default=None, type=str, metavar="EXPR",
@@ -233,13 +239,18 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             data_path, split, self.tgt_dict,
             combine=combine,
             upsample_primary=self.args.upsample_primary,
+            num_buckets=self.args.num_batch_buckets,
             seed=self.args.seed,
             specaugment_config=self.specaugment_config,
         )
 
         src_dataset = self.datasets[split].src
-        self.feat_dim = src_dataset.feat_dim if not isinstance(src_dataset, ConcatDataset) \
-            else src_dataset.datasets[0].feat_dim
+        if isinstance(src_dataset, ConcatDataset):
+            self.feat_dim = src_dataset.datasets[0].feat_dim
+        elif isinstance(src_dataset, BaseWrapperDataset):
+            self.feat_dim = src_dataset.dataset.feat_dim
+        else:
+            self.feat_dim = src_dataset.feat_dim
 
         # update the counts of <eos> and <unk> in tgt_dict with training data
         if split == "train":
