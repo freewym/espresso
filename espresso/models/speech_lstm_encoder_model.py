@@ -106,6 +106,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
             dropout_out=args.encoder_rnn_dropout_out,
             bidirectional=args.encoder_rnn_bidirectional,
             residual=args.encoder_rnn_residual,
+            src_bucketed=(getattr(task.args, "num_batch_buckets", 0) > 0),
             num_targets=getattr(task, "num_targets", None),  # targets for encoder-only model
             chunk_width=getattr(task, "chunk_width", None),
             chunk_left_context=getattr(task, "chunk_left_context", 0),
@@ -153,7 +154,7 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
     def __init__(
         self, conv_layers_before=None, input_size=83, hidden_size=512,
         num_layers=1, dropout_in=0.1, dropout_out=0.1, bidirectional=False,
-        residual=False, left_pad=False, padding_value=0.,
+        residual=False, left_pad=False, padding_value=0., src_bucketed=False,
         num_targets=None, chunk_width=20, chunk_left_context=0, training_stage=True,
         max_source_positions=DEFAULT_MAX_SOURCE_POSITIONS,
     ):
@@ -161,7 +162,7 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
             conv_layers_before=conv_layers_before, input_size=input_size, hidden_size=hidden_size,
             num_layers=num_layers, dropout_in=dropout_in,  dropout_out=dropout_in,
             bidirectional=bidirectional, residual=residual, left_pad=left_pad,
-            padding_value=padding_value, max_source_positions=max_source_positions,
+            padding_value=padding_value, src_bucketed=src_bucketed, max_source_positions=max_source_positions,
         )
         receptive_field_radius = sum(conv.padding[0] for conv in conv_layers_before.convolutions) \
             if conv_layers_before is not None else 0
@@ -242,5 +243,5 @@ def base_architecture(args):
 
 
 @register_model_architecture("speech_lstm_encoder_model", "speech_conv_lstm_encoder_model_wsj")
-def encoder_conv_lstm_wsj(args):
+def conv_lstm_encoder_wsj(args):
     base_architecture(args)
