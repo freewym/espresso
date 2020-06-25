@@ -74,6 +74,7 @@ def _main(args, output_file):
         utils.split_paths(args.path),
         arg_overrides=eval(args.model_overrides),
         task=task,
+        suffix=getattr(args, "checkpoint_suffix", ""),
     )
     for i, m in enumerate(models):
         if hasattr(m, 'is_wordlm') and m.is_wordlm:
