@@ -999,7 +999,11 @@ class LMFusionModel(EnsembleModel):
 
     @torch.jit.export
     def forward_decoder(
-        self, tokens, encoder_outs: List[EncoderOut], temperature: float = 1.0
+        self,
+        tokens,
+        encoder_outs: List[EncoderOut],
+        incremental_states: List[Dict[str, Dict[str, Optional[Tensor]]]],
+        temperature: float = 1.0,
     ):
         log_probs = []
         avg_attn: Optional[Tensor] = None
@@ -1012,7 +1016,7 @@ class LMFusionModel(EnsembleModel):
                 decoder_out = model.decoder.forward(
                     tokens,
                     encoder_out=encoder_out,
-                    incremental_state=self.incremental_states[i],
+                    incremental_state=incremental_states[i],
                 )
             else:
                 decoder_out = model.decoder.forward(tokens, encoder_out=encoder_out)
