@@ -275,8 +275,8 @@ if [ ${stage} -le 9 ]; then
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   if $use_transformer; then
-    opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((15000/ngpus)) --hold-steps $((50000/ngpus)) --decay-steps $((100000/ngpus))"
-    opts="$opts --arch speech_transformer"
+    opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((25000/ngpus)) --hold-steps $((60000/ngpus)) --decay-steps $((120000/ngpus))"
+    opts="$opts --arch speech_transformer_wsj --max-tokens 20000"
   else
     opts="$opts --max-epoch 35 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 11"
     opts="$opts --arch speech_conv_lstm_wsj --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6"

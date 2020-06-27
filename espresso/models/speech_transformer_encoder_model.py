@@ -18,19 +18,19 @@ from fairseq.models import (
 from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.transformer import Linear
 
-from espresso.models.speech_transformer import SpeechTransformerEncoder
 from espresso.models.speech_lstm import ConvBNReLU
+from espresso.models.speech_transformer import SpeechTransformerEncoder
 import espresso.tools.utils as speech_utils
 
 
-DEFAULT_MAX_SOURCE_POSITIONS = 1e5
+DEFAULT_MAX_SOURCE_POSITIONS = 10240
 
 
 logger = logging.getLogger(__name__)
 
 
 @register_model("speech_transformer_encoder_model")
-class SpeechTransfomerEncoderModel(FairseqEncoderModel):
+class SpeechTransformerEncoderModel(FairseqEncoderModel):
     def __init__(self, args, encoder, state_prior: Optional[torch.FloatTensor] = None):
         super().__init__(encoder)
         self.args = args
@@ -66,7 +66,7 @@ class SpeechTransfomerEncoderModel(FairseqEncoderModel):
                             help="apply layernorm before each encoder block")
         parser.add_argument("--encoder-transformer-context", type=str, metavar="EXPR",
                             help="left/right context for time-restricted self-attention; "
-                            "can be None or a tuple of two non-negative integers/None")
+                                 "can be None or a tuple of two non-negative integers/None")
         # args for "Reducing Transformer Depth on Demand with Structured Dropout" (Fan et al., 2019)
         parser.add_argument("--encoder-layerdrop", type=float, metavar="D", default=0,
                             help="LayerDrop probability for encoder")
@@ -283,14 +283,19 @@ def base_architecture(args):
     args.encoder_layers = getattr(args, "encoder_layers", 12)
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
+    args.encoder_learned_pos = getattr(args, "encoder_learned_pos", False)
     args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
     args.attention_dropout = getattr(args, "attention_dropout", 0.2)
     args.activation_dropout = getattr(args, "activation_dropout", 0.2)
     args.activation_fn = getattr(args, "activation_fn", "relu")
     args.dropout = getattr(args, "dropout", 0.2)
+    args.no_token_positional_embeddings = getattr(
+        args, "no_token_positional_embeddings", False
+    )
     args.adaptive_input = getattr(args, "adaptive_input", False)
+    args.layernorm_embedding = getattr(args, "layernorm_embedding", False)
 
 
 @register_model_architecture("speech_transformer_encoder_model", "speech_transformer_encoder_model_wsj")
-def transformer_encoder_wsj(args):
+def speech_transformer_encoder_wsj(args):
     base_architecture(args)

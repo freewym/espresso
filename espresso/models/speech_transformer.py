@@ -11,7 +11,7 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fairseq import options, utils
+from fairseq import options
 from fairseq.models import (
     register_model,
     register_model_architecture,
@@ -27,6 +27,7 @@ from fairseq.models.transformer import (
 from fairseq.modules import (
     LayerDropModuleList,
     LayerNorm,
+    PositionalEmbedding,
     TransformerDecoderLayer,
 )
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
@@ -36,8 +37,8 @@ from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRa
 import espresso.tools.utils as speech_utils
 
 
-DEFAULT_MAX_SOURCE_POSITIONS = 1e5
-DEFAULT_MAX_TARGET_POSITIONS = 1e5
+DEFAULT_MAX_SOURCE_POSITIONS = 10240
+DEFAULT_MAX_TARGET_POSITIONS = 1024
 
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ class SpeechTransformerModel(TransformerModel):
                             "can be None or a tuple of two non-negative integers/None")
         parser.add_argument("--decoder-input-dim", type=int, metavar="N",
                             help="decoder input dimension (extra linear layer "
-                                 "if different from decoder embed dim")
+                                 "if different from decoder embed dim)")
 
         # Scheduled sampling options
         parser.add_argument("--scheduled-sampling-probs", type=lambda p: options.eval_str_list(p),
@@ -257,6 +258,17 @@ class SpeechTransformerEncoder(TransformerEncoder):
         self.conv_layers_before = conv_layers_before
         self.fc0 = Linear(input_size, embed_dim) if input_size != embed_dim else None
 
+        self.embed_positions = (
+            PositionalEmbedding(
+                self.output_lengths(args.max_source_positions),
+                embed_dim,
+                0,
+                learned=args.encoder_learned_pos,
+            )
+            if not args.no_token_positional_embeddings
+            else None
+        )
+
         if not args.adaptive_input and args.quant_noise_pq > 0:
             self.quant_noise = apply_quant_noise_(
                 nn.Linear(embed_dim, embed_dim, bias=False),
@@ -298,9 +310,11 @@ class SpeechTransformerEncoder(TransformerEncoder):
             in_lengths (LongTensor): lengths of each input sequence of shape `(batch)`
 
         Returns:
-            attn_mask (ByteTensor|BoolTensor, optional): self attention mask of shape `((T_tgt, T_src))`,
-                where T_tgt is the length of query, while T_src is the length of key, though
-                here query and key are the same
+            attn_mask (ByteTensor|BoolTensor, optional): self-attention mask of shape
+            `(tgt_len, src_len)`, where `tgt_len` is the length of output and `src_len`
+            is the length of input, though here both are equal to `seq_len`.
+            `attn_mask[tgt_i, src_j] = 1` means that when calculating the
+            embedding for `tgt_i`, we exclude (mask out) `src_j`.
         """
         if (
             self.transformer_context is None
@@ -346,13 +360,23 @@ class SpeechTransformerEncoder(TransformerEncoder):
             x, encoder_padding_mask = src_tokens, \
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
 
-        if not encoder_padding_mask.any():
-            encoder_padding_mask = None
-
         x = F.dropout(x, p=self.dropout, training=self.training)
         if self.fc0 is not None:
             x = self.fc0(x)
+            if self.embed_positions is not None:
+                # 0s in `~encoder_padding_mask` are used as pad_idx for positional embeddings
+                x = x + self.embed_positions((~encoder_padding_mask).int())
+            if self.layernorm_embedding is not None:
+                x = self.layernorm_embedding(x)
             x = F.dropout(x, p=self.dropout, training=self.training)
+        elif self.embed_positions is not None:
+            # 0s in `~encoder_padding_mask` are used as pad_idx for positional embeddings
+            x = x + self.embed_positions((~encoder_padding_mask).int())
+            if self.layernorm_embedding is not None:
+                x = self.layernorm_embedding(x)
+
+        if not encoder_padding_mask.any():
+            encoder_padding_mask = None
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
@@ -390,8 +414,9 @@ class SpeechTransformerDecoder(TransformerDecoder):
         self, args, dictionary, embed_tokens, no_encoder_attn=False,
         scheduled_sampling_rate_scheduler=None,
     ):
-        self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
         super().__init__(args, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn)
+
+        self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
         for layer in self.layers:
             if isinstance(layer, TransformerDecoderLayer):
                 layer.need_attn = False  # make validation fast
@@ -424,9 +449,9 @@ class SpeechTransformerDecoder(TransformerDecoder):
                 - the decoder's output of shape `(batch, tgt_len, vocab)`
                 - a dictionary with any model-specific outputs
         """
-        if alignment_layer is None:  # no attention tensors during training to save memory
+        if self.training and alignment_layer is None:  # no attention tensors during training to save memory
             alignment_layer = self.num_layers  # can be any value no less than this
-        if self.scheduled_sampling_rate_scheduler is not None:
+        if self.training and self.scheduled_sampling_rate_scheduler is not None:
             epoch = kwargs.get("epoch", 1)
             sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
             if sampling_prob < 1.0:  # apply scheduled sampling
@@ -450,7 +475,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
         if not features_only:
             x = self.output_layer(x)
         return x, extra
-    
+
     def _forward_with_scheduled_sampling(
         self,
         prev_output_tokens,
@@ -488,7 +513,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
             pred = x.argmax(-1)  # B x 1
         x = torch.cat(outs, dim=1)  # B x T x V
         return x, None
-    
+
     def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
         raise NotImplementedError
 
@@ -509,6 +534,7 @@ def base_architecture(args):
     args.encoder_layers = getattr(args, "encoder_layers", 12)
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
+    args.encoder_learned_pos = getattr(args, "encoder_learned_pos", False)
     args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
     args.decoder_embed_path = getattr(args, "decoder_embed_path", None)
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
@@ -566,6 +592,29 @@ def speech_transformer_librispeech(args):
     args.attention_dropout = getattr(args, "attention_dropout", 0.1)
     args.activation_dropout = getattr(args, "activation_dropout", 0.1)
     args.dropout = getattr(args, "dropout", 0.1)
+    args.decoder_output_dim = getattr(
+        args, "decoder_output_dim", args.decoder_embed_dim
+    )
+    args.decoder_input_dim = getattr(args, "decoder_input_dim", args.decoder_embed_dim)
+    base_architecture(args)
+
+
+@register_model_architecture("speech_transformer", "speech_transformer_swbd")
+def speech_transformer_swbd(args):
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 512)
+    args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 2048)
+    args.encoder_layers = getattr(args, "encoder_layers", 12)
+    args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
+    args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
+    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
+    args.decoder_ffn_embed_dim = getattr(
+        args, "decoder_ffn_embed_dim", args.encoder_ffn_embed_dim
+    )
+    args.decoder_layers = getattr(args, "decoder_layers", 6)
+    args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 4)
+    args.attention_dropout = getattr(args, "attention_dropout", 0.25)
+    args.activation_dropout = getattr(args, "activation_dropout", 0.25)
+    args.dropout = getattr(args, "dropout", 0.25)
     args.decoder_output_dim = getattr(
         args, "decoder_output_dim", args.decoder_embed_dim
     )
