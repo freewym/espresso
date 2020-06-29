@@ -269,15 +269,15 @@ if [ $stage -le 7 ]; then
   if $use_transformer; then
     opts="$opts --arch speech_transformer_swbd --max-epoch 100 --lr-scheduler tri_stage"
     if $apply_specaug; then
-      opts="$opts --warmup-steps $((25000/ngpus)) --hold-steps $((200000/ngpus)) --decay-steps $((400000/ngpus))"
+      opts="$opts --warmup-steps $((25000/ngpus)) --hold-steps $((180000/ngpus)) --decay-steps $((360000/ngpus))"
       specaug_config="{'W': 40, 'F': 18, 'T': 70, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 0.2}"
     else
-      opts="$opts --warmup-steps $((25000/ngpus)) --hold-steps $((200000/ngpus)) --decay-steps $((400000/ngpus))"
+      opts="$opts --warmup-steps $((25000/ngpus)) --hold-steps $((180000/ngpus)) --decay-steps $((360000/ngpus))"
     fi
   else
     opts="$opts --arch speech_conv_lstm_swbd --scheduled-sampling-probs 0.9,0.8,0.7,0.6 --start-scheduled-sampling-epoch 6"
     if $apply_specaug; then
-      opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((1000/ngpus)) --hold-steps $((140000/ngpus)) --decay-steps $((330000/ngpus))"
+      opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((1000/ngpus)) --hold-steps $((180000/ngpus)) --decay-steps $((360000/ngpus))"
       opts="$opts --encoder-rnn-hidden-size 1024 --encoder-rnn-layers 5 --decoder-embed-dim 512 --decoder-hidden-size 1024"
       opts="$opts --decoder-out-embed-dim 3072 --attention-dim 512 --dropout 0.4"
       specaug_config="{'W': 40, 'F': 18, 'T': 70, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 0.2}"
@@ -293,8 +293,7 @@ if [ $stage -le 7 ]; then
     --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((3000/ngpus)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
-    --criterion label_smoothed_cross_entropy_v2 \
-    --label-smoothing 0.1 --smoothing-type uniform \
+    --criterion label_smoothed_cross_entropy_v2 --label-smoothing 0.1 --smoothing-type uniform \
     --dict $dict --bpe sentencepiece --sentencepiece-vocab ${sentencepiece_model}.model --non-lang-syms $nlsyms \
     --max-source-positions 9999 --max-target-positions 999 \
     $opts --specaugment-config "$specaug_config" 2>&1 | tee $log_file

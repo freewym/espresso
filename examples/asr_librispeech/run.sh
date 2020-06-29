@@ -16,6 +16,7 @@ train_set=train_960
 valid_set=dev
 test_set="test_clean test_other dev_clean dev_other"
 checkpoint=checkpoint_best.pt
+use_transformer=false
 
 # LM related
 lm_affix=
@@ -43,7 +44,11 @@ apply_specaug=false
 . ./utils/parse_options.sh
 
 lmdir=exp/lm_lstm${lm_affix:+_${lm_affix}}
-dir=exp/lstm${affix:+_$affix}
+if $use_transformer; then
+  dir=exp/transformer${affix:+_$affix}
+else
+  dir=exp/lstm${affix:+_$affix}
+fi
 
 if [ ${stage} -le 0 ]; then
   echo "Stage 0: Data Downloading"
@@ -221,12 +226,23 @@ if [ ${stage} -le 8 ]; then
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   opts=""
-  if $apply_specaug; then
-    opts="$opts --max-epoch 95 --lr-scheduler tri_stage --warmup-steps $((2000/ngpus)) --hold-steps $((600000/ngpus)) --decay-steps $((1040000/ngpus))"
-    opts="$opts --encoder-rnn-layers 5"
-    specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
+  if $use_transformer; then
+    opts="$opts --arch speech_transformer_librispeech --max-tokens 22000 --max-epoch 100 --lr-scheduler tri_stage"
+    if $apply_specaug; then
+      opts="$opts --warmup-steps $((25000/ngpus)) --hold-steps $((900000/ngpus)) --decay-steps $((1550000/ngpus))"
+      specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
+    else
+      opts="$opts --warmup-steps $((25000/ngpus)) --hold-steps $((900000/ngpus)) --decay-steps $((1550000/ngpus))"
+    fi
   else
-    opts="$opts --max-epoch 30 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10"
+    opts="$opts --arch speech_conv_lstm_librispeech"
+    if $apply_specaug; then
+      opts="$opts --max-epoch 95 --lr-scheduler tri_stage --warmup-steps $((2000/ngpus)) --hold-steps $((600000/ngpus)) --decay-steps $((1040000/ngpus))"
+      opts="$opts --encoder-rnn-layers 5"
+      specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
+    else
+      opts="$opts --max-epoch 30 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10"
+    fi
   fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval $((8000/ngpus)) --log-format simple --print-training-sample-interval $((4000/ngpus)) \
@@ -236,9 +252,7 @@ if [ ${stage} -le 8 ]; then
     --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((6000/ngpus)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
-    --arch speech_conv_lstm_librispeech --criterion label_smoothed_cross_entropy_v2 \
-    --label-smoothing 0.1 --smoothing-type uniform \
-    --scheduled-sampling-probs 1.0 --start-scheduled-sampling-epoch 1 \
+    --criterion label_smoothed_cross_entropy_v2 --label-smoothing 0.1 --smoothing-type uniform \
     --dict $dict --bpe sentencepiece --sentencepiece-vocab ${sentencepiece_model}.model \
     --max-source-positions 9999 --max-target-positions 999 \
     $opts --specaugment-config "$specaug_config" 2>&1 | tee $log_file
