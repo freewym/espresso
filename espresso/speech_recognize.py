@@ -35,7 +35,7 @@ def main(args):
     if args.results_path is not None:
         os.makedirs(args.results_path, exist_ok=True)
         output_path = os.path.join(args.results_path, 'decode.log')
-        with open(output_path, 'w', buffering=1) as h:
+        with open(output_path, 'w', buffering=1, encoding='utf-8') as h:
             return _main(args, h)
     return _main(args, sys.stdout)
 

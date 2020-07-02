@@ -94,6 +94,7 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
             self.unigram_tensor = torch.FloatTensor(self.dictionary.count).unsqueeze(-1)
             self.unigram_tensor += unigram_pseudo_count  # for further backoff
             self.unigram_tensor.div_(self.unigram_tensor.sum())
+        self.prev_num_updates = -1
 
     @staticmethod
     def add_args(parser):
@@ -137,8 +138,10 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
         if (
             hasattr(model, "num_updates") and model.training and
             model.num_updates // self.print_interval >
-            (model.num_updates - 1) // self.print_interval
+            (model.num_updates - 1) // self.print_interval and
+            model.num_updates != self.prev_num_updates
         ):  # print a randomly sampled result every print_interval updates
+            self.prev_num_updates = model.num_updates
             target = model.get_targets(sample, net_output)
             pred = lprobs.argmax(-1).cpu()  # bsz x len
             assert pred.size() == target.size()

@@ -26,6 +26,7 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
         self.dictionary = task.target_dictionary
         self.print_interval = print_interval
         self.epoch = 1
+        self.prev_num_updates = -1
 
     @staticmethod
     def add_args(parser):
@@ -59,8 +60,10 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
         if (
             hasattr(model, "num_updates") and model.training and
             model.num_updates // self.print_interval >
-            (model.num_updates - 1) // self.print_interval
+            (model.num_updates - 1) // self.print_interval and
+            model.num_updates != self.prev_num_updates
         ):  # print a randomly sampled result every print_interval updates
+            self.prev_num_updates = model.num_updates
             target = model.get_targets(sample, net_output)
             pred = lprobs.argmax(-1).cpu()  # bsz x len
             assert pred.size() == target.size()
