@@ -11,6 +11,7 @@ We provide state-of-the-art training recipes for the following speech datasets:
 
 ### What's New:
 
+- June 2020: Transformer recipes released.
 - April 2020: Both [E2E LF-MMI](https://www.isca-speech.org/archive/Interspeech_2018/pdfs/1423.pdf) (using [PyChain](https://github.com/YiwenShaoStephen/pychain)) and Cross-Entropy training for hybrid ASR are now supported. WSJ recipes are provided [here](https://github.com/freewym/espresso/tree/master/examples/asr_wsj/run_chain_e2e.sh) and [here](https://github.com/freewym/espresso/tree/master/examples/asr_wsj/run_xent.sh) as examples, respectively.
 - March 2020: SpecAugment is supported and relevant recipes are released.
 - September 2019: We are in an effort of isolating Espresso from fairseq, resulting in a standalone package that can be directly `pip install`ed.
