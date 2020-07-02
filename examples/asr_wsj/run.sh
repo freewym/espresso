@@ -16,6 +16,7 @@ train_set=train_si284
 valid_set=test_dev93
 test_set=test_eval92
 checkpoint=checkpoint_best.pt
+use_transformer=false
 
 # LM related
 lm_affix=
@@ -45,7 +46,11 @@ do_delta=false
 
 lmdir=exp/lm_lstm${lm_affix:+_${lm_affix}}
 wordlmdir=exp/wordlm_lstm${wordlm_affix:+_${wordlm_affix}}
-dir=exp/lstm${affix:+_$affix}
+if $use_transformer; then
+  dir=exp/transformer${affix:+_$affix}
+else
+  dir=exp/lstm${affix:+_$affix}
+fi
 
 if [ ${stage} -le 0 ]; then
   echo "Stage 0: Data Preparation"
@@ -269,18 +274,24 @@ if [ ${stage} -le 9 ]; then
   mkdir -p $dir/log
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
+  update_freq=$(((2+ngpus-1)/ngpus))
+  if $use_transformer; then
+    opts="$opts --arch speech_transformer_wsj --max-epoch 100 --lr-scheduler tri_stage"
+    opts="$opts --warmup-steps $((25000/ngpus/update_freq)) --hold-steps $((60000/ngpus/update_freq)) --decay-steps $((100000/ngpus/update_freq))"
+  else
+    opts="$opts --arch speech_conv_lstm_wsj --max-epoch 35 --lr-scheduler reduce_lr_on_plateau_v2"
+    opts="$opts --lr-shrink 0.5 --start-reduce-lr-epoch 11"
+    opts="$opts --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6"
+  fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
-    --log-interval $((800/ngpus)) --log-format simple --print-training-sample-interval $((2000/ngpus)) \
-    --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 \
-    --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d \
+    --log-interval $((800/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((2000/ngpus/update_freq)) \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 --empty-cache-freq 50 \
+    --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d --update-freq $update_freq \
     --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
-    --max-epoch 35 --optimizer adam --lr 0.001 --weight-decay 0.0 \
-    --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 11 \
-    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus)) \
+    --optimizer adam --lr 0.001 --weight-decay 0.0 \
+    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
-    --arch speech_conv_lstm_wsj --criterion label_smoothed_cross_entropy_v2 \
-    --label-smoothing 0.05 --smoothing-type temporal \
-    --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6 \
+    --criterion label_smoothed_cross_entropy_v2 --label-smoothing 0.05 --smoothing-type temporal \
     --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
     --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
 fi
