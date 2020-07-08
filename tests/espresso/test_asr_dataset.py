@@ -127,8 +127,6 @@ class TestAsrDataset(unittest.TestCase):
             tgt_dataset, tgt_dataset.sizes, self.dictionary,
             left_pad_source=False,
             left_pad_target=False,
-            max_source_positions=1000,
-            max_target_positions=200,
         )
 
         # assume one is a subset of the other

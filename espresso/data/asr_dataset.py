@@ -193,7 +193,7 @@ class AsrDataset(FairseqDataset):
 
     def get_batch_shapes(self):
         return self.buckets
-    
+
     def __getitem__(self, index):
         tgt_item = self.tgt[index][0] if self.tgt is not None else None
         raw_text_item = self.tgt[index][1] if self.tgt is not None else None

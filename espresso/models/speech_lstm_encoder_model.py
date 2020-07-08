@@ -160,7 +160,7 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
     ):
         super().__init__(
             conv_layers_before=conv_layers_before, input_size=input_size, hidden_size=hidden_size,
-            num_layers=num_layers, dropout_in=dropout_in,  dropout_out=dropout_in,
+            num_layers=num_layers, dropout_in=dropout_in,  dropout_out=dropout_out,
             bidirectional=bidirectional, residual=residual, left_pad=left_pad,
             padding_value=padding_value, src_bucketed=src_bucketed, max_source_positions=max_source_positions,
         )
@@ -175,7 +175,7 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
         self.training_stage = training_stage
 
         # only for encoder-only model
-        self.fc_out = Linear(self.output_units, num_targets, dropout=dropout_out) \
+        self.fc_out = Linear(self.output_units, num_targets, dropout=self.dropout_out_module.p) \
             if num_targets is not None else None
 
     def forward(

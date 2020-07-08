@@ -20,6 +20,7 @@ from fairseq.models import (
 )
 from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.lstm import Linear
+from fairseq.modules import FairseqDropout
 
 import espresso.tools.utils as speech_utils
 
@@ -191,8 +192,8 @@ class SpeechTdnnEncoder(FairseqEncoder):
             dilations = [dilations] * num_layers
         else:
             assert len(dilations) == num_layers
-        self.dropout_in = dropout_in
-        self.dropout_out = dropout_out
+        self.dropout_in_module = FairseqDropout(dropout_in, module_name=self.__class__.__name__)
+        self.dropout_out_module = FairseqDropout(dropout_out, module_name=self.__class__.__name__)
         self.residual = residual
 
         self.tdnn = nn.ModuleList([
@@ -204,7 +205,7 @@ class SpeechTdnnEncoder(FairseqEncoder):
             for layer in range(num_layers)
         ])
 
-        receptive_field_radius = sum(l.padding for l in self.tdnn)
+        receptive_field_radius = sum(layer.padding for layer in self.tdnn)
         assert chunk_width is None or (chunk_width > 0 and chunk_left_context >= receptive_field_radius)
         if (
             chunk_width is not None and chunk_width > 0
@@ -216,7 +217,7 @@ class SpeechTdnnEncoder(FairseqEncoder):
             if chunk_width is not None else None
         self.training_stage = training_stage
 
-        self.fc_out = Linear(hidden_sizes[-1], output_size, dropout=dropout_out)
+        self.fc_out = Linear(hidden_sizes[-1], output_size, dropout=self.dropout_out_module.p)
 
     def output_lengths(self, in_lengths):
         out_lengths = in_lengths
@@ -248,14 +249,14 @@ class SpeechTdnnEncoder(FairseqEncoder):
 
     def extract_features(self, src_tokens, src_lengths, **unused):
         x, x_lengths = src_tokens, src_lengths
-        x = F.dropout(x, p=self.dropout_in, training=self.training)
+        x = self.dropout_in_module(x)
 
         for i in range(len(self.tdnn)):
             if self.residual and i > 0:  # residual connection starts from the 2nd layer
                 prev_x = x
             # apply Tdnn
             x, x_lengths, padding_mask = self.tdnn[i](x, x_lengths)
-            x = F.dropout(x, p=self.dropout_out, training=self.training)
+            x = self.dropout_out_module(x)
             x = x + prev_x if self.residual and i > 0 and x.size(1) == prev_x.size(1) else x
 
         x = x.transpose(0, 1)  # B x T x C -> T x B x C

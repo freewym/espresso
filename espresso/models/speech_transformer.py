@@ -4,12 +4,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import torch
 from torch import Tensor
 import torch.nn as nn
-import torch.nn.functional as F
 
 from fairseq import options
 from fairseq.models import (
@@ -18,13 +17,13 @@ from fairseq.models import (
 )
 from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.transformer import (
-    Embedding,
     Linear,
     TransformerModel,
     TransformerEncoder,
     TransformerDecoder,
 )
 from fairseq.modules import (
+    FairseqDropout,
     LayerDropModuleList,
     LayerNorm,
     PositionalEmbedding,
@@ -247,7 +246,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
         super(TransformerEncoder, self).__init__(None)  # no src dictionary
         self.register_buffer("version", torch.Tensor([3]))
 
-        self.dropout = args.dropout
+        self.dropout_module = FairseqDropout(args.dropout, module_name=self.__class__.__name__)
         self.encoder_layerdrop = args.encoder_layerdrop
 
         embed_dim = args.encoder_embed_dim
@@ -360,7 +359,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
             x, encoder_padding_mask = src_tokens, \
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
 
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.dropout_module(x)
         if self.fc0 is not None:
             x = self.fc0(x)
             if self.embed_positions is not None:
@@ -368,7 +367,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
                 x = x + self.embed_positions((~encoder_padding_mask).int())
             if self.layernorm_embedding is not None:
                 x = self.layernorm_embedding(x)
-            x = F.dropout(x, p=self.dropout, training=self.training)
+            x = self.dropout_module(x)
         elif self.embed_positions is not None:
             # 0s in `~encoder_padding_mask` are used as pad_idx for positional embeddings
             x = x + self.embed_positions((~encoder_padding_mask).int())

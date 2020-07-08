@@ -27,7 +27,7 @@ from fairseq.models.lstm import (
     LSTMCell,
     Linear,
 )
-from fairseq.modules import AdaptiveSoftmax
+from fairseq.modules import AdaptiveSoftmax, FairseqDropout
 
 from espresso.modules import speech_attention
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
@@ -152,7 +152,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             pretrained_decoder_embed = load_pretrained_embedding_from_file(
                 args.decoder_embed_path,
                 task.target_dictionary,
-                args.decoder_embed_dim
+                args.decoder_embed_dim,
             )
         # one last double check of parameter combinations
         if args.share_decoder_input_output_embed and (
@@ -335,8 +335,8 @@ class SpeechLSTMEncoder(FairseqEncoder):
         super().__init__(None)  # no src dictionary
         self.conv_layers_before = conv_layers_before
         self.num_layers = num_layers
-        self.dropout_in = dropout_in
-        self.dropout_out = dropout_out
+        self.dropout_in_module = FairseqDropout(dropout_in, module_name=self.__class__.__name__)
+        self.dropout_out_module = FairseqDropout(dropout_out, module_name=self.__class__.__name__)
         self.bidirectional = bidirectional
         self.hidden_size = hidden_size
         self.residual = residual
@@ -397,7 +397,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
 
         bsz, seqlen = x.size(0), x.size(1)
 
-        x = F.dropout(x, p=self.dropout_in, training=self.training)
+        x = self.dropout_in_module(x)
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
@@ -424,7 +424,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
             # unpack outputs and apply dropout
             x, _ = nn.utils.rnn.pad_packed_sequence(packed_outs, padding_value=self.padding_value*1.0)
             if i < len(self.lstm) - 1:  # not applying dropout for the last layer
-                x = F.dropout(x, p=self.dropout_out, training=self.training)
+                x = self.dropout_out_module(x)
             x = x + prev_x if self.residual and i > 0 else x
         assert list(x.size()) == [seqlen, bsz, self.output_units]
 
@@ -477,8 +477,8 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         scheduled_sampling_rate_scheduler=None,
     ):
         super().__init__(dictionary)
-        self.dropout_in = dropout_in
-        self.dropout_out = dropout_out
+        self.dropout_in_module = FairseqDropout(dropout_in, module_name=self.__class__.__name__)
+        self.dropout_out_module = FairseqDropout(dropout_out, module_name=self.__class__.__name__)
         self.hidden_size = hidden_size
         self.share_input_output_embed = share_input_output_embed
         if attn_type is None or attn_type.lower() == "none":
@@ -527,7 +527,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         if adaptive_softmax_cutoff is not None:
             # setting adaptive_softmax dropout to dropout_out for now but can be redefined
             self.adaptive_softmax = AdaptiveSoftmax(
-                num_embeddings, hidden_size, adaptive_softmax_cutoff, dropout=dropout_out
+                num_embeddings, hidden_size, adaptive_softmax_cutoff, dropout=dropout_out,
             )
         elif not self.share_input_output_embed:
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
@@ -629,7 +629,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
 
         # embed tokens
         x = self.embed_tokens(prev_output_tokens)
-        x = F.dropout(x, p=self.dropout_in, training=self.training)
+        x = self.dropout_in_module(x)
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
@@ -672,7 +672,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                     input = torch.cat((hidden, context), dim=1)
                 else:
                     input = hidden
-                input = F.dropout(input, p=self.dropout_out, training=self.training)
+                input = self.dropout_out_module(input)
                 if self.residual and i > 0:
                     if encoder_out is not None:
                         hidden_sum = input[:, :hidden.size(1)] + prev_layer_hidden
@@ -713,7 +713,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
 
         if hasattr(self, "additional_fc") and self.adaptive_softmax is None:
             x = self.additional_fc(x)
-            x = F.dropout(x, p=self.dropout_out, training=self.training)
+            x = self.dropout_out_module(x)
         # srclen x tgtlen x bsz -> bsz x tgtlen x srclen
         if not self.training and encoder_out is not None and self.need_attn:
             assert attn_scores is not None
