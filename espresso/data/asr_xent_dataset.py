@@ -415,7 +415,7 @@ class AsrXentDataset(FairseqDataset):
                 )
                 self.tgt_sizes = self.tgt.sizes
                 logger.info("bucketing target lengths: {}".format(list(self.tgt.buckets)))
- 
+
             # determine bucket sizes using self.num_tokens, which will return
             # the padded lengths (thanks to FeatBucketPadLengthDataset)
             num_tokens = np.vectorize(self.num_tokens, otypes=[np.long])
@@ -476,7 +476,7 @@ class AsrXentDataset(FairseqDataset):
         return True
 
     def get_batch_shapes(self):
-         return self.buckets
+        return self.buckets
 
     def __getitem__(self, index):
         tgt_item = self.tgt[index] if self.tgt is not None else None
