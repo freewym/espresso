@@ -87,10 +87,10 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
 
         # make sure that all args are properly defaulted (in case there are any new ones)
         base_architecture(args)
-        
+
         if args.encoder_layers_to_keep:
             args.encoder_layers = len(args.encoder_layers_to_keep.split(","))
-        
+
         if getattr(args, "max_source_positions", None) is None:
             args.max_source_positions = DEFAULT_MAX_SOURCE_POSITIONS
 
@@ -148,7 +148,8 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
         super().set_num_updates(num_updates)
 
     @classmethod
-    def build_encoder(cls, args, conv_layers_before=None, input_size=83, transformer_context=None,
+    def build_encoder(
+        cls, args, conv_layers_before=None, input_size=83, transformer_context=None,
         num_targets=None, chunk_width=None, chunk_left_context=0, training_stage=True,
     ):
         return SpeechChunkTransformerEncoder(
@@ -217,7 +218,7 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
         self.training_stage = training_stage
 
         # only for encoder-only model
-        self.fc_out = Linear(args.encoder_embed_dim, num_targets, dropout=self.dropout) \
+        self.fc_out = Linear(args.encoder_embed_dim, num_targets, dropout=self.dropout_module.p) \
             if num_targets is not None else None
 
     def forward(self, src_tokens, src_lengths, return_all_hiddens: bool = False):
