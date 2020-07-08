@@ -12,15 +12,13 @@ from torch import Tensor
 
 
 class GenerateLogProbsForDecoding(nn.Module):
-    def __init__(self, models, retain_dropout=False, apply_log_softmax=False):
+    def __init__(self, models, apply_log_softmax=False):
         """Generate the neural network's output intepreted as log probabilities
         for decoding with Kaldi.
 
         Args:
             models (List[~fairseq.models.FairseqModel]): ensemble of models,
                 currently support fairseq.models.TransformerModel for scripting
-            retain_dropout (bool, optional): use dropout when generating
-                (default: False)
             apply_log_softmax (bool, optional): apply log-softmax on top of the
                 network's output (default: False)
         """
@@ -30,11 +28,9 @@ class GenerateLogProbsForDecoding(nn.Module):
             self.model = models
         else:
             self.model = EnsembleModel(models)
-        self.retain_dropout = retain_dropout
         self.apply_log_softmax = apply_log_softmax
 
-        if not self.retain_dropout:
-            self.model.eval()
+        self.model.eval()
 
     def cuda(self):
         self.model.cuda()

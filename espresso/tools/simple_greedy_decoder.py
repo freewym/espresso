@@ -14,7 +14,7 @@ from torch import Tensor
 
 class SimpleGreedyDecoder(nn.Module):
     def __init__(
-        self, models, dictionary, max_len_a=0, max_len_b=200, retain_dropout=False,
+        self, models, dictionary, max_len_a=0, max_len_b=200,
         temperature=1.0, for_validation=True,
     ):
         """Decode given speech audios with the simple greedy search.
@@ -25,8 +25,6 @@ class SimpleGreedyDecoder(nn.Module):
             dictionary (~fairseq.data.Dictionary): dictionary
             max_len_a/b (int, optional): generate sequences of maximum length
                 ax + b, where x is the source length
-            retain_dropout (bool, optional): use dropout when generating
-                (default: False)
             temperature (float, optional): temperature, where values
                 >1.0 produce more uniform samples and values <1.0 produce
                 sharper samples (default: 1.0)
@@ -47,11 +45,10 @@ class SimpleGreedyDecoder(nn.Module):
         self.vocab_size = len(dictionary)
         self.max_len_a = max_len_a
         self.max_len_b = max_len_b
-        self.retain_dropout = retain_dropout
         self.temperature = temperature
         assert temperature > 0, "--temperature must be greater than 0"
-        if not self.retain_dropout:
-            self.model.eval()
+
+        self.model.eval()
         self.for_validation = for_validation
 
     def cuda(self):
