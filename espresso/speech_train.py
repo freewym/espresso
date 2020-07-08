@@ -8,11 +8,13 @@
 Train a new model on one or across multiple GPUs.
 """
 
+import argparse
 import logging
 import math
 import os
 import random
 import sys
+from typing import Callable, Optional
 
 import numpy as np
 import torch
@@ -39,7 +41,13 @@ logging.basicConfig(
 logger = logging.getLogger("espresso.speech_rain")
 
 
-def main(args, init_distributed=False):
+def main(
+    args,
+    init_distributed=False,
+    after_distributed_init_fn: Optional[
+        Callable[[argparse.Namespace], argparse.Namespace]
+    ] = None,
+):
     utils.import_user_module(args)
 
     assert (
@@ -54,6 +62,8 @@ def main(args, init_distributed=False):
     utils.set_torch_seed(args.seed)
     if init_distributed:
         args.distributed_rank = distributed_utils.distributed_init(args)
+        if after_distributed_init_fn:
+            args = after_distributed_init_fn(args)
 
     if distributed_utils.is_master(args):
         checkpoint_utils.verify_checkpoint_directory(args.save_dir)
@@ -234,7 +244,7 @@ def train(args, trainer, task, epoch_itr):
         # update the state prior stored in the model for cross-entropy training
         if hasattr(task, "update_state_prior"):
             task.update_state_prior(trainer.get_model())
-        
+
         end_of_epoch = not itr.has_next()
         valid_losses, should_stop = validate_and_save(
             args, trainer, task, epoch_itr, valid_subsets, end_of_epoch
@@ -337,11 +347,20 @@ def get_valid_stats(args, trainer, stats):
     return stats
 
 
-def distributed_main(i, args, start_rank=0):
+def distributed_main(
+    i,
+    args,
+    start_rank=0,
+    after_distributed_init_fn: Optional[
+        Callable[[argparse.Namespace], argparse.Namespace]
+    ] = None,
+):
     args.device_id = i
     if args.distributed_rank is None:  # torch.multiprocessing.spawn
         args.distributed_rank = start_rank + i
-    main(args, init_distributed=True)
+    main(
+        args, init_distributed=True, after_distributed_init_fn=after_distributed_init_fn
+    )
 
 
 def print_options_meaning_changes(args):
