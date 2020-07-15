@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 def get_asr_dataset_from_json(
     data_path, split, tgt_dict,
     combine, upsample_primary,
-    num_buckets=0,
+    num_buckets=0, shuffle=True,
     seed=1, specaugment_config=None,
 ):
     """
@@ -114,6 +114,7 @@ def get_asr_dataset_from_json(
         left_pad_source=False,
         left_pad_target=False,
         num_buckets=num_buckets,
+        shuffle=shuffle,
     )
 
 
@@ -240,6 +241,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             combine=combine,
             upsample_primary=self.args.upsample_primary,
             num_buckets=self.args.num_batch_buckets,
+            shuffle=(split != getattr(self.args, "gen_subset", "")),
             seed=self.args.seed,
             specaugment_config=self.specaugment_config,
         )
