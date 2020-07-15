@@ -38,7 +38,7 @@ logging.basicConfig(
     level=logging.INFO,
     stream=sys.stdout,
 )
-logger = logging.getLogger("espresso.speech_rain")
+logger = logging.getLogger("espresso.speech_train")
 
 
 def main(
@@ -194,6 +194,8 @@ def tpu_data_loader(args, itr):
 @metrics.aggregate("train")
 def train(args, trainer, task, epoch_itr):
     """Train the model for one epoch and return validation losses."""
+    logger.info("begin training epoch {}".format(epoch_itr.epoch))
+
     # Initialize data iterator
     itr = epoch_itr.next_epoch_itr(
         fix_batches_to_gpus=args.fix_batches_to_gpus,
@@ -253,6 +255,7 @@ def train(args, trainer, task, epoch_itr):
             break
 
     # log end-of-epoch stats
+    logger.info("end of epoch {} (average epoch stats below)".format(epoch_itr.epoch))
     stats = get_training_stats(metrics.get_smoothed_values("train"))
     progress.print(stats, tag="train", step=num_updates)
 
@@ -287,6 +290,7 @@ def validate_and_save(args, trainer, task, epoch_itr, valid_subsets, end_of_epoc
 
     # Save checkpoint
     if do_save or should_stop:
+        logger.info("begin save checkpoint")
         checkpoint_utils.save_checkpoint(args, trainer, epoch_itr, valid_losses[0])
 
     return valid_losses, should_stop
@@ -306,6 +310,8 @@ def validate(args, trainer, task, epoch_itr, subsets):
 
     valid_losses = []
     for subset in subsets:
+        logger.info("begin validation on \"{}\" subset".format(subset))
+
         # Initialize data iterator
         itr = trainer.get_valid_iterator(subset).next_epoch_itr(shuffle=False)
         if getattr(args, "tpu", False):

@@ -32,7 +32,7 @@ def collate(
             return speech_utils.collate_frames(
                 [s[key] for s in samples], 0.0, left_pad,
             )
-        elif key == 'target':
+        elif key == 'target' or key == 'prev_output_tokens':
             return data_utils.collate_tokens(
                 [s[key] for s in samples],
                 pad_idx, eos_idx, left_pad, move_eos_to_beginning,
@@ -61,7 +61,9 @@ def collate(
         target = target.index_select(0, sort_order)
         ntokens = sum(s['target'].ne(pad_idx).int().sum().item() for s in samples)
 
-        if input_feeding:
+        if samples[0].get('prev_output_tokens', None) is not None:
+            prev_output_tokens = merge('prev_output_tokens', left_pad=left_pad_target)
+        elif input_feeding:
             # we create a shifted version of targets for feeding the
             # previous output token(s) into the next decoder step
             prev_output_tokens = merge(
