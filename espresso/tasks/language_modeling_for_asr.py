@@ -96,19 +96,16 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         return d
 
     @classmethod
-    def setup_task(cls, args, **kwargs):
-        """Setup the task (e.g., load dictionaries).
-
-        Args:
-            args (argparse.Namespace): parsed command-line arguments
-        """
+    def setup_dictionary(cls, args, **kwargs):
         dictionary = None
         output_dictionary = None
         if args.data:
             paths = utils.split_paths(args.data)
             assert len(paths) > 0
-            dict_path = os.path.join(paths[0], "dict.txt") if args.dict is None \
+            dict_path = (
+                os.path.join(paths[0], "dict.txt") if args.dict is None
                 else args.dict
+            )
             dictionary = AsrDictionary.load(dict_path)
             logger.info("dictionary: {} types".format(len(dictionary)))
             output_dictionary = dictionary
@@ -116,20 +113,4 @@ class LanguageModelingForASRTask(LanguageModelingTask):
                 output_dictionary = TruncatedDictionary(
                     dictionary, args.output_dictionary_size
                 )
-
-        # upgrade old checkpoints
-        if hasattr(args, "exclude_self_target"):
-            args.self_target = not args.exclude_self_target
-
-        targets = []
-        if getattr(args, "self_target", False):
-            targets.append("self")
-        if getattr(args, "future_target", False):
-            targets.append("future")
-        if getattr(args, "past_target", False):
-            targets.append("past")
-        if len(targets) == 0:
-            # standard language modeling
-            targets = ["future"]
-
-        return cls(args, dictionary, output_dictionary, targets=targets)
+        return (dictionary, output_dictionary)

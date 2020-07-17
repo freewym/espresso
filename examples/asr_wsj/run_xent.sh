@@ -164,13 +164,15 @@ if [ ${stage} -le 5 ]; then
   mkdir -p $dir/log
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
+  update_freq=1
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/xent --task speech_recognition_hybrid --seed 1 --user-dir espresso \
-    --log-interval $((100/ngpus)) --log-format simple --num-workers 0 --data-buffer-size 0 --max-tokens 160000 --max-sentences 256 \
-    --valid-subset $valid_subset --max-sentences-valid 256 --ddp-backend no_c10d \
-    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
+    --log-interval $((100/ngpus/update_freq)) --log-format simple \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 160000 --max-sentences 256 --empty-cache-freq 50 \
+    --valid-subset $valid_subset --max-sentences-valid 256 --ddp-backend no_c10d --update-freq $update_freq \
+    --distributed-world-size $ngpus \
     --max-epoch 40 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \
-    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((200/ngpus)) \
+    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((200/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch speech_tdnn_wsj --criterion subsampled_cross_entropy_with_accuracy --num-targets $num_targets \
     --initial-state-prior-file $state_prior_file --state-prior-update-interval 10 --state-prior-update-smoothing 0.01 \
