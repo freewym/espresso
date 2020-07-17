@@ -8,13 +8,9 @@
 Train a new model on one or across multiple GPUs.
 """
 
-import argparse
 import logging
 import math
-import os
-import random
 import sys
-from typing import Callable, Optional
 
 import numpy as np
 import torch
@@ -41,13 +37,7 @@ logging.basicConfig(
 logger = logging.getLogger("espresso.speech_train")
 
 
-def main(
-    args,
-    init_distributed=False,
-    after_distributed_init_fn: Optional[
-        Callable[[argparse.Namespace], argparse.Namespace]
-    ] = None,
-):
+def main(args):
     utils.import_user_module(args)
 
     assert (
@@ -55,15 +45,8 @@ def main(
     ), "Must specify batch size either with --max-tokens or --max-sentences"
     metrics.reset()
 
-    # Initialize CUDA and distributed training
-    if torch.cuda.is_available() and not args.cpu and not getattr(args, "tpu", False):
-        torch.cuda.set_device(args.device_id)
     np.random.seed(args.seed)
     utils.set_torch_seed(args.seed)
-    if init_distributed:
-        args.distributed_rank = distributed_utils.distributed_init(args)
-        if after_distributed_init_fn:
-            args = after_distributed_init_fn(args)
 
     if distributed_utils.is_master(args):
         checkpoint_utils.verify_checkpoint_directory(args.save_dir)
@@ -131,6 +114,7 @@ def main(
     lr = trainer.get_lr()
     train_meter = meters.StopwatchMeter()
     train_meter.start()
+
     while lr > args.min_lr and epoch_itr.next_epoch_idx <= max_epoch:
         # train for one epoch
         valid_losses, should_stop = train(args, trainer, task, epoch_itr)
@@ -143,7 +127,7 @@ def main(
         epoch_itr = trainer.get_train_iterator(
             epoch_itr.next_epoch_idx,
             # sharded data: get train iterator for next epoch
-            load_dataset=(os.pathsep in getattr(args, "data", "")),
+            load_dataset=task.has_sharded_data("train"),
         )
     train_meter.stop()
     logger.info("done training in {:.1f} seconds".format(train_meter.sum))
@@ -251,6 +235,12 @@ def train(args, trainer, task, epoch_itr):
         valid_losses, should_stop = validate_and_save(
             args, trainer, task, epoch_itr, valid_subsets, end_of_epoch
         )
+
+        if args.stop_time_hours > 0:
+            elapsed_hours = trainer.cumulative_training_time() / (60 * 60)
+            if elapsed_hours > args.stop_time_hours:
+                should_stop = True
+
         if should_stop:
             break
 
@@ -353,22 +343,6 @@ def get_valid_stats(args, trainer, stats):
     return stats
 
 
-def distributed_main(
-    i,
-    args,
-    start_rank=0,
-    after_distributed_init_fn: Optional[
-        Callable[[argparse.Namespace], argparse.Namespace]
-    ] = None,
-):
-    args.device_id = i
-    if args.distributed_rank is None:  # torch.multiprocessing.spawn
-        args.distributed_rank = start_rank + i
-    main(
-        args, init_distributed=True, after_distributed_init_fn=after_distributed_init_fn
-    )
-
-
 def print_options_meaning_changes(args):
     """Options that have different meanings than those in the translation task
     are explained here.
@@ -383,47 +357,9 @@ def cli_main(modify_parser=None):
     if args.profile:
         with torch.cuda.profiler.profile():
             with torch.autograd.profiler.emit_nvtx():
-                cli_main_helper(args)
+                distributed_utils.call_main(args, main)
     else:
-        cli_main_helper(args)
-
-
-def cli_main_helper(args):
-    if args.distributed_init_method is None:
-        distributed_utils.infer_init_method(args)
-
-    if args.distributed_init_method is not None:
-        # distributed training
-        if torch.cuda.device_count() > 1 and not args.distributed_no_spawn:
-            start_rank = args.distributed_rank
-            args.distributed_rank = None  # assign automatically
-            torch.multiprocessing.spawn(
-                fn=distributed_main,
-                args=(args, start_rank),
-                nprocs=torch.cuda.device_count(),
-            )
-        else:
-            distributed_main(args.device_id, args)
-    elif args.distributed_world_size > 1:
-        if not getattr(args, "tpu", False):
-            # fallback for single node with multiple GPUs
-            assert args.distributed_world_size <= torch.cuda.device_count()
-            port = random.randint(10000, 20000)
-            args.distributed_init_method = "tcp://localhost:{port}".format(port=port)
-            args.distributed_rank = None  # set based on device id
-            torch.multiprocessing.spawn(
-                fn=distributed_main, args=(args,), nprocs=args.distributed_world_size
-            )
-        else:
-            import torch_xla.distributed.xla_multiprocessing as xmp
-
-            torch.multiprocessing.set_sharing_strategy("file_system")
-            xmp.spawn(
-                fn=distributed_main, args=(args,), nprocs=8  # use all 8 TPU cores
-            )
-    else:
-        # single GPU training
-        main(args)
+        distributed_utils.call_main(args, main)
 
 
 if __name__ == "__main__":
