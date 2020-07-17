@@ -20,7 +20,7 @@ import espresso.tools.utils as speech_utils
 logger = logging.getLogger(__name__)
 
 
-def collate(samples, src_bucketed=False):
+def collate(samples, pad_to_length=None, src_bucketed=False):
     try:
         from pychain import ChainGraphBatch
     except ImportError:
@@ -29,9 +29,12 @@ def collate(samples, src_bucketed=False):
     if len(samples) == 0:
         return {}
 
-    def merge(key):
+    def merge(key, pad_to_length=None):
         if key == "source":
-            return speech_utils.collate_frames([s[key] for s in samples], 0.0)
+            return speech_utils.collate_frames(
+                [s[key] for s in samples], 0.0,
+                pad_to_length=pad_to_length,
+            )
         elif key == "target":
             max_num_transitions = max(s["target"].num_transitions for s in samples)
             max_num_states = max(s["target"].num_states for s in samples)
@@ -44,9 +47,9 @@ def collate(samples, src_bucketed=False):
             raise ValueError("Invalid key.")
 
     id = torch.LongTensor([s["id"] for s in samples])
-    src_frames = merge("source")
+    src_frames = merge("source", pad_to_length=pad_to_length["source"] if pad_to_length is not None else None)
     # sort by descending source length
-    if src_bucketed:
+    if pad_to_length is not None or src_bucketed:
         src_lengths = torch.IntTensor([
             s["source"].ne(0.0).any(dim=1).int().sum() for s in samples
         ])
@@ -280,11 +283,14 @@ class AsrChainDataset(FairseqDataset):
     def __len__(self):
         return len(self.src)
 
-    def collater(self, samples):
+    def collater(self, samples, pad_to_length=None):
         """Merge a list of samples to form a mini-batch.
 
         Args:
             samples (List[dict]): samples to collate
+            pad_to_length (dict, optional): a dictionary of
+                {'source': source_pad_to_length}
+                to indicate the max length to pad to in source and target respectively.
 
         Returns:
             dict: a mini-batch with the following keys:
@@ -304,7 +310,7 @@ class AsrChainDataset(FairseqDataset):
                     numerator graphs
                 - `text` (List[str]): list of original text
         """
-        return collate(samples, src_bucketed=(self.buckets is not None))
+        return collate(samples, pad_to_length=pad_to_length, src_bucketed=(self.buckets is not None))
 
     def num_tokens(self, index):
         """Return the number of frames in a sample. This value is used to

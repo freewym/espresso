@@ -184,13 +184,15 @@ if [ ${stage} -le 6 ]; then
   mkdir -p $dir/log
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
+  update_freq=1
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/chain_e2e --task speech_recognition_hybrid --seed 1 --user-dir espresso \
-    --log-interval $((200/ngpus)) --log-format simple --num-workers 0 --data-buffer-size 0 --max-tokens 120000 --max-sentences 128 \
-    --curriculum 1 --valid-subset $valid_subset --max-sentences-valid 128 --ddp-backend no_c10d \
-    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
+    --log-interval $((200/ngpus/update_freq)) --log-format simple \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 120000 --max-sentences 128 --curriculum 1 --empty-cache-freq 50 \
+    --valid-subset $valid_subset --max-sentences-valid 128 --ddp-backend no_c10d --update-freq $update_freq \
+    --distributed-world-size $ngpus \
     --max-epoch 26 --optimizer adam --lr 0.001 --weight-decay 0.0 --start-reduce-lr-epoch 11 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \
-    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((400/ngpus)) \
+    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((400/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch speech_tdnn_wsj --criterion lattice_free_mmi --num-targets $num_targets \
     --dropout 0.2 --kernel-sizes "[3]*6" --strides "[1]*5+[3]" --dilations "[1,1,1,3,3,3]" --num-layers 6 --residual True \
