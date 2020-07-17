@@ -178,7 +178,7 @@ if [ ${stage} -le 5 ]; then
     --log-interval $((16000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 32000 --max-sentences 1024 --curriculum 1 \
     --valid-subset $valid_subset --max-sentences-valid 1536 \
-    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
+    --distributed-world-size $ngpus \
     --max-epoch 30 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
     --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((16000/ngpus)) \
@@ -249,7 +249,7 @@ if [ ${stage} -le 8 ]; then
     --log-interval $((8000/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((4000/ngpus/update_freq)) \
     --num-workers 0 --data-buffer-size 0 --max-tokens 26000 --max-sentences 24 --curriculum 1 --empty-cache-freq 50 \
     --valid-subset $valid_subset --max-sentences-valid 48 --ddp-backend no_c10d --update-freq $update_freq \
-    --distributed-world-size $ngpus --distributed-port $(if [ $ngpus -gt 1 ]; then echo 100; else echo -1; fi) \
+    --distributed-world-size $ngpus \
     --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((6000/ngpus/update_freq)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
