@@ -22,28 +22,34 @@ def collate(
     left_pad_source=True,
     left_pad_target=False,
     input_feeding=True,
+    pad_to_length=None,
     src_bucketed=False,
 ):
     if len(samples) == 0:
         return {}
 
-    def merge(key, left_pad, move_eos_to_beginning=False):
+    def merge(key, left_pad, move_eos_to_beginning=False, pad_to_length=None):
         if key == 'source':
             return speech_utils.collate_frames(
                 [s[key] for s in samples], 0.0, left_pad,
+                pad_to_length=pad_to_length,
             )
         elif key == 'target' or key == 'prev_output_tokens':
             return data_utils.collate_tokens(
                 [s[key] for s in samples],
                 pad_idx, eos_idx, left_pad, move_eos_to_beginning,
+                pad_to_length=pad_to_length,
             )
         else:
             raise ValueError('Invalid key.')
 
     id = torch.LongTensor([s['id'] for s in samples])
-    src_frames = merge('source', left_pad=left_pad_source)
+    src_frames = merge(
+        'source', left_pad=left_pad_source,
+        pad_to_length=pad_to_length['source'] if pad_to_length is not None else None,
+    )
     # sort by descending source length
-    if src_bucketed:
+    if pad_to_length is not None or src_bucketed:
         src_lengths = torch.IntTensor([
             s['source'].ne(0.0).any(dim=1).int().sum() for s in samples
         ])
@@ -57,7 +63,10 @@ def collate(
     prev_output_tokens = None
     target = None
     if samples[0].get('target', None) is not None:
-        target = merge('target', left_pad=left_pad_target)
+        target = merge(
+            'target', left_pad=left_pad_target,
+            pad_to_length=pad_to_length['target'] if pad_to_length is not None else None,
+        )
         target = target.index_select(0, sort_order)
         ntokens = sum(s['target'].ne(pad_idx).int().sum().item() for s in samples)
 
@@ -70,6 +79,7 @@ def collate(
                 'target',
                 left_pad=left_pad_target,
                 move_eos_to_beginning=True,
+                pad_to_length=pad_to_length['target'] if pad_to_length is not None else None,
             )
             prev_output_tokens = prev_output_tokens.index_select(0, sort_order)
     else:
@@ -116,6 +126,12 @@ class AsrDataset(FairseqDataset):
             to be passed into the model for teacher forcing (default: True).
         num_buckets (int, optional): if set to a value greater than 0, then
             batches will be bucketed into the given number of batch shapes.
+        src_lang_id (int, optional): source language ID, if set, the collated batch
+            will contain a field 'src_lang_id' in 'net_input' which indicates the
+            source language of the samples.
+        tgt_lang_id (int, optional): target language ID, if set, the collated batch
+            will contain a field 'tgt_lang_id' which indicates the target language
+            of the samples.
     """
 
     def __init__(
@@ -124,6 +140,8 @@ class AsrDataset(FairseqDataset):
         left_pad_source=False, left_pad_target=False,
         shuffle=True, input_feeding=True,
         num_buckets=0,
+        src_lang_id=None,
+        tgt_lang_id=None,
     ):
         self.src = src
         self.tgt = tgt
@@ -134,6 +152,8 @@ class AsrDataset(FairseqDataset):
         self.left_pad_target = left_pad_target
         self.shuffle = shuffle
         self.input_feeding = input_feeding
+        self.src_lang_id = src_lang_id
+        self.tgt_lang_id = tgt_lang_id
         if self.tgt is not None:
             self._match_src_tgt()
 
@@ -212,11 +232,14 @@ class AsrDataset(FairseqDataset):
     def __len__(self):
         return len(self.src)
 
-    def collater(self, samples):
+    def collater(self, samples, pad_to_length=None):
         """Merge a list of samples to form a mini-batch.
 
         Args:
             samples (List[dict]): samples to collate
+            pad_to_length (dict, optional): a dictionary of
+                {'source': source_pad_to_length, 'target': target_pad_to_length}
+                to indicate the max length to pad to in source and target respectively.
 
         Returns:
             dict: a mini-batch with the following keys:
@@ -238,21 +261,38 @@ class AsrDataset(FairseqDataset):
                     This key will not be present if *input_feeding* is
                     ``False``.  Padding will appear on the left if
                     *left_pad_target* is ``True``.
+                  - `src_lang_id` (LongTensor): a long Tensor which contains source
+                    language IDs of each sample in the batch
 
                 - `target` (LongTensor): a padded 2D Tensor of tokens in the
                   target sentence of shape `(bsz, tgt_len)`. Padding will appear
                   on the left if *left_pad_target* is ``True``.
                 - `target_raw_text` (List[str]): list of original text
+                - `tgt_lang_id` (LongTensor): a long Tensor which contains target language
+                  IDs of each sample in the batch
         """
-        return collate(
+        res = collate(
             samples,
             pad_idx=self.dictionary.pad(),
             eos_idx=self.dictionary.eos(),
             left_pad_source=self.left_pad_source,
             left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding,
+            pad_to_length=pad_to_length,
             src_bucketed=(self.buckets is not None),
         )
+        if self.src_lang_id is not None or self.tgt_lang_id is not None:
+            src_tokens = res['net_input']['src_tokens']
+            bsz = src_tokens.size(0)
+            if self.src_lang_id is not None:
+                res['net_input']['src_lang_id'] = torch.LongTensor(
+                    [[self.src_lang_id]]
+                ).expand(bsz, 1).to(src_tokens)
+            if self.tgt_lang_id is not None:
+                res['tgt_lang_id'] = torch.LongTensor(
+                    [[self.tgt_lang_id]]
+                ).expand(bsz, 1).to(src_tokens)
+        return res
 
     def num_tokens(self, index):
         """Return the number of frames in a sample. This value is used to
