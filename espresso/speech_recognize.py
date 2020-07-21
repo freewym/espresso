@@ -42,6 +42,13 @@ def main(args):
     return _main(args, sys.stdout)
 
 
+def get_symbols_to_strip_from_output(generator):
+    if hasattr(generator, 'symbols_to_strip_from_output'):
+        return generator.symbols_to_strip_from_output
+    else:
+        return {generator.eos, generator.pad}
+
+
 def _main(args, output_file):
     logging.basicConfig(
         format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
@@ -200,7 +207,7 @@ def _main(args, output_file):
                 hypo_str = dictionary.string(
                     hypo['tokens'].int().cpu(),
                     bpe_symbol=None,
-                    extra_symbols_to_ignore={dictionary.pad()},
+                    extra_symbols_to_ignore=get_symbols_to_strip_from_output(generator),
                 )  # not removing bpe at this point
                 detok_hypo_str = decode_fn(hypo_str)
                 if not args.quiet:

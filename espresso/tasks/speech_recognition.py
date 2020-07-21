@@ -263,7 +263,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 unk_count += (tgt_dataset[i][0] == self.tgt_dict.unk()).int().sum().item()
             self.tgt_dict.count[self.tgt_dict.unk()] = unk_count
 
-    def build_generator(self, models, args):
+    def build_generator(self, models, args, seq_gen_cls=None):
         if getattr(args, "score_reference", False):
             args.score_reference = False
             logger.warning(
@@ -322,7 +322,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         else:
             search_strategy = search.BeamSearch(self.target_dictionary)
 
-        return SequenceGenerator(
+        if seq_gen_cls is None:
+            seq_gen_cls = SequenceGenerator
+
+        return seq_gen_cls(
             models,
             self.target_dictionary,
             beam_size=getattr(args, "beam", 5),
