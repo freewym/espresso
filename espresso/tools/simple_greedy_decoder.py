@@ -15,7 +15,8 @@ from torch import Tensor
 class SimpleGreedyDecoder(nn.Module):
     def __init__(
         self, models, dictionary, max_len_a=0, max_len_b=200,
-        temperature=1.0, for_validation=True,
+        temperature=1.0, eos=None, symbols_to_strip_from_output=None,
+        for_validation=True,
     ):
         """Decode given speech audios with the simple greedy search.
 
@@ -41,7 +42,11 @@ class SimpleGreedyDecoder(nn.Module):
             self.model = EnsembleModel(models)
         self.pad = dictionary.pad()
         self.unk = dictionary.unk()
-        self.eos = dictionary.eos()
+        self.eos = dictionary.eos() if eos is None else eos
+        self.symbols_to_strip_from_output = (
+            symbols_to_strip_from_output.union({self.eos})
+            if symbols_to_strip_from_output is not None else {self.eos}
+        )
         self.vocab_size = len(dictionary)
         self.max_len_a = max_len_a
         self.max_len_b = max_len_b
