@@ -186,7 +186,7 @@ if [ ${stage} -le 6 ]; then
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   update_freq=1
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/chain_e2e --task speech_recognition_hybrid --seed 1 --user-dir espresso \
-    --log-interval $((200/ngpus/update_freq)) --log-format simple \
+    --log-interval $((10/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --data-buffer-size 0 --max-tokens 120000 --max-sentences 128 --curriculum 1 --empty-cache-freq 50 \
     --valid-subset $valid_subset --max-sentences-valid 128 --ddp-backend no_c10d --update-freq $update_freq \
     --distributed-world-size $ngpus \
@@ -195,8 +195,8 @@ if [ ${stage} -le 6 ]; then
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((400/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch speech_tdnn_wsj --criterion lattice_free_mmi --num-targets $num_targets \
-    --dropout 0.2 --kernel-sizes "[3]*6" --strides "[1]*5+[3]" --dilations "[1,1,1,3,3,3]" --num-layers 6 --residual True \
-    --denominator-fst-path $tree_dir/normalization.fst \
+    --dropout 0.2 --kernel-sizes "[3]*6" --strides "[1]*5+[3]" --dilations "[1,1,1,3,3,3]" --num-layers 6 --residual False \
+    --denominator-fst-path $tree_dir/den.fst \
     --den-leaky-hmm-coefficient 1e-03 --num-leaky-hmm-coefficient 1e-20 \
     --max-source-positions 9999 --max-target-positions 9999 2>&1 | tee $log_file
 fi

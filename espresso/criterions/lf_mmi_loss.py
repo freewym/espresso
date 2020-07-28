@@ -26,7 +26,7 @@ class LatticeFreeMMICriterion(FairseqCriterion):
 
         self.sentence_avg = sentence_avg
         den_fst = simplefst.StdVectorFst.read(denominator_fst_path)
-        self.den_graph = ChainGraph(den_fst, leaky_mode="transition")
+        self.den_graph = ChainGraph(den_fst, leaky_mode="hmm", initial_mode="leaky", final_mode="one")
         self.den_leaky_hmm_coefficient = den_leaky_hmm_coefficient
         self.num_leaky_hmm_coefficient = num_leaky_hmm_coefficient
 
@@ -66,16 +66,15 @@ class LatticeFreeMMICriterion(FairseqCriterion):
     def compute_loss(self, net_output, sample, reduce=True):
         try:
             from pychain.graph import ChainGraphBatch
-            from pychain.loss import ChainFunction
+            from pychain.loss import ChainFunction, ChainLossFunction
         except ImportError:
             raise ImportError("Please install OpenFST and PyChain by `make openfst pychain` after entering espresso/tools")
 
-        den_graphs = ChainGraphBatch(self.den_graph, sample["nsentences"])
-        encoder_out = net_output.encoder_out.transpose(0, 1)  # T x B x V -> B x T x V
+        encoder_out = net_output.encoder_out.transpose(0, 1).contiguous()  # T x B x V -> B x T x V
         out_lengths = net_output.src_lengths.long()  # B
-        den_objf = ChainFunction.apply(encoder_out, out_lengths, den_graphs, self.den_leaky_hmm_coefficient)
-        num_objf = ChainFunction.apply(encoder_out, out_lengths, sample["target"], self.num_leaky_hmm_coefficient)
-        loss = - num_objf + den_objf  # negative log-probs
+        loss, _, _ = ChainLossFunction.apply(
+            encoder_out, out_lengths, sample["target"], self.den_graph, self.num_leaky_hmm_coefficient, self.den_leaky_hmm_coefficient
+        )
         return loss, loss
 
     @staticmethod
