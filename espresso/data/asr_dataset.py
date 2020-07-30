@@ -81,7 +81,6 @@ def collate(
                 move_eos_to_beginning=True,
                 pad_to_length=pad_to_length['target'] if pad_to_length is not None else None,
             )
-            prev_output_tokens = prev_output_tokens.index_select(0, sort_order)
     else:
         ntokens = src_lengths.sum().item()
 
@@ -102,7 +101,7 @@ def collate(
         'target_raw_text': target_raw_text,
     }
     if prev_output_tokens is not None:
-        batch['net_input']['prev_output_tokens'] = prev_output_tokens
+        batch['net_input']['prev_output_tokens'] = prev_output_tokens.index_select(0, sort_order)
     return batch
 
 
