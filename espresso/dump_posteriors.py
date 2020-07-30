@@ -144,7 +144,7 @@ def _main(args, output_file):
                 out_lengths = (~padding_mask).long().sum(dim=1).cpu() if padding_mask is not None else None
                 num_processed_frames = sample["ntokens"]
                 gen_timer.stop(num_processed_frames)
-                num_sentences += sample["nsentences"]
+                num_sentences += sample["nsentences"] if "nsentences" in sample else sample['id'].numel()
 
                 if out_lengths is not None:
                     for i in range(sample["nsentences"]):
