@@ -229,7 +229,7 @@ def _main(args, output_file):
 
         wps_meter.update(num_generated_tokens)
         progress.log({'wps': round(wps_meter.avg)})
-        num_sentences += sample['nsentences']
+        num_sentences += sample['nsentences'] if 'nsentences' in sample else sample['id'].numel()
 
     logger.info('NOTE: hypothesis and token scores are output in base 2')
     logger.info('Recognized {} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)'.format(
