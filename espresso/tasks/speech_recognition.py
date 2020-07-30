@@ -263,7 +263,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 unk_count += (tgt_dataset[i][0] == self.tgt_dict.unk()).int().sum().item()
             self.tgt_dict.count[self.tgt_dict.unk()] = unk_count
 
-    def build_generator(self, models, args, seq_gen_cls=None):
+    def build_generator(
+        self, models, args,
+        seq_gen_cls=None, extra_gen_cls_kwargs=None
+    ):
         if getattr(args, "score_reference", False):
             args.score_reference = False
             logger.warning(
@@ -324,6 +327,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
 
         if seq_gen_cls is None:
             seq_gen_cls = SequenceGenerator
+        extra_gen_cls_kwargs = extra_gen_cls_kwargs or {}
+        extra_gen_cls_kwargs["lm_weight"] = getattr(args, "lm_weight", 0.0)
+        extra_gen_cls_kwargs["eos_factor"] = getattr(args, "eos_factor", None)
 
         return seq_gen_cls(
             models,
@@ -339,8 +345,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             match_source_len=getattr(args, "match_source_len", False),
             no_repeat_ngram_size=getattr(args, "no_repeat_ngram_size", 0),
             search_strategy=search_strategy,
-            lm_weight=getattr(args, "lm_weight", 0.0),
-            eos_factor=getattr(args, "eos_factor", None),
+            **extra_gen_cls_kwargs,
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):

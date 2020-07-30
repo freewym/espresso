@@ -36,7 +36,7 @@ class SequenceGenerator(nn.Module):
         symbols_to_strip_from_output=None,
         lm_model=None,
         lm_weight=1.0,
-        eos_factor=None,
+        **kwargs,
     ):
         """Generates translations of a given source sentence.
 
@@ -64,6 +64,7 @@ class SequenceGenerator(nn.Module):
         if isinstance(models, EnsembleModel):
             self.model = models
         else:
+            lm_weight = kwargs.get("lm_weight", 0.0)
             self.model = EnsembleModel(models) if lm_weight == 0.0 else LMFusionModel(models, lm_weight)
         self.tgt_dict = tgt_dict
         self.pad = tgt_dict.pad()
@@ -88,9 +89,9 @@ class SequenceGenerator(nn.Module):
         self.temperature = temperature
         self.match_source_len = match_source_len
         self.no_repeat_ngram_size = no_repeat_ngram_size
-        self.eos_factor = eos_factor
+        self.eos_factor = kwargs.get("eos_factor", None)
         assert temperature > 0, "--temperature must be greater than 0"
-        assert eos_factor is None or eos_factor >= 1.0, "--eos-factor must be >= 1.0 if set"
+        assert self.eos_factor is None or self.eos_factor >= 1.0, "--eos-factor must be >= 1.0 if set"
 
         self.search = (
             search.BeamSearch(tgt_dict) if search_strategy is None else search_strategy
