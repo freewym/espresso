@@ -22,8 +22,10 @@ class ReduceLROnPlateauV2(ReduceLROnPlateau):
         super().__init__(args, optimizer)
 
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer.optimizer, patience=0, factor=args.lr_shrink,
-            threshold=args.lr_threshold, min_lr=args.final_lr_scale * args.lr[0])
+            self.optimizer.optimizer, patience=args.lr_patience, factor=args.lr_shrink,
+            mode='max' if args.maximize_best_checkpoint_metric else 'min',
+            threshold=args.lr_threshold, min_lr=args.final_lr_scale * args.lr[0]
+        )
 
     @staticmethod
     def add_args(parser):
