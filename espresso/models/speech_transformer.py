@@ -252,8 +252,6 @@ class SpeechTransformerEncoder(TransformerEncoder):
         embed_dim = args.encoder_embed_dim
         self.max_source_positions = args.max_source_positions
 
-        self.embed_positions = None
-
         self.conv_layers_before = conv_layers_before
         self.fc0 = Linear(input_size, embed_dim) if input_size != embed_dim else None
 

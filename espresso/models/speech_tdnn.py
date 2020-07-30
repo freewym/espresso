@@ -226,7 +226,7 @@ class SpeechTdnnEncoder(FairseqEncoder):
         return out_lengths
 
     def forward(self, src_tokens, src_lengths: Tensor, **unused):
-        x, encoder_padding_mask, x_lengths = self.extract_features(src_tokens, src_lengths)
+        x, x_lengths, encoder_padding_mask = self.extract_features(src_tokens, src_lengths)
         if (
             self.out_chunk_end is not None
             and (self.training or not self.training_stage)
@@ -262,7 +262,7 @@ class SpeechTdnnEncoder(FairseqEncoder):
         x = x.transpose(0, 1)  # B x T x C -> T x B x C
         encoder_padding_mask = padding_mask.t()
 
-        return x, encoder_padding_mask, x_lengths
+        return x, x_lengths, encoder_padding_mask
 
     def output_layer(self, features, **kwargs):
         """Project features to the vocabulary size."""
