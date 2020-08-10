@@ -234,6 +234,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         paths = utils.split_paths(self.args.data)
         assert len(paths) > 0
+        if split != getattr(self.args, "train_subset", None):
+            # if not training data set, use the first shard for valid and test
+            paths = paths[:1]
         data_path = paths[(epoch - 1) % len(paths)]
 
         self.datasets[split] = get_asr_dataset_from_json(
@@ -241,7 +244,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             combine=combine,
             upsample_primary=self.args.upsample_primary,
             num_buckets=self.args.num_batch_buckets,
-            shuffle=(split != getattr(self.args, "gen_subset", "")),
+            shuffle=(split != getattr(self.args, "gen_subset", None)),
             seed=self.args.seed,
             specaugment_config=self.specaugment_config,
         )
