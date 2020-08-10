@@ -317,6 +317,9 @@ class SpeechRecognitionHybridTask(FairseqTask):
         """
         paths = utils.split_paths(self.args.data)
         assert len(paths) > 0
+        if split != getattr(self.args, "train_subset", None):
+            # if not training data set, use the first shard for valid and test
+            paths = paths[:1]
         data_path = paths[(epoch - 1) % len(paths)]
 
         self.datasets[split] = get_asr_dataset_from_json(
@@ -324,7 +327,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
             combine=combine,
             upsample_primary=self.args.upsample_primary,
             num_buckets=self.args.num_batch_buckets,
-            shuffle=(split != getattr(self.args, "gen_subset", "")),
+            shuffle=(split != getattr(self.args, "gen_subset", None)),
             lf_mmi=(self.args.criterion == "lattice_free_mmi"),
             seed=self.args.seed, specaugment_config=self.specaugment_config,
             chunk_width=None if self.training_stage and split in self.args.valid_subset.split(",") else self.chunk_width,
