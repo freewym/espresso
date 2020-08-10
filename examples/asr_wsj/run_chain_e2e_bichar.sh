@@ -12,8 +12,8 @@ free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically 
 
 # model and data related
 affix=
-lang=data/lang_chain_e2e
-tree_dir=exp/chain/e2e_tree  # it's actually just a trivial tree (no tree building)
+lang=data/lang_chain_e2e_char
+tree_dir=exp/chain/e2e_bichar_tree  # it's actually just a trivial tree (no tree building)
 whole_train_set=train_si284_sp  # will be split into train_set and valid_set
 train_set=train_si284_novalid_spe2e
 valid_set=train_si284_valid_spe2e
@@ -32,14 +32,14 @@ fi
 . ./cmd.sh
 . ./utils/parse_options.sh
 
-dir=exp/tdnn_chain_e2e${affix:+_$affix}
+dir=exp/tdnn_chain_e2e_bichar${affix:+_$affix}
 
-local/common_data_prep.sh --stage $stage --wsj0 $wsj0 --wsj1 $wsj1 || exit 1;
+local/data_prep_char.sh --stage $stage --wsj0 $wsj0 --wsj1 $wsj1 || exit 1;
 
 if [ $stage -le 0 ]; then
   echo "Stage 0: Create the $lang Directory that Has a Specific HMM Topolopy"
   rm -rf $lang
-  cp -r data/lang_nosp $lang
+  cp -r data/lang_char $lang
   silphonelist=$(cat $lang/phones/silence.csl) || exit 1;
   nonsilphonelist=$(cat $lang/phones/nonsilence.csl) || exit 1;
   steps/nnet3/chain/gen_topo.py $nonsilphonelist $silphonelist >$lang/topo
@@ -52,13 +52,13 @@ if [ $stage -le 1 ]; then
   $train_cmd $tree_dir/log/make_phone_lm.log \
     cat data/${whole_train_set}_hires/text \| \
     steps/nnet3/chain/e2e/text_to_phones.py --between-silprob 0.1 \
-    data/lang_nosp \| \
-    utils/sym2int.pl -f 2- data/lang_nosp/phones.txt \| \
+    data/lang_char \| \
+    utils/sym2int.pl -f 2- data/lang_char/phones.txt \| \
     chain-est-phone-lm --num-extra-lm-states=2000 \
     ark:- $tree_dir/phone_lm.fst
   nj=32
   steps/nnet3/chain/e2e/prepare_e2e.sh --nj $nj --cmd "$train_cmd" \
-    --shared-phones true data/${whole_train_set}_hires $lang $tree_dir
+    --type biphone --shared-phones true --tie true data/${whole_train_set}_hires $lang $tree_dir
   echo "$0: Making denominator fst..."
   $decode_cmd $tree_dir/log/make_den_fst.log \
     chain-make-den-fst $tree_dir/tree $tree_dir/0.trans_mdl $tree_dir/phone_lm.fst \
@@ -136,8 +136,8 @@ if [ ${stage} -le 4 ]; then
   echo "Stage 4: Make Graphs"
   for lmtype in tgpr bd_tgpr; do
     utils/lang/check_phones_compatible.sh \
-      data/lang_nosp_test_$lmtype/phones.txt $lang/phones.txt
-    utils/mkgraph.sh --self-loop-scale 1.0 data/lang_nosp_test_$lmtype $tree_dir $tree_dir/graph_$lmtype || exit 1
+      data/lang_char_test_$lmtype/phones.txt $lang/phones.txt
+    utils/mkgraph.sh --self-loop-scale 1.0 data/lang_char_test_$lmtype $tree_dir $tree_dir/graph_$lmtype || exit 1
   done
 fi
 
@@ -151,11 +151,11 @@ if [ ${stage} -le 5 ]; then
   valid_fst=${tree_dir}/fst_valid_nor.scp
   valid_text=data/${valid_set}_hires/text
   valid_utt2num_frames=data/${valid_set}_hires/utt2num_frames
-  mkdir -p data/chain_e2e
+  mkdir -p data/chain_e2e_bichar
   asr_prep_json.py --feat-files $train_feat --numerator-fst-files $train_fst --text-files $train_text \
-    --utt2num-frames-files $train_utt2num_frames --output data/chain_e2e/train.json
+    --utt2num-frames-files $train_utt2num_frames --output data/chain_e2e_bichar/train.json
   asr_prep_json.py --feat-files $valid_feat --numerator-fst-files $valid_fst --text-files $valid_text \
-    --utt2num-frames-files $valid_utt2num_frames --output data/chain_e2e/valid.json
+    --utt2num-frames-files $valid_utt2num_frames --output data/chain_e2e_bichar/valid.json
   for dataset in $test_set; do
     nj=$(wc -l <data/${dataset}_hires/spk2utt)
     utils/split_data.sh data/${dataset}_hires $nj
@@ -165,7 +165,7 @@ if [ ${stage} -le 5 ]; then
       text=data/${dataset}_hires/split$nj/$n/text
       utt2num_frames=data/${dataset}_hires/split$nj/$n/utt2num_frames
       asr_prep_json.py --feat-files $feat --text-files $text --utt2num-frames-files $utt2num_frames \
-        --output data/chain_e2e/$dataset.$n.json
+        --output data/chain_e2e_bichar/$dataset.$n.json
     done
   done
 fi
@@ -185,7 +185,7 @@ if [ ${stage} -le 6 ]; then
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   update_freq=1
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/chain_e2e --task speech_recognition_hybrid --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/chain_e2e_bichar --task speech_recognition_hybrid --seed 1 --user-dir espresso \
     --log-interval $((200/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --data-buffer-size 0 --max-tokens 120000 --max-sentences 128 --curriculum 1 --empty-cache-freq 50 \
     --valid-subset $valid_subset --max-sentences-valid 128 --ddp-backend no_c10d --update-freq $update_freq \
@@ -193,10 +193,10 @@ if [ ${stage} -le 6 ]; then
     --max-epoch 30 --optimizer adam --lr 0.001 --weight-decay 0.0 --start-reduce-lr-epoch 11 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((400/ngpus/update_freq)) \
-    --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
+    --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric nll_loss \
     --arch speech_tdnn_wsj --criterion lattice_free_mmi --num-targets $num_targets \
     --dropout 0.2 --kernel-sizes "[3]*6" --strides "[1]*5+[3]" --dilations "[1,1,1,3,3,3]" --num-layers 6 \
-    --denominator-fst-path $tree_dir/den.fst --leaky-hmm-coefficient 1e-03 \
+    --denominator-fst-path $tree_dir/den.fst --leaky-hmm-coefficient 1e-03 --output-l2-regularization-coefficient 5e-05 \
     --max-source-positions 9999 --max-target-positions 9999 2>&1 | tee $log_file
 fi
 
@@ -212,7 +212,7 @@ if [ ${stage} -le 7 ]; then
       for lmtype in tgpr bd_tgpr; do
         graph_dir=$tree_dir/graph_${lmtype}
         $decode_cmd $queue_opt JOB=1:$nj $dir/decode_${lmtype}_${data_affix}/log/decode.JOB.log \
-          dump_posteriors.py data/chain_e2e --cpu --task speech_recognition_hybrid --user-dir espresso \
+          dump_posteriors.py data/chain_e2e_bichar --cpu --task speech_recognition_hybrid --user-dir espresso \
             --max-tokens 120000 --max-sentences 128 --num-shards 1 --shard-id 0 --num-targets $num_targets \
             --gen-subset $dataset.JOB \
             --max-source-positions 9999 --path $path \| \
@@ -223,9 +223,9 @@ if [ ${stage} -le 7 ]; then
         local/score.sh --cmd "$decode_cmd" data/${dataset}_hires $graph_dir $dir/decode_${lmtype}_${data_affix} || exit 1
         echo $nj > $dir/decode_${lmtype}_${data_affix}/num_jobs
       done
-      steps/lmrescore.sh --cmd "$decode_cmd" --self-loop-scale 1.0 --mode 3 data/lang_nosp_test_{tgpr,tg} \
+      steps/lmrescore.sh --cmd "$decode_cmd" --self-loop-scale 1.0 --mode 3 data/lang_char_test_{tgpr,tg} \
         data/${dataset}_hires $dir/decode_{tgpr,tg}_${data_affix} || exit 1
-      steps/lmrescore_const_arpa.sh --cmd "$decode_cmd" data/lang_nosp_test_bd_{tgpr,fgconst} \
+      steps/lmrescore_const_arpa.sh --cmd "$decode_cmd" data/lang_char_test_bd_{tgpr,fgconst} \
         data/${dataset}_hires $dir/decode_bd_tgpr_${data_affix}{,_fg} || exit 1
   ) || touch $dir/.error &
   done
