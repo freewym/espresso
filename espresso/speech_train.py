@@ -43,6 +43,7 @@ def main(args):
     assert (
         args.max_tokens is not None or args.max_sentences is not None
     ), "Must specify batch size either with --max-tokens or --max-sentences"
+
     metrics.reset()
 
     np.random.seed(args.seed)
@@ -65,8 +66,10 @@ def main(args):
     model = task.build_model(args)
     criterion = task.build_criterion(args)
     logger.info(model)
+    logger.info("task: {} ({})".format(args.task, task.__class__.__name__))
+    logger.info("model: {} ({})".format(args.arch, model.__class__.__name__))
     logger.info(
-        "model {}, criterion {}".format(args.arch, criterion.__class__.__name__)
+        "criterion: {} ({})".format(args.criterion, criterion.__class__.__name__)
     )
     logger.info(
         "num. model params: {} (num. trained: {})".format(
@@ -103,11 +106,6 @@ def main(args):
     # Load the latest checkpoint if one is available and restore the
     # corresponding train iterator
     extra_state, epoch_itr = checkpoint_utils.load_checkpoint(args, trainer)
-    if args.tpu:
-        import torch_xla.core.xla_model as xm
-
-        xm.rendezvous("load_checkpoint")  # wait for all workers
-        xm.mark_step()
 
     # Train until the learning rate gets too small
     max_epoch = args.max_epoch or math.inf
@@ -161,25 +159,9 @@ def should_stop_early(args, valid_loss):
             return False
 
 
-def tpu_data_loader(args, itr):
-    import torch_xla.core.xla_model as xm
-    import torch_xla.distributed.parallel_loader as pl
-
-    xm.rendezvous("tpu_data_loader")  # wait for all workers
-    xm.mark_step()
-    device = utils.get_tpu_device(args)
-    return iterators.CountingIterator(
-        pl.ParallelLoader(itr, [device]).per_device_loader(device),
-        start=getattr(itr, "n", 0),
-        total=len(itr),
-    )
-
-
 @metrics.aggregate("train")
 def train(args, trainer, task, epoch_itr):
     """Train the model for one epoch and return validation losses."""
-    logger.info("begin training epoch {}".format(epoch_itr.epoch))
-
     # Initialize data iterator
     itr = epoch_itr.next_epoch_itr(
         fix_batches_to_gpus=args.fix_batches_to_gpus,
@@ -192,7 +174,7 @@ def train(args, trainer, task, epoch_itr):
     )
     itr = iterators.GroupedIterator(itr, update_freq)
     if getattr(args, "tpu", False):
-        itr = tpu_data_loader(args, itr)
+        itr = utils.tpu_data_loader(itr)
     progress = progress_bar.progress_bar(
         itr,
         log_format=args.log_format,
@@ -217,18 +199,17 @@ def train(args, trainer, task, epoch_itr):
             "train_step-%d" % i
         ):
             log_output = trainer.train_step(samples)
-            if log_output is None:  # OOM, overflow, ...
-                continue
 
-        # log mid-epoch stats
-        num_updates = trainer.get_num_updates()
-        if num_updates % args.log_interval == 0:
-            stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
-            progress.log(stats, tag="train_inner", step=num_updates)
+        if log_output is not None:  # not OOM, overflow, ...
+            # log mid-epoch stats
+            num_updates = trainer.get_num_updates()
+            if num_updates % args.log_interval == 0:
+                stats = get_training_stats(metrics.get_smoothed_values("train_inner"))
+                progress.log(stats, tag="train_inner", step=num_updates)
 
-            # reset mid-epoch stats after each log interval
-            # the end-of-epoch stats will still be preserved
-            metrics.reset_meters("train_inner")
+                # reset mid-epoch stats after each log interval
+                # the end-of-epoch stats will still be preserved
+                metrics.reset_meters("train_inner")
 
         # update the state prior stored in the model for cross-entropy training
         if hasattr(task, "update_state_prior"):
@@ -309,7 +290,7 @@ def validate(args, trainer, task, epoch_itr, subsets):
         # Initialize data iterator
         itr = trainer.get_valid_iterator(subset).next_epoch_itr(shuffle=False)
         if getattr(args, "tpu", False):
-            itr = tpu_data_loader(args, itr)
+            itr = utils.tpu_data_loader(itr)
         progress = progress_bar.progress_bar(
             itr,
             log_format=args.log_format,
