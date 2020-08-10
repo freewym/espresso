@@ -110,7 +110,7 @@ class NumeratorGraphDataset(FairseqDataset):
         for i, rxfile in enumerate(rxfiles):
             file_path, offset = self._parse_rxfile(rxfile)
             fst = simplefst.StdVectorFst.read_ark(file_path, offset)
-            graph = ChainGraph(fst, leaky_mode="uniform")
+            graph = ChainGraph(fst, initial_mode="fst", final_mode="fst", log_domain=True)
             if not graph.is_empty:  # skip empty graphs
                 self.utt_ids.append(utt_ids[i])
                 self.rxfiles.append(rxfile)
