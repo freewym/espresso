@@ -17,18 +17,19 @@ class AsrDictionary(Dictionary):
 
     def __init__(
         self,
+        bos="<s>",
         pad="<pad>",
         eos="</s>",
         unk="<unk>",
-        bos="<s>",
         space="<space>",
         extra_special_symbols=None,
     ):
-        self.unk_word, self.pad_word, self.eos_word, self.bos_word, self.space_word = \
-            unk, pad, eos, bos, space
+        self.unk_word, self.bos_word, self.pad_word, self.eos_word, self.space_word = \
+            unk, bos, pad, eos, space
         self.symbols = []
         self.count = []
         self.indices = {}
+        # no bos added to the dictionary
         self.pad_index = self.add_symbol(pad, n=0)
         self.eos_index = self.add_symbol(eos, n=0)
         self.unk_index = self.add_symbol(unk, n=0)
