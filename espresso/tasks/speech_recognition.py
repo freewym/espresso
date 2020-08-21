@@ -286,6 +286,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         diverse_beam_strength = getattr(args, "diverse_beam_strength", 0.5)
         match_source_len = getattr(args, "match_source_len", False)
         diversity_rate = getattr(args, "diversity_rate", -1)
+        constrained = getattr(args, "constraints", False)
         if (
             sum(
                 int(cond)
@@ -325,6 +326,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             search_strategy = search.DiverseSiblingsSearch(
                 self.target_dictionary, diversity_rate
             )
+        elif constrained:
+            search_strategy = search.LexicallyConstrainedBeamSearch(self.target_dictionary, args.constraints)
         else:
             search_strategy = search.BeamSearch(self.target_dictionary)
 
@@ -351,8 +354,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             **extra_gen_cls_kwargs,
         )
 
-    def build_dataset_for_inference(self, src_tokens, src_lengths):
-        return AsrDataset(src_tokens, src_lengths)
+    def build_dataset_for_inference(self, src_tokens, src_lengths, constraints=None):
+        return AsrDataset(
+            src_tokens, src_lengths, dictionary=self.target_dictionary, constraints=constraints,
+        )
 
     def build_model(self, args):
         model = super().build_model(args)
