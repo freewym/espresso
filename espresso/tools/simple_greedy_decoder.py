@@ -83,8 +83,7 @@ class SimpleGreedyDecoder(nn.Module):
         )
         net_input = sample["net_input"]
         src_tokens = net_input["src_tokens"]
-        input_size = src_tokens.size()
-        bsz, src_len = input_size[0], input_size[1]
+        bsz, src_len = src_tokens.size()[:2]
 
         # compute the encoder output
         encoder_outs = self.model.forward_encoder(net_input)
