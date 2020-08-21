@@ -29,79 +29,89 @@ def collate(
         return {}
 
     def merge(key, left_pad, move_eos_to_beginning=False, pad_to_length=None):
-        if key == 'source':
+        if key == "source":
             return speech_utils.collate_frames(
                 [s[key] for s in samples], 0.0, left_pad,
                 pad_to_length=pad_to_length,
             )
-        elif key == 'target' or key == 'prev_output_tokens':
+        elif key == "target" or key == "prev_output_tokens":
             return data_utils.collate_tokens(
                 [s[key] for s in samples],
                 pad_idx, eos_idx, left_pad, move_eos_to_beginning,
                 pad_to_length=pad_to_length,
             )
         else:
-            raise ValueError('Invalid key.')
+            raise ValueError("Invalid key.")
 
-    id = torch.LongTensor([s['id'] for s in samples])
+    id = torch.LongTensor([s["id"] for s in samples])
     src_frames = merge(
-        'source', left_pad=left_pad_source,
-        pad_to_length=pad_to_length['source'] if pad_to_length is not None else None,
+        "source", left_pad=left_pad_source,
+        pad_to_length=pad_to_length["source"] if pad_to_length is not None else None,
     )
     # sort by descending source length
     if pad_to_length is not None or src_bucketed:
         src_lengths = torch.IntTensor([
-            s['source'].ne(0.0).any(dim=1).int().sum() for s in samples
+            s["source"].ne(0.0).any(dim=1).int().sum() for s in samples
         ])
     else:
-        src_lengths = torch.IntTensor([s['source'].size(0) for s in samples])
+        src_lengths = torch.IntTensor([s["source"].size(0) for s in samples])
     src_lengths, sort_order = src_lengths.sort(descending=True)
     id = id.index_select(0, sort_order)
-    utt_id = [samples[i]['utt_id'] for i in sort_order.numpy()]
+    utt_id = [samples[i]["utt_id"] for i in sort_order.numpy()]
     src_frames = src_frames.index_select(0, sort_order)
 
     prev_output_tokens = None
     target = None
-    if samples[0].get('target', None) is not None:
+    if samples[0].get("target", None) is not None:
         target = merge(
-            'target', left_pad=left_pad_target,
-            pad_to_length=pad_to_length['target'] if pad_to_length is not None else None,
+            "target", left_pad=left_pad_target,
+            pad_to_length=pad_to_length["target"] if pad_to_length is not None else None,
         )
         target = target.index_select(0, sort_order)
-        ntokens = sum(s['target'].ne(pad_idx).int().sum().item() for s in samples)
+        ntokens = sum(s["target"].ne(pad_idx).int().sum().item() for s in samples)
 
-        if samples[0].get('prev_output_tokens', None) is not None:
-            prev_output_tokens = merge('prev_output_tokens', left_pad=left_pad_target)
+        if samples[0].get("prev_output_tokens", None) is not None:
+            prev_output_tokens = merge("prev_output_tokens", left_pad=left_pad_target)
         elif input_feeding:
             # we create a shifted version of targets for feeding the
             # previous output token(s) into the next decoder step
             prev_output_tokens = merge(
-                'target',
+                "target",
                 left_pad=left_pad_target,
                 move_eos_to_beginning=True,
-                pad_to_length=pad_to_length['target'] if pad_to_length is not None else None,
+                pad_to_length=pad_to_length["target"] if pad_to_length is not None else None,
             )
     else:
         ntokens = src_lengths.sum().item()
 
     target_raw_text = None
-    if samples[0].get('target_raw_text', None) is not None:
-        target_raw_text = [samples[i]['target_raw_text'] for i in sort_order.numpy()]
+    if samples[0].get("target_raw_text", None) is not None:
+        target_raw_text = [samples[i]["target_raw_text"] for i in sort_order.numpy()]
 
     batch = {
-        'id': id,
-        'utt_id': utt_id,
-        'nsentences': len(samples),
-        'ntokens': ntokens,
-        'net_input': {
-            'src_tokens': src_frames,
-            'src_lengths': src_lengths,
+        "id": id,
+        "utt_id": utt_id,
+        "nsentences": len(samples),
+        "ntokens": ntokens,
+        "net_input": {
+            "src_tokens": src_frames,
+            "src_lengths": src_lengths,
         },
-        'target': target,
-        'target_raw_text': target_raw_text,
+        "target": target,
+        "target_raw_text": target_raw_text,
     }
     if prev_output_tokens is not None:
-        batch['net_input']['prev_output_tokens'] = prev_output_tokens.index_select(0, sort_order)
+        batch["net_input"]["prev_output_tokens"] = prev_output_tokens.index_select(0, sort_order)
+
+    if samples[0].get("constraints", None) is not None:
+        # Collate the packed constraints across the samples, padding to
+        # the length of the longest sample.
+        lens = [sample.get("constraints").size(0) for sample in samples]
+        constraints = torch.zeros((len(samples), max(lens))).long()
+        for i, sample in enumerate(samples):
+            constraints[i, 0:lens[i]] = samples[i].get("constraints")
+        batch["constraints"] = constraints
+
     return batch
 
 
@@ -123,6 +133,8 @@ class AsrDataset(FairseqDataset):
             (default: True).
         input_feeding (bool, optional): create a shifted version of the targets
             to be passed into the model for teacher forcing (default: True).
+        constraints (Tensor, optional): 2d tensor with a concatenated, zero-
+            delimited list of constraints for each sentence.
         num_buckets (int, optional): if set to a value greater than 0, then
             batches will be bucketed into the given number of batch shapes.
         src_lang_id (int, optional): source language ID, if set, the collated batch
@@ -138,6 +150,7 @@ class AsrDataset(FairseqDataset):
         tgt=None, tgt_sizes=None, dictionary=None,
         left_pad_source=False, left_pad_target=False,
         shuffle=True, input_feeding=True,
+        constraints=None,
         num_buckets=0,
         src_lang_id=None,
         tgt_lang_id=None,
@@ -146,11 +159,13 @@ class AsrDataset(FairseqDataset):
         self.tgt = tgt
         self.src_sizes = np.array(src_sizes)
         self.tgt_sizes = np.array(tgt_sizes) if tgt_sizes is not None else None
+        assert dictionary is not None
         self.dictionary = dictionary
         self.left_pad_source = left_pad_source
         self.left_pad_target = left_pad_target
         self.shuffle = shuffle
         self.input_feeding = input_feeding
+        self.constraints = constraints
         self.src_lang_id = src_lang_id
         self.tgt_lang_id = tgt_lang_id
         if self.tgt is not None:
@@ -166,7 +181,7 @@ class AsrDataset(FairseqDataset):
                 left_pad=False,
             )
             self.src_sizes = self.src.sizes
-            logger.info('bucketing source lengths: {}'.format(list(self.src.buckets)))
+            logger.info("bucketing source lengths: {}".format(list(self.src.buckets)))
             if self.tgt is not None:
                 self.tgt = TextBucketPadLengthDataset(
                     self.tgt,
@@ -176,7 +191,7 @@ class AsrDataset(FairseqDataset):
                     left_pad=False,
                 )
                 self.tgt_sizes = self.tgt.sizes
-                logger.info('bucketing target lengths: {}'.format(list(self.tgt.buckets)))
+                logger.info("bucketing target lengths: {}".format(list(self.tgt.buckets)))
 
             # determine bucket sizes using self.num_tokens, which will return
             # the padded lengths (thanks to FeatBucketPadLengthDataset)
@@ -205,8 +220,8 @@ class AsrDataset(FairseqDataset):
             tgt_indices = list(map(self.tgt.utt_ids.index, self.src.utt_ids))
         except ValueError:
             raise ValueError(
-                'Unable to find some utt_id(s) in tgt. which is unlikely to happen. '
-                'Something must be wrong.'
+                "Unable to find some utt_id(s) in tgt. which is unlikely to happen. "
+                "Something must be wrong."
             )
         self.tgt.filter_and_reorder(tgt_indices)
         self.tgt_sizes = np.array(self.tgt.sizes)
@@ -220,12 +235,14 @@ class AsrDataset(FairseqDataset):
         raw_text_item = self.tgt[index][1] if self.tgt is not None else None
         src_item = self.src[index]
         example = {
-            'id': index,
-            'utt_id': self.src.utt_ids[index],
-            'source': src_item,
-            'target': tgt_item,
-            'target_raw_text': raw_text_item,
+            "id": index,
+            "utt_id": self.src.utt_ids[index],
+            "source": src_item,
+            "target": tgt_item,
+            "target_raw_text": raw_text_item,
         }
+        if self.constraints is not None:
+            example["constraints"] = self.constraints[index]
         return example
 
     def __len__(self):
@@ -281,14 +298,14 @@ class AsrDataset(FairseqDataset):
             src_bucketed=(self.buckets is not None),
         )
         if self.src_lang_id is not None or self.tgt_lang_id is not None:
-            src_tokens = res['net_input']['src_tokens']
+            src_tokens = res["net_input"]["src_tokens"]
             bsz = src_tokens.size(0)
             if self.src_lang_id is not None:
-                res['net_input']['src_lang_id'] = torch.LongTensor(
+                res["net_input"]["src_lang_id"] = torch.LongTensor(
                     [[self.src_lang_id]]
                 ).expand(bsz, 1).to(src_tokens)
             if self.tgt_lang_id is not None:
-                res['tgt_lang_id'] = torch.LongTensor(
+                res["tgt_lang_id"] = torch.LongTensor(
                     [[self.tgt_lang_id]]
                 ).expand(bsz, 1).to(src_tokens)
         return res
@@ -307,25 +324,25 @@ class AsrDataset(FairseqDataset):
         """Return an ordered list of indices. Batches will be constructed based
         on this order."""
         if self.shuffle:
-            indices = np.random.permutation(len(self))
+            indices = np.random.permutation(len(self)).astype(np.int64)
         else:
-            indices = np.arange(len(self))
+            indices = np.arange(len(self), dtype=np.int64)
         if self.buckets is None:
             # sort by target length, then source length
             if self.tgt_sizes is not None:
                 indices = indices[
-                    np.argsort(self.tgt_sizes[indices], kind='mergesort')
+                    np.argsort(self.tgt_sizes[indices], kind="mergesort")
                 ]
-            return indices[np.argsort(self.src_sizes[indices], kind='mergesort')]
+            return indices[np.argsort(self.src_sizes[indices], kind="mergesort")]
         else:
             # sort by bucketed_num_tokens, which is padded_src_len
             return indices[
-                np.argsort(self.bucketed_num_tokens[indices], kind='mergesort')
+                np.argsort(self.bucketed_num_tokens[indices], kind="mergesort")
             ]
 
     @property
     def supports_prefetch(self):
-        return getattr(self.src, 'supports_prefetch', False)
+        return getattr(self.src, "supports_prefetch", False)
 
     def prefetch(self, indices):
         """Only prefetch src."""
@@ -365,7 +382,7 @@ class AsrDataset(FairseqDataset):
 
     def set_epoch(self, epoch):
         super().set_epoch(epoch)
-        if hasattr(self.src, 'set_epoch'):
+        if hasattr(self.src, "set_epoch"):
             self.src.set_epoch(epoch)
-        if self.tgt is not None and hasattr(self.tgt, 'set_epoch'):
+        if self.tgt is not None and hasattr(self.tgt, "set_epoch"):
             self.tgt.set_epoch(epoch)
