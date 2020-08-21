@@ -558,9 +558,9 @@ class AsrXentDataset(FairseqDataset):
         """Return an ordered list of indices. Batches will be constructed based
         on this order."""
         if self.shuffle:
-            indices = np.random.permutation(len(self))
+            indices = np.random.permutation(len(self)).astype(np.int64)
         else:
-            indices = np.arange(len(self))
+            indices = np.arange(len(self), dtype=np.int64)
         if self.buckets is None:
             # sort by target length, then source length
             if self.tgt_sizes is not None:
