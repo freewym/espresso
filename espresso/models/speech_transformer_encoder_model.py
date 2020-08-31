@@ -68,6 +68,8 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
         parser.add_argument("--encoder-transformer-context", type=str, metavar="EXPR",
                             help="left/right context for time-restricted self-attention; "
                                  "can be None or a tuple of two non-negative integers/None")
+        parser.add_argument("--no-token-positional-embeddings", action="store_true",
+                            help="if set, disables positional embeddings (outside self attention)")
         # args for "Reducing Transformer Depth on Demand with Structured Dropout" (Fan et al., 2019)
         parser.add_argument("--encoder-layerdrop", type=float, metavar="D", default=0,
                             help="LayerDrop probability for encoder")
