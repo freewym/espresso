@@ -9,6 +9,7 @@ for decoding with Kaldi.
 """
 
 import logging
+import os
 import sys
 
 import numpy as np
@@ -34,7 +35,7 @@ def _main(args, output_file):
     logging.basicConfig(
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.INFO,
+        level=os.environ.get("LOGLEVEL", "INFO").upper(),
         stream=output_file,
     )
     logger = logging.getLogger("espresso.dump_posteriors")
@@ -195,7 +196,7 @@ def print_options_meaning_changes(args, logger):
     """Options that have different meanings than those in the translation task
     are explained here.
     """
-    logger.info("| --max-tokens is the maximum number of input frames in a batch")
+    logger.info("--max-tokens is the maximum number of input frames in a batch")
 
 
 def cli_main():

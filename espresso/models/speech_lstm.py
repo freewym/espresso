@@ -412,8 +412,8 @@ class SpeechLSTMEncoder(FairseqEncoder):
             packed_x = nn.utils.rnn.pack_padded_sequence(
                 x,
                 (
-                    src_lengths.data if not self.src_bucketed else
-                    src_lengths.new_full(src_lengths.size(), x.size(0))
+                    src_lengths.cpu() if not self.src_bucketed else
+                    src_lengths.new_full(src_lengths.size(), x.size(0), device="cpu")
                 ),
                 enforce_sorted=enforce_sorted
             )
