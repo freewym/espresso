@@ -380,6 +380,10 @@ class AsrDataset(FairseqDataset):
                                   (self.tgt_sizes[indices] <= max_tgt_size)]
         return indices, ignored.tolist()
 
+    @property
+    def can_reuse_epoch_itr_across_epochs(self):
+        return False  # to avoid running out of CPU RAM
+
     def set_epoch(self, epoch):
         super().set_epoch(epoch)
         if hasattr(self.src, "set_epoch"):
