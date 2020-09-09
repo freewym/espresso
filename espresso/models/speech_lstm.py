@@ -11,7 +11,7 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fairseq import options, utils, checkpoint_utils
+from fairseq import utils, checkpoint_utils
 from fairseq.models import (
     FairseqDecoder,
     FairseqEncoder,
@@ -67,10 +67,10 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         parser.add_argument("--encoder-rnn-layers", type=int, metavar="N",
                             help="number of rnn encoder layers")
         parser.add_argument("--encoder-rnn-bidirectional",
-                            type=lambda x: options.eval_bool(x),
+                            type=lambda x: utils.eval_bool(x),
                             help="make all rnn layers of encoder bidirectional")
         parser.add_argument("--encoder-rnn-residual",
-                            type=lambda x: options.eval_bool(x),
+                            type=lambda x: utils.eval_bool(x),
                             help="create residual connections for rnn encoder "
                             "layers (starting from the 2nd layer), i.e., the actual "
                             "output of such layer is the sum of its input and output")
@@ -87,7 +87,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         parser.add_argument("--decoder-out-embed-dim", type=int, metavar="N",
                             help="decoder output embedding dimension")
         parser.add_argument("--decoder-rnn-residual",
-                            type=lambda x: options.eval_bool(x),
+                            type=lambda x: utils.eval_bool(x),
                             help="create residual connections for rnn decoder "
                             "layers (starting from the 2nd layer), i.e., the actual "
                             "output of such layer is the sum of its input and output")
@@ -102,7 +102,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                             help="comma separated list of adaptive softmax cutoff points. "
                                  "Must be used with adaptive_loss criterion")
         parser.add_argument("--share-decoder-input-output-embed",
-                            type=lambda x: options.eval_bool(x),
+                            type=lambda x: utils.eval_bool(x),
                             help="share decoder input and output embeddings")
         parser.add_argument("--pretrained-lm-checkpoint", type=str, metavar="STR",
                             help="path to load checkpoint from pretrained language model(LM), "
@@ -119,7 +119,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                             help="dropout probability for decoder output")
 
         # Scheduled sampling options
-        parser.add_argument("--scheduled-sampling-probs", type=lambda p: options.eval_str_list(p),
+        parser.add_argument("--scheduled-sampling-probs", type=lambda p: utils.eval_str_list(p),
                             metavar="P_1,P_2,...,P_N", default=[1.0],
                             help="scheduled sampling probabilities of sampling the truth "
                             "labels for N epochs starting from --start-schedule-sampling-epoch; "
@@ -220,7 +220,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             pretrained_embed=pretrained_decoder_embed,
             share_input_output_embed=args.share_decoder_input_output_embed,
             adaptive_softmax_cutoff=(
-                options.eval_str_list(args.adaptive_softmax_cutoff, type=int)
+                utils.eval_str_list(args.adaptive_softmax_cutoff, type=int)
                 if args.criterion == "adaptive_loss" else None
             ),
             max_target_positions=max_target_positions,
