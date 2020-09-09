@@ -10,7 +10,7 @@ import torch
 from torch import Tensor
 import torch.nn as nn
 
-from fairseq import options
+from fairseq import utils
 from fairseq.models import (
     register_model,
     register_model_architecture,
@@ -89,7 +89,7 @@ class SpeechTransformerModel(TransformerModel):
                                  "if different from decoder embed dim)")
 
         # Scheduled sampling options
-        parser.add_argument("--scheduled-sampling-probs", type=lambda p: options.eval_str_list(p),
+        parser.add_argument("--scheduled-sampling-probs", type=lambda p: utils.eval_str_list(p),
                             metavar="P_1,P_2,...,P_N", default=[1.0],
                             help="scheduled sampling probabilities of sampling the truth "
                             "labels for N epochs starting from --start-schedule-sampling-epoch; "
