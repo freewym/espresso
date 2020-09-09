@@ -3,7 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from fairseq import options, utils
+from fairseq import utils
 from fairseq.models import (
     FairseqLanguageModel,
     register_model,
@@ -46,7 +46,7 @@ class LSTMLanguageModelEspresso(FairseqLanguageModel):
                             help="comma separated list of adaptive softmax cutoff points. "
                                  "Must be used with adaptive_loss criterion")
         parser.add_argument("--share-embed",
-                            type=lambda x: options.eval_bool(x),
+                            type=lambda x: utils.eval_bool(x),
                             help="share input and output embeddings")
         parser.add_argument("--is-wordlm", action="store_true",
                             help="whether it is word LM or subword LM. Only "
@@ -119,7 +119,7 @@ class LSTMLanguageModelEspresso(FairseqLanguageModel):
             pretrained_embed=pretrained_decoder_embed,
             share_input_output_embed=args.share_embed,
             adaptive_softmax_cutoff=(
-                options.eval_str_list(args.adaptive_softmax_cutoff, type=int)
+                utils.eval_str_list(args.adaptive_softmax_cutoff, type=int)
                 if args.criterion == "adaptive_loss" else None
             ),
             max_target_positions=max_target_positions,
