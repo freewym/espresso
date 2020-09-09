@@ -10,7 +10,7 @@ import torch
 from torch import Tensor
 import torch.nn.functional as F
 
-from fairseq import options
+from fairseq import utils
 from fairseq.models import (
     FairseqEncoderModel,
     register_model,
@@ -52,10 +52,10 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
         parser.add_argument("--encoder-rnn-layers", type=int, metavar="N",
                             help="number of rnn encoder layers")
         parser.add_argument("--encoder-rnn-bidirectional",
-                            type=lambda x: options.eval_bool(x),
+                            type=lambda x: utils.eval_bool(x),
                             help="make all rnn layers of encoder bidirectional")
         parser.add_argument("--encoder-rnn-residual",
-                            type=lambda x: options.eval_bool(x),
+                            type=lambda x: utils.eval_bool(x),
                             help="create residual connections for rnn encoder "
                             "layers (starting from the 2nd layer), i.e., the actual "
                             "output of such layer is the sum of its input and output")

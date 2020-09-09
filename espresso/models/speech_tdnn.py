@@ -11,7 +11,7 @@ from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
 
-from fairseq import options
+from fairseq import utils
 from fairseq.models import (
     FairseqEncoder,
     FairseqEncoderModel,
@@ -51,7 +51,7 @@ class SpeechTdnnEncoderModel(FairseqEncoderModel):
                             help="list of all Tdnn layer\'s dilations")
         parser.add_argument("--num-layers", type=int, metavar="N",
                             help="number of Tdnn layers")
-        parser.add_argument("--residual", type=lambda x: options.eval_bool(x),
+        parser.add_argument("--residual", type=lambda x: utils.eval_bool(x),
                             help="create residual connections for rnn encoder "
                             "layers (starting from the 2nd layer), i.e., the actual "
                             "output of such layer is the sum of its input and output")
