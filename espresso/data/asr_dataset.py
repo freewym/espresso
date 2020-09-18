@@ -23,6 +23,7 @@ def collate(
     left_pad_target=False,
     input_feeding=True,
     pad_to_length=None,
+    pad_to_multiple=1,
     src_bucketed=False,
 ):
     if len(samples) == 0:
@@ -33,12 +34,14 @@ def collate(
             return speech_utils.collate_frames(
                 [s[key] for s in samples], 0.0, left_pad,
                 pad_to_length=pad_to_length,
+                pad_to_multiple=pad_to_multiple,
             )
         elif key == "target" or key == "prev_output_tokens":
             return data_utils.collate_tokens(
                 [s[key] for s in samples],
                 pad_idx, eos_idx, left_pad, move_eos_to_beginning,
                 pad_to_length=pad_to_length,
+                pad_to_multiple=pad_to_multiple,
             )
         else:
             raise ValueError("Invalid key.")
@@ -143,6 +146,7 @@ class AsrDataset(FairseqDataset):
         tgt_lang_id (int, optional): target language ID, if set, the collated batch
             will contain a field 'tgt_lang_id' which indicates the target language
             of the samples.
+        pad_to_multiple (int, optional): pad src/tgt lengths to a multiple of this value
     """
 
     def __init__(
@@ -154,6 +158,7 @@ class AsrDataset(FairseqDataset):
         num_buckets=0,
         src_lang_id=None,
         tgt_lang_id=None,
+        pad_to_multiple=1,
     ):
         self.src = src
         self.tgt = tgt
@@ -170,6 +175,7 @@ class AsrDataset(FairseqDataset):
         self.tgt_lang_id = tgt_lang_id
         if self.tgt is not None:
             self._match_src_tgt()
+        self.sizes = np.vstack((self.src_sizes, self.tgt_sizes)).T if self.tgt_sizes is not None else self.src_sizes
 
         if num_buckets > 0:
             from espresso.data import FeatBucketPadLengthDataset, TextBucketPadLengthDataset
@@ -203,6 +209,7 @@ class AsrDataset(FairseqDataset):
             ]
         else:
             self.buckets = None
+        self.pad_to_multiple = pad_to_multiple
 
     def _match_src_tgt(self):
         """Makes utterances in src and tgt the same order in terms of
@@ -295,6 +302,7 @@ class AsrDataset(FairseqDataset):
             left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding,
             pad_to_length=pad_to_length,
+            pad_to_multiple=self.pad_to_multiple,
             src_bucketed=(self.buckets is not None),
         )
         if self.src_lang_id is not None or self.tgt_lang_id is not None:
@@ -361,24 +369,12 @@ class AsrDataset(FairseqDataset):
             np.array: filtered sample array
             list: list of removed indices
         """
-        if max_sizes is None:
-            return indices, []
-        if type(max_sizes) in (int, float):
-            max_src_size, max_tgt_size = max_sizes, max_sizes
-        else:
-            max_src_size, max_tgt_size = max_sizes
-        if self.tgt_sizes is None:
-            ignored = indices[self.src_sizes[indices] > max_src_size]
-        else:
-            ignored = indices[(self.src_sizes[indices] > max_src_size) |
-                              (self.tgt_sizes[indices] > max_tgt_size)]
-        if len(ignored) > 0:
-            if self.tgt_sizes is None:
-                indices = indices[self.src_sizes[indices] <= max_src_size]
-            else:
-                indices = indices[(self.src_sizes[indices] <= max_src_size) &
-                                  (self.tgt_sizes[indices] <= max_tgt_size)]
-        return indices, ignored.tolist()
+        return data_utils.filter_paired_dataset_indices_by_size(
+            self.src_sizes,
+            self.tgt_sizes,
+            indices,
+            max_sizes,
+        )
 
     @property
     def can_reuse_epoch_itr_across_epochs(self):

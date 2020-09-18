@@ -3,6 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from dataclasses import dataclass, field
+from omegaconf import II
 import logging
 import numpy as np
 
@@ -10,33 +12,39 @@ import torch.nn.functional as F
 
 from fairseq import utils
 from fairseq.criterions import register_criterion
-from fairseq.criterions.cross_entropy import CrossEntropyCriterion
+from fairseq.criterions.cross_entropy import CrossEntropyCriterion, CrossEntropyCriterionConfig
 from fairseq.data import data_utils
+from fairseq.dataclass.utils import gen_parser_from_dataclass
 
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class CrossEntropyV2CriterionConfig(CrossEntropyCriterionConfig):
+    print_training_sample_interval: int = field(
+        default=500,
+        metadata={
+            "help": "print a training sample (reference + prediction) every this number of updates"
+        },
+    )
+
+
 @register_criterion("cross_entropy_v2")
 class CrossEntropyV2Criterion(CrossEntropyCriterion):
 
-    def __init__(self, task, sentence_avg, print_interval):
+    def __init__(self, task, sentence_avg, print_training_sample_interval):
         super().__init__(task, sentence_avg)
 
         self.dictionary = task.target_dictionary
-        self.print_interval = print_interval
+        self.print_interval = print_training_sample_interval
         self.epoch = 1
         self.prev_num_updates = -1
 
     @staticmethod
     def add_args(parser):
-        """Add criterion-specific arguments to the parser."""
-        # fmt: off
-        parser.add_argument("--print-training-sample-interval", type=int,
-                            metavar="N", dest="print_interval", default=500,
-                            help="print a training sample (reference + "
-                                 "prediction) every this number of updates")
-        # fmt: on
+        """Add criterion-specific arguments to the parser. Optionally register config store"""
+        gen_parser_from_dataclass(parser, CrossEntropyV2CriterionConfig())
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample; periodically print out
@@ -49,7 +57,9 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
         """
         net_output = model(**sample["net_input"], epoch=self.epoch)
         loss, _, lprobs = self.compute_loss(model, net_output, sample, reduce=reduce)
-        sample_size = sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
+        sample_size = (
+            sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
+        )
         logging_output = {
             "loss": loss.data,
             "ntokens": sample["ntokens"],

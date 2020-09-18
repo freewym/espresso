@@ -3,17 +3,24 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from dataclasses import dataclass
 import logging
 
 import torch
 import torch.nn.functional as F
 
 from fairseq.criterions import register_criterion
-from fairseq.criterions.cross_entropy import CrossEntropyCriterion
+from fairseq.criterions.cross_entropy import CrossEntropyCriterion, CrossEntropyCriterionConfig
+from fairseq.dataclass.utils import gen_parser_from_dataclass
 from fairseq.logging import metrics
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SubsampledCrossEntropyWithAccuracyCriterionConfig(CrossEntropyCriterionConfig):
+    pass
 
 
 @register_criterion("subsampled_cross_entropy_with_accuracy")
@@ -27,6 +34,11 @@ class SubsampledCrossEntropyWithAccuracyCriterion(CrossEntropyCriterion):
         self.transpose_net_output = getattr(task, "transpose_net_output", True)
         self.state_prior_update_interval = getattr(task, "state_prior_update_interval", None)
 
+    @staticmethod
+    def add_args(parser):
+        """Add task-specific arguments to the parser. optionaly register config store"""
+        gen_parser_from_dataclass(parser, SubsampledCrossEntropyWithAccuracyCriterionConfig())
+
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
 
@@ -37,7 +49,9 @@ class SubsampledCrossEntropyWithAccuracyCriterion(CrossEntropyCriterion):
         """
         net_output = model(**sample["net_input"])
         loss, num_corr, num_tot, state_post = self.compute_loss(model, net_output, sample, reduce=reduce)
-        sample_size = sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
+        sample_size = (
+            sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
+        )
         logging_output = {
             "loss": loss.data,
             "ntokens": sample["ntokens"],
@@ -99,7 +113,9 @@ class SubsampledCrossEntropyWithAccuracyCriterion(CrossEntropyCriterion):
         CrossEntropyCriterion.reduce_metrics(logging_outputs)
         num_corr = sum(log.get("num_corr", 0) for log in logging_outputs)
         num_tot = sum(log.get("num_tot", 0) for log in logging_outputs)
-        metrics.log_scalar("accuracy", num_corr.float() / num_tot * 100 if num_tot > 0 else 0.0, num_tot, round=3)
+        metrics.log_scalar(
+            "accuracy", num_corr.float() / num_tot * 100 if num_tot > 0 else 0.0, num_tot, round=3
+        )
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

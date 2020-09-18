@@ -5,18 +5,25 @@
 
 import logging
 import os
+from dataclasses import dataclass, field
 
 import torch
 
 from fairseq import tokenizer, utils
 from fairseq.data import TruncatedDictionary
+from fairseq.dataclass.utils import gen_parser_from_dataclass
 from fairseq.tasks import register_task
-from fairseq.tasks.language_modeling import LanguageModelingTask
+from fairseq.tasks.language_modeling import LanguageModelingTask, LanguageModelingConfig
 
 from espresso.data import AsrDictionary
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LanguageModelingForASRConfig(LanguageModelingConfig):
+    dict: str = field(default=None, metadata={"help": "path to the dictionary"})
 
 
 @register_task("language_modeling_for_asr")
@@ -51,12 +58,8 @@ class LanguageModelingForASRTask(LanguageModelingTask):
 
     @staticmethod
     def add_args(parser):
-        """Add task-specific arguments to the parser."""
-        # fmt: off
-        LanguageModelingTask.add_args(parser)
-        parser.add_argument('--dict', default=None, type=str,
-                            help='path to the dictionary')
-        # fmt: on
+        """Add task-specific arguments to the parser. Optionally register config store"""
+        gen_parser_from_dataclass(parser, LanguageModelingForASRConfig())
 
     def __init__(self, args, dictionary, output_dictionary=None, targets=None):
         super().__init__(args, dictionary, output_dictionary, targets=targets)

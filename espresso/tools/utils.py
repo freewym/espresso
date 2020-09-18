@@ -38,11 +38,13 @@ def tokenize(sent, space='<space>', non_lang_syms=None):
     return ' '.join(tokens)
 
 
-def collate_frames(values, pad_value=0.0, left_pad=False, pad_to_length=None):
+def collate_frames(values, pad_value=0.0, left_pad=False, pad_to_length=None, pad_to_multiple=1):
     """Convert a list of 2d tensor into a padded 3d tensor."""
     assert values[0].dim() == 2, "expected 2, got " + str(values[0].dim)
     length = max(v.size(0) for v in values)
     length = length if pad_to_length is None else max(length, pad_to_length)
+    if pad_to_multiple != 1 and length % pad_to_multiple != 0:
+        length = (length + pad_to_multiple - 1) // pad_to_multiple * pad_to_multiple
     dim = values[0].size(1)
     res = values[0].new(len(values), length, dim).fill_(pad_value)
 

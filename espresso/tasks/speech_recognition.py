@@ -31,6 +31,7 @@ def get_asr_dataset_from_json(
     data_path, split, tgt_dict,
     combine, upsample_primary,
     num_buckets=0, shuffle=True,
+    pad_to_multiple=1,
     seed=1, specaugment_config=None,
 ):
     """
@@ -115,6 +116,7 @@ def get_asr_dataset_from_json(
         left_pad_target=False,
         num_buckets=num_buckets,
         shuffle=shuffle,
+        pad_to_multiple=pad_to_multiple,
     )
 
 
@@ -245,6 +247,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             upsample_primary=self.args.upsample_primary,
             num_buckets=self.args.num_batch_buckets,
             shuffle=(split != getattr(self.args, "gen_subset", None)),
+            pad_to_multiple=self.args.required_seq_len_multiple,
             seed=self.args.seed,
             specaugment_config=self.specaugment_config,
         )

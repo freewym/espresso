@@ -12,7 +12,7 @@ import numpy as np
 
 import torch
 
-from fairseq.data import FairseqDataset
+from fairseq.data import data_utils, FairseqDataset
 
 import espresso.tools.utils as speech_utils
 
@@ -20,7 +20,7 @@ import espresso.tools.utils as speech_utils
 logger = logging.getLogger(__name__)
 
 
-def collate(samples, pad_to_length=None, src_bucketed=False):
+def collate(samples, pad_to_length=None, pad_to_multiple=1, src_bucketed=False):
     try:
         from pychain import ChainGraphBatch
     except ImportError:
@@ -34,6 +34,7 @@ def collate(samples, pad_to_length=None, src_bucketed=False):
             return speech_utils.collate_frames(
                 [s[key] for s in samples], 0.0,
                 pad_to_length=pad_to_length,
+                pad_to_multiple=pad_to_multiple,
             )
         elif key == "target":
             max_num_transitions = max(s["target"].num_transitions for s in samples)
@@ -167,11 +168,12 @@ class AsrChainDataset(FairseqDataset):
             (default: True).
         num_buckets (int, optional): if set to a value greater than 0, then
             batches will be bucketed into the given number of batch shapes.
+        pad_to_multiple (int, optional): pad src lengths to a multiple of this value
     """
 
     def __init__(
         self, src, src_sizes, tgt=None, tgt_sizes=None, text=None, shuffle=True,
-        num_buckets=0,
+        num_buckets=0, pad_to_multiple=1,
     ):
         self.src = src
         self.tgt = tgt
@@ -194,6 +196,7 @@ class AsrChainDataset(FairseqDataset):
                 "Removed {} examples due to empty numerator graphs or missing entries, "
                 "{} remaining".format(num_removed, num_after_matching)
             )
+        self.sizes = np.vstack((self.src_sizes, self.tgt_sizes)).T if self.tgt_sizes is not None else self.src_sizes
 
         if num_buckets > 0:
             from espresso.data import FeatBucketPadLengthDataset
@@ -217,6 +220,7 @@ class AsrChainDataset(FairseqDataset):
             ]
         else:
             self.buckets = None
+        self.pad_to_multiple = pad_to_multiple
 
     def _match_src_tgt(self):
         """Makes utterances in src and tgt the same order in terms of
@@ -310,7 +314,10 @@ class AsrChainDataset(FairseqDataset):
                     numerator graphs
                 - `text` (List[str]): list of original text
         """
-        return collate(samples, pad_to_length=pad_to_length, src_bucketed=(self.buckets is not None))
+        return collate(
+            samples, pad_to_length=pad_to_length, pad_to_multiple=self.pad_to_multiple,
+            src_bucketed=(self.buckets is not None),
+        )
 
     def num_tokens(self, index):
         """Return the number of frames in a sample. This value is used to
@@ -363,24 +370,12 @@ class AsrChainDataset(FairseqDataset):
             np.array: filtered sample array
             list: list of removed indices
         """
-        if max_sizes is None:
-            return indices, []
-        if type(max_sizes) in (int, float):
-            max_src_size, max_tgt_size = max_sizes, max_sizes
-        else:
-            max_src_size, max_tgt_size = max_sizes
-        if self.tgt_sizes is None:
-            ignored = indices[self.src_sizes[indices] > max_src_size]
-        else:
-            ignored = indices[(self.src_sizes[indices] > max_src_size) |
-                              (self.tgt_sizes[indices] > max_tgt_size)]
-        if len(ignored) > 0:
-            if self.tgt_sizes is None:
-                indices = indices[self.src_sizes[indices] <= max_src_size]
-            else:
-                indices = indices[(self.src_sizes[indices] <= max_src_size) &
-                                  (self.tgt_sizes[indices] <= max_tgt_size)]
-        return indices, ignored.tolist()
+        return data_utils.filter_paired_dataset_indices_by_size(
+            self.src_sizes,
+            self.tgt_sizes,
+            indices,
+            max_sizes,
+        )
 
     @property
     def can_reuse_epoch_itr_across_epochs(self):
