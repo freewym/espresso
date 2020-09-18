@@ -13,8 +13,6 @@ from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
 from torch import Tensor
 
-from espresso.models.external_language_model import RawOutExternalLanguageModelBase
-
 
 class SequenceGenerator(nn.Module):
     def __init__(
@@ -1082,6 +1080,7 @@ class LMFusionModel(EnsembleModel):
                 None if decoder_len <= 1 else decoder_out[1],
             )
 
+            from espresso.models.external_language_model import RawOutExternalLanguageModelBase
             if isinstance(model, RawOutExternalLanguageModelBase):
                 probs = decoder_out_tuple[0]
             else:

@@ -3,7 +3,12 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from dataclasses import dataclass, field
+from omegaconf import II
+from typing import Optional
+
 from fairseq import utils
+from fairseq.dataclass.utils import FairseqDataclass, gen_parser_from_dataclass
 from fairseq.models import (
     FairseqLanguageModel,
     register_model,
@@ -16,6 +21,70 @@ from espresso.tasks.speech_recognition import SpeechRecognitionEspressoTask
 
 
 DEFAULT_MAX_TARGET_POSITIONS = 1e5
+
+
+@dataclass
+class LSTMLanguageModelEspressoConfig(FairseqDataclass):
+    dropout: float = field(default=0.1, metadata={"help": "dropout probability"})
+    decoder_embed_dim: int = field(
+        default=48, metadata={"help": "decoder embedding dimension"}
+    )
+    decoder_embed_path: Optional[str] = field(
+        default=None, metadata={"help": "path to pre-trained decoder embedding"}
+    )
+    decoder_freeze_embed: bool = field(
+        default=False, metadata={"help": "freeze decoder embeddings"}
+    )
+    decoder_hidden_size: int = field(
+        default=650, metadata={"help": "decoder hidden size"}
+    )
+    decoder_layers: int = field(
+        default=2, metadata={"help": "number of decoder layers"}
+    )
+    decoder_out_embed_dim: int = field(
+        default=650, metadata={"help": "decoder output embedding dimension"}
+    )
+    decoder_rnn_residual: lambda x: utils.eval_bool(x) = field(
+        default=False,
+        metadata={
+            "help": "create residual connections for rnn decoder layers "
+            "(starting from the 2nd layer), i.e., the actual output of such "
+            "layer is the sum of its input and output"
+        },
+    )
+    adaptive_softmax_cutoff: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "comma separated list of adaptive softmax cutoff points. "
+            "Must be used with adaptive_loss criterion"
+        },
+    )
+    share_embed: lambda x: utils.eval_bool(x) = field(
+        default=False, metadata={"help": "share input and output embeddings"}
+    )
+    is_wordlm: bool = field(
+        default=False,
+        metadata={
+            "help": "whether it is word LM or subword LM. Only relevant for ASR decoding "
+            "with LM, and it determines how the underlying decoder instance gets the "
+            "dictionary from the task instance when calling cls.build_model()"
+        },
+    )
+    # Granular dropout settings (if not specified these default to --dropout)
+    decoder_dropout_in: float = field(
+        default=0.1,
+        metadata={"help": "dropout probability for decoder input embedding"}
+    )
+    decoder_dropout_out: float = field(
+        default=0.1,
+        metadata={"help": "dropout probability for decoder output"}
+    )
+    # TODO common var add to parent
+    add_bos_token: bool = II("task.add_bos_token")
+    tokens_per_sample: int = II("task.tokens_per_sample")
+    max_target_positions: Optional[int] = II("task.max_target_positions")
+    # TODO common var add to parent
+    tpu: bool = II("params.common.tpu")
 
 
 @register_model("lstm_lm_espresso")
@@ -42,6 +111,11 @@ class LSTMLanguageModelEspresso(FairseqLanguageModel):
                             help="number of decoder layers")
         parser.add_argument("--decoder-out-embed-dim", type=int, metavar="N",
                             help="decoder output embedding dimension")
+        parser.add_argument("--decoder-rnn-residual",
+                            type=lambda x: utils.eval_bool(x),
+                            help="create residual connections for rnn decoder "
+                            "layers (starting from the 2nd layer), i.e., the actual "
+                            "output of such layer is the sum of its input and output")
         parser.add_argument("--adaptive-softmax-cutoff", metavar="EXPR",
                             help="comma separated list of adaptive softmax cutoff points. "
                                  "Must be used with adaptive_loss criterion")
