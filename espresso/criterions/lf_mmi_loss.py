@@ -3,6 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from dataclasses import dataclass, field
+from omegaconf import II
 import logging
 import math
 
@@ -10,10 +12,33 @@ import torch
 
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
+from fairseq.dataclass.data_class import DDP_BACKEND_CHOICES
+from fairseq.dataclass.utils import ChoiceEnum, FairseqDataclass, gen_parser_from_dataclass
 from fairseq.logging import metrics
 
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LatticeFreeMMICriterionConfig(FairseqDataclass):
+    sentence_avg: bool = II("params.optimization.sentence_avg")
+    ddp_backend: DDP_BACKEND_CHOICES = II("params.distributed_training.ddp_backend")
+    denominator_fst_path: str = field(
+        default=None, metadata={"help": "path to the denominator fst file"}
+    )
+    leaky_hmm_coefficient: float = field(
+        default=1.0e-05,
+        metadata={"help": "leaky-hmm coefficient for the denominator"},
+    )
+    xent_regularization_coefficient: float = field(
+        default=0.0,
+        metadata={"help": "cross-entropy regularization coefficient"},
+    )
+    output_l2_regularization_coefficient: float = field(
+        default=0.0,
+        metadata={"help": "L2 regularization coefficient for the network's output"},
+    )
 
 
 class ChainLossFunction(torch.autograd.Function):
@@ -132,20 +157,8 @@ class LatticeFreeMMICriterion(FairseqCriterion):
 
     @staticmethod
     def add_args(parser):
-        """Add criterion-specific arguments to the parser."""
-        # fmt: off
-        FairseqCriterion.add_args(parser)
-        parser.add_argument("--denominator-fst-path", type=str, metavar="FILE",
-                            help="path to the denominator fst file")
-        parser.add_argument("--leaky-hmm-coefficient", default=1.0e-05, type=float, metavar="F",
-                            help="leaky-hmm coefficient for the denominator")
-        parser.add_argument("--xent-regularization-coefficient", default=0.0,
-                            type=float, metavar="F", dest="xent_regularize",
-                            help="cross-entropy regularization coefficient")
-        parser.add_argument("--output-l2-regularization-coefficient", default=0.0,
-                            type=float, metavar="F", dest="output_l2_regularize",
-                            help="L2 regularization coefficient for the network's output")
-        # fmt: on
+        """Add criterion-specific arguments to the parser. Optionally register config store"""
+        gen_parser_from_dataclass(parser, LatticeFreeMMICriterionConfig())
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -158,7 +171,9 @@ class LatticeFreeMMICriterion(FairseqCriterion):
         net_output = model(**sample["net_input"])
         loss, nll_loss = self.compute_loss(net_output, sample, reduce=reduce)
 
-        sample_size = sample["target"].batch_size if self.sentence_avg else sample["ntokens"]
+        sample_size = (
+            sample["target"].batch_size if self.sentence_avg else sample["ntokens"]
+        )
         logging_output = {
             "loss": loss.data,
             "nll_loss": nll_loss.data,
@@ -211,9 +226,15 @@ class LatticeFreeMMICriterion(FairseqCriterion):
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
         sample_size = sum(log.get("sample_size", 0) for log in logging_outputs)
 
-        metrics.log_scalar("loss", loss_sum / sample_size / math.log(2), sample_size, round=7)
-        metrics.log_scalar("nll_loss", nll_loss_sum / ntokens / math.log(2), ntokens, round=7)
-        metrics.log_derived("ppl", lambda meters: utils.get_perplexity(meters["nll_loss"].avg, round=4))
+        metrics.log_scalar(
+            "loss", loss_sum / sample_size / math.log(2), sample_size, round=7
+        )
+        metrics.log_scalar(
+            "nll_loss", nll_loss_sum / ntokens / math.log(2), ntokens, round=7
+        )
+        metrics.log_derived(
+            "ppl", lambda meters: utils.get_perplexity(meters["nll_loss"].avg, round=4)
+        )
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:
