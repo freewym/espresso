@@ -24,8 +24,8 @@ class AsrDictionary(Dictionary):
         space="<space>",
         extra_special_symbols=None,
     ):
-        self.unk_word, self.bos_word, self.pad_word, self.eos_word, self.space_word = \
-            unk, bos, pad, eos, space
+        self.bos_word, self.unk_word, self.pad_word, self.eos_word, self.space_word = \
+            bos, unk, pad, eos, space
         self.symbols = []
         self.count = []
         self.indices = {}
