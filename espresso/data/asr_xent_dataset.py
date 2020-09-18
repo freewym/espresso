@@ -35,6 +35,7 @@ def collate(
     seed,
     epoch,
     pad_to_length=None,
+    pad_to_multiple=1,
     src_bucketed=False,
     random_chunking=True,
 ):
@@ -46,6 +47,7 @@ def collate(
             return speech_utils.collate_frames(
                 [s[key] for s in samples], 0.0,
                 pad_to_length=pad_to_length,
+                pad_to_multiple=pad_to_multiple,
             )
         elif key == "target":
             return data_utils.collate_tokens(
@@ -53,6 +55,7 @@ def collate(
                 pad_idx=pad_idx, eos_idx=None,
                 left_pad=False, move_eos_to_beginning=False,
                 pad_to_length=pad_to_length,
+                pad_to_multiple=pad_to_multiple,
             )
         else:
             raise ValueError("Invalid key.")
@@ -343,6 +346,7 @@ class AsrXentDataset(FairseqDataset):
             (default: True).
         num_buckets (int, optional): if set to a value greater than 0, then
             batches will be bucketed into the given number of batch shapes.
+        pad_to_multiple (int, optional): pad src/tgt lengths to a multiple of this value
         seed (int, optional): random seed for generating a chunk from an utterance.
         chunk_width (int, optional): chunk width for chunk-wise training.
         chunk_left_context (int, optional): number of frames appended to the left of a chunk.
@@ -355,7 +359,7 @@ class AsrXentDataset(FairseqDataset):
 
     def __init__(
         self, src, src_sizes, tgt: Optional[AliScpCachedDataset] = None, tgt_sizes=None, text=None,
-        shuffle=True, num_buckets=0, seed=1, chunk_width=None,
+        shuffle=True, num_buckets=0, pad_to_multiple=1, seed=1, chunk_width=None,
         chunk_left_context=None, chunk_right_context=None, label_delay=0, random_chunking=True,
     ):
         self.src = src
@@ -381,6 +385,7 @@ class AsrXentDataset(FairseqDataset):
             changed = self._match_src_text()
             if self.tgt is not None and changed:
                 self._match_src_tgt()
+        self.sizes = np.vstack((self.src_sizes, self.tgt_sizes)).T if self.tgt_sizes is not None else self.src_sizes
 
         if chunk_width is not None:
             # remove those whose lengths are shorter than chunk_size
@@ -431,6 +436,7 @@ class AsrXentDataset(FairseqDataset):
             ]
         else:
             self.buckets = None
+        self.pad_to_multiple = pad_to_multiple
 
     def _match_src_tgt(self):
         """Makes utterances in src and tgt the same order in terms of
@@ -538,6 +544,7 @@ class AsrXentDataset(FairseqDataset):
             seed=self.seed,
             epoch=self.epoch,
             pad_to_length=pad_to_length,
+            pad_to_multiple=self.pad_to_multiple,
             src_bucketed=(self.buckets is not None),
             random_chunking=self.random_chunking,
         )
@@ -596,24 +603,12 @@ class AsrXentDataset(FairseqDataset):
             np.array: filtered sample array
             list: list of removed indices
         """
-        if max_sizes is None:
-            return indices, []
-        if type(max_sizes) in (int, float):
-            max_src_size, max_tgt_size = max_sizes, max_sizes
-        else:
-            max_src_size, max_tgt_size = max_sizes
-        if self.tgt_sizes is None:
-            ignored = indices[self.src_sizes[indices] > max_src_size]
-        else:
-            ignored = indices[(self.src_sizes[indices] > max_src_size) |
-                              (self.tgt_sizes[indices] > max_tgt_size)]
-        if len(ignored) > 0:
-            if self.tgt_sizes is None:
-                indices = indices[self.src_sizes[indices] <= max_src_size]
-            else:
-                indices = indices[(self.src_sizes[indices] <= max_src_size) &
-                                  (self.tgt_sizes[indices] <= max_tgt_size)]
-        return indices, ignored.tolist()
+        return data_utils.filter_paired_dataset_indices_by_size(
+            self.src_sizes,
+            self.tgt_sizes,
+            indices,
+            max_sizes,
+        )
 
     @property
     def can_reuse_epoch_itr_across_epochs(self):
