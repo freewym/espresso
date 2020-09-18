@@ -3,6 +3,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from dataclasses import dataclass, field
+from omegaconf import II
 import logging
 import numpy as np
 
@@ -12,9 +14,42 @@ from fairseq import utils
 from fairseq.criterions import register_criterion
 from fairseq.criterions.label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
 from fairseq.data import data_utils
+from fairseq.dataclass.data_class import DDP_BACKEND_CHOICES
+from fairseq.dataclass.utils import ChoiceEnum, FairseqDataclass, gen_parser_from_dataclass
 
 
 logger = logging.getLogger(__name__)
+
+
+LABEL_SMOOTHING_CHOICES = ChoiceEnum(["uniform", "unigram", "temporal"])
+
+
+@dataclass
+class LabelSmoothedCrossEntropyV2CriterionConfig(FairseqDataclass):
+    sentence_avg: bool = II("params.optimization.sentence_avg")
+    ddp_backend: DDP_BACKEND_CHOICES = II("params.distributed_training.ddp_backend")
+    label_smoothing: float = field(
+        default=0.0,
+        metadata={
+            "help": "epsilon for label smoothing, 0 means no label smoothing"
+        },
+    )
+    print_training_sample_interval: int = field(
+        default=500,
+        metadata={
+            "help": "print a training sample (reference + prediction) every this number of updates"
+        },
+    )
+    smoothing_type: LABEL_SMOOTHING_CHOICES = field(
+        default="uniform",
+        metadata={"help": "label smoothing type. Default: uniform"},
+    )
+    unigram_pseudo_count: float = field(
+        default=1.0,
+        metadata={
+            "help": "pseudo count for unigram label smoothing. Only relevant if --smoothing-type=unigram"
+        },
+    )
 
 
 def temporal_label_smoothing_prob_mask(
@@ -80,14 +115,14 @@ def label_smoothed_nll_loss(
 class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
 
     def __init__(
-        self, task, sentence_avg, label_smoothing, smoothing_type, print_interval,
-        unigram_pseudo_count,
+        self, task, sentence_avg, label_smoothing, smoothing_type,
+        print_training_sample_interval, unigram_pseudo_count,
     ):
         super().__init__(task, sentence_avg, label_smoothing)
 
         self.dictionary = task.target_dictionary
         self.smoothing_type = smoothing_type
-        self.print_interval = print_interval
+        self.print_interval = print_training_sample_interval
         self.epoch = 1
         self.unigram_tensor = None
         if smoothing_type == "unigram":
@@ -98,20 +133,8 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
 
     @staticmethod
     def add_args(parser):
-        """Add criterion-specific arguments to the parser."""
-        # fmt: off
-        LabelSmoothedCrossEntropyCriterion.add_args(parser)
-        parser.add_argument("--print-training-sample-interval", type=int,
-                            metavar="N", dest="print_interval", default=500,
-                            help="print a training sample (reference + "
-                                 "prediction) every this number of updates")
-        parser.add_argument("--smoothing-type", type=str, default="uniform",
-                            choices=["uniform", "unigram", "temporal"],
-                            help="label smoothing type. Default: uniform")
-        parser.add_argument("--unigram-pseudo-count", type=float, default=1.0,
-                            metavar="C", help="pseudo count for unigram label "
-                            "smoothing. Only relevant if --smoothing-type=unigram")
-        # fmt: on
+        """Add criterion-specific arguments to the parser. Optionally register config store"""
+        gen_parser_from_dataclass(parser, LabelSmoothedCrossEntropyV2CriterionConfig())
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample; periodically print out
@@ -126,7 +149,9 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
         loss, nll_loss, lprobs = self.compute_loss(
             model, net_output, sample, reduce=reduce, smoothing_type=self.smoothing_type
         )
-        sample_size = sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
+        sample_size = (
+            sample["target"].size(0) if self.sentence_avg else sample["ntokens"]
+        )
         logging_output = {
             "loss": loss.data,
             "nll_loss": nll_loss.data,

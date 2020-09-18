@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 def get_asr_dataset_from_json(
     data_path, split, dictionary,
     combine, upsample_primary,
-    num_buckets=0,
-    shuffle=True,
+    num_buckets=0, shuffle=True,
+    pad_to_multiple=1,
     lf_mmi=True,
     seed=1, specaugment_config=None,
     chunk_width=None, chunk_left_context=None, chunk_right_context=None, label_delay=0,
@@ -149,6 +149,7 @@ def get_asr_dataset_from_json(
             text=text_dataset,
             num_buckets=num_buckets,
             shuffle=shuffle,
+            pad_to_multiple=pad_to_multiple,
         )
     else:
         return AsrXentDataset(
@@ -157,6 +158,7 @@ def get_asr_dataset_from_json(
             text=text_dataset,
             num_buckets=num_buckets,
             shuffle=shuffle,
+            pad_to_multiple=pad_to_multiple,
             seed=seed, chunk_width=chunk_width,
             chunk_left_context=chunk_left_context, chunk_right_context=chunk_right_context,
             label_delay=label_delay, random_chunking=(split == "train" and chunk_width is not None),
@@ -328,6 +330,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
             upsample_primary=self.args.upsample_primary,
             num_buckets=self.args.num_batch_buckets,
             shuffle=(split != getattr(self.args, "gen_subset", None)),
+            pad_to_multiple=self.args.required_seq_len_multiple,
             lf_mmi=(self.args.criterion == "lattice_free_mmi"),
             seed=self.args.seed, specaugment_config=self.specaugment_config,
             chunk_width=None if self.training_stage and split in self.args.valid_subset.split(",") else self.chunk_width,
