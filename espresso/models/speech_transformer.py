@@ -425,6 +425,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
         encoder_out: Optional[EncoderOut] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         features_only: bool = False,
+        full_context_alignment: bool = False,
         alignment_layer: Optional[int] = None,
         alignment_heads: Optional[int] = None,
         src_lengths: Optional[Any] = None,
@@ -441,6 +442,8 @@ class SpeechTransformerDecoder(TransformerDecoder):
                 :ref:`Incremental decoding`
             features_only (bool, optional): only return features without
                 applying output layer (default: False).
+            full_context_alignment (bool, optional): don't apply
+                auto-regressive mask to self-attention (default: False).
 
         Returns:
             tuple:
@@ -457,6 +460,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
                 return self._forward_with_scheduled_sampling(
                     prev_output_tokens, sampling_prob, encoder_out=encoder_out,
                     incremental_state={},  # use empty dict to preserve forward state
+                    full_context_alignment=full_context_alignment,
                     alignment_layer=alignment_layer,
                     alignment_heads=alignment_heads,
                     src_lengths=src_lengths,
@@ -467,6 +471,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
             prev_output_tokens,
             encoder_out=encoder_out,
             incremental_state=incremental_state,
+            full_context_alignment=full_context_alignment,
             alignment_layer=alignment_layer,
             alignment_heads=alignment_heads,
         )
@@ -481,6 +486,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
         encoder_out: Optional[EncoderOut] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         features_only: bool = False,
+        full_context_alignment: bool = False,
         alignment_layer: Optional[int] = None,
         alignment_heads: Optional[int] = None,
         src_lengths: Optional[Any] = None,
@@ -503,6 +509,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
                 feed_tokens,
                 encoder_out=encoder_out,
                 incremental_state=incremental_state,
+                full_context_alignment=full_context_alignment,
                 alignment_layer=alignment_layer,
                 alignment_heads=alignment_heads,
             )
