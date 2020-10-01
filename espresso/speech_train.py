@@ -199,6 +199,7 @@ def train(args, trainer, task, epoch_itr):
     if hasattr(trainer.criterion, "set_epoch"):
         trainer.criterion.set_epoch(epoch_itr.epoch)
 
+    valid_losses = [None]
     valid_subsets = args.valid_subset.split(",")
     should_stop = False
     num_updates = trainer.get_num_updates()
