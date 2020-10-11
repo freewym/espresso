@@ -214,8 +214,8 @@ if [ $stage -le 4 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval $((1000/ngpus)) --log-format simple \
-    --num-workers 0 --max-tokens 25600 --max-sentences 1024 \
-    --valid-subset $valid_subset --max-sentences-valid 1536 \
+    --num-workers 0 --max-tokens 25600 --batch-size 1024 \
+    --valid-subset $valid_subset --batch-size-valid 1536 \
     --distributed-world-size $ngpus \
     --max-epoch 25 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
@@ -234,7 +234,7 @@ if [ $stage -le 5 ]; then
     log_file=$lmdir/log/evaluation_${test_set_array[$i]}.log
     python3 ../../fairseq_cli/eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
-      --max-tokens 40960 --max-sentences 1536 --sample-break-mode eos \
+      --max-tokens 40960 --batch-size 1536 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
   done
 fi
@@ -286,8 +286,8 @@ if [ $stage -le 7 ]; then
   fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval $((3000/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((4000/ngpus/update_freq)) \
-    --num-workers 0 --data-buffer-size 0 --max-tokens 26000 --max-sentences 48 --curriculum 2 --empty-cache-freq 50 \
-    --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d --update-freq $update_freq \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 26000 --batch-size 48 --curriculum 2 --empty-cache-freq 50 \
+    --valid-subset $valid_subset --batch-size-valid 64 --ddp-backend no_c10d --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((3000/ngpus/update_freq)) \
@@ -305,7 +305,7 @@ if [ $stage -le 8 ]; then
   path=$dir/$checkpoint
   decode_affix=
   if $lm_shallow_fusion; then
-    path="$path:$lmdir/$lm_checkpoint"
+    opts="$opts --lm-path $lmdir/$lm_checkpoint"
     opts="$opts --lm-weight 0.25"
     decode_affix=shallow_fusion
   fi
@@ -313,7 +313,7 @@ if [ $stage -le 8 ]; then
   for dataset in $test_set; do
     decode_dir=$dir/decode_${dataset}${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
-      --task speech_recognition_espresso --user-dir espresso --max-tokens 24000 --max-sentences 48 \
+      --task speech_recognition_espresso --user-dir espresso --max-tokens 24000 --batch-size 48 \
       --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-model ${sentencepiece_model}.model \
       --non-lang-syms $nlsyms --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 35 --max-len-a 0.1 --max-len-b 0 --lenpen 1.0 \
