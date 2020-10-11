@@ -71,7 +71,7 @@ class AsrDictionary(Dictionary):
         if f_non_lang_syms is not None:
             assert isinstance(f_non_lang_syms, str)
             try:
-                with PathManager.open(f_non_lang_syms, "r", encoding="utf-8") as fd:
+                with open(PathManager.get_local_path(f_non_lang_syms), "r", encoding="utf-8") as fd:
                     non_lang_syms = [x.rstrip() for x in fd.readlines()]
             except FileNotFoundError as fnfe:
                 raise fnfe
