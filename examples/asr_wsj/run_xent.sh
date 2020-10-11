@@ -167,8 +167,8 @@ if [ ${stage} -le 5 ]; then
   update_freq=1
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/xent --task speech_recognition_hybrid --seed 1 --user-dir espresso \
     --log-interval $((100/ngpus/update_freq)) --log-format simple \
-    --num-workers 0 --data-buffer-size 0 --max-tokens 160000 --max-sentences 256 --empty-cache-freq 50 \
-    --valid-subset $valid_subset --max-sentences-valid 256 --ddp-backend no_c10d --update-freq $update_freq \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 160000 --batch-size 256 --empty-cache-freq 50 \
+    --valid-subset $valid_subset --batch-size-valid 256 --ddp-backend no_c10d --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --max-epoch 40 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \
@@ -193,7 +193,7 @@ if [ ${stage} -le 6 ]; then
         graph_dir=exp/$gmm/graph_${lmtype}
         $decode_cmd $queue_opt JOB=1:$nj $dir/decode_${lmtype}_${data_affix}/log/decode.JOB.log \
           dump_posteriors.py data/xent --cpu --task speech_recognition_hybrid --user-dir espresso \
-            --max-tokens 256000 --max-sentences 256 --num-shards 1 --shard-id 0 --num-targets $num_targets \
+            --max-tokens 256000 --batch-size 256 --num-shards 1 --shard-id 0 --num-targets $num_targets \
             --gen-subset $dataset.JOB --chunk-width 150 --chunk-left-context 10 --chunk-right-context 10 --label-delay -3 \
             --max-source-positions 9999 --path $path --apply-log-softmax \| \
           latgen-faster-mapped --max-active=7000 --min-active=20 --beam=15 --lattice-beam=8 --acoustic-scale=0.1 \

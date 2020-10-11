@@ -8,6 +8,7 @@ Dump frame-level posteriors (intepreted as log probabilities) with a trained mod
 for decoding with Kaldi.
 """
 
+import ast
 import logging
 import os
 import sys
@@ -44,7 +45,7 @@ def _main(args, output_file):
 
     utils.import_user_module(args)
 
-    if args.max_tokens is None and args.max_sentences is None:
+    if args.max_tokens is None and args.batch_size is None:
         args.max_tokens = 12000
     logger.info(args)
 
@@ -59,13 +60,17 @@ def _main(args, output_file):
     task = tasks.setup_task(args)
     task.load_dataset(args.gen_subset)
 
+    overrides = ast.literal_eval(args.model_overrides)
+
     # Load ensemble
     logger.info("loading model(s) from {}".format(args.path))
     models, _model_args = checkpoint_utils.load_model_ensemble(
         utils.split_paths(args.path),
-        arg_overrides=eval(args.model_overrides),
+        arg_overrides=overrides,
         task=task,
         suffix=getattr(args, "checkpoint_suffix", ""),
+        strict=(args.checkpoint_shard_count == 1),
+        num_shards=args.checkpoint_shard_count,
     )
 
     # Load state prior for cross-entropy trained systems decoding
@@ -76,11 +81,13 @@ def _main(args, output_file):
 
     # Optimize ensemble for generation
     for model in models:
-        model.prepare_for_inference_(args)
+        if model is None:
+            continue
         if args.fp16:
             model.half()
-        if use_cuda:
+        if use_cuda and not args.pipeline_model_parallel:
             model.cuda()
+        model.prepare_for_inference_(args)
         if isinstance(prior, list) and getattr(model, "state_prior", None) is not None:
             prior.append(model.state_prior.unsqueeze(0))
 
@@ -103,7 +110,7 @@ def _main(args, output_file):
     itr = task.get_batch_iterator(
         dataset=task.dataset(args.gen_subset),
         max_tokens=args.max_tokens,
-        max_sentences=args.max_sentences,
+        max_sentences=args.batch_size,
         max_positions=utils.resolve_max_positions(
             task.max_positions(),
             *[model.max_positions() if hasattr(model, "encoder")
