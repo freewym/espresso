@@ -7,6 +7,8 @@ from collections import Counter, OrderedDict
 import logging
 import re
 
+from fairseq.file_io import PathManager
+
 import espresso.tools.utils as speech_utils
 
 
@@ -30,7 +32,7 @@ class Scorer(object):
 
     def parse_wer_output_filter(self, wer_output_filter):
         if wer_output_filter:
-            with open(wer_output_filter, 'r', encoding='utf-8') as f:
+            with open(PathManager.get_local_path(wer_output_filter), 'r', encoding='utf-8') as f:
                 for line in f:
                     line = line.strip()
                     if line.startswith('#!') or line == '':
@@ -143,7 +145,7 @@ class Scorer(object):
             return
         self.ordered_utt_list = []
         for text_file in args:
-            with open(text_file, 'r', encoding='utf-8') as f:
+            with open(PathManager.get_local_path(text_file), 'r', encoding='utf-8') as f:
                 one_utt_list = [line.strip().split()[0] for line in f]
                 self.ordered_utt_list.extend(one_utt_list)
         if len(self.char_results):

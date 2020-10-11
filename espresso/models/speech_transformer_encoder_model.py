@@ -224,7 +224,12 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
         self.fc_out = Linear(args.encoder_embed_dim, num_targets, dropout=self.dropout_module.p) \
             if num_targets is not None else None
 
-    def forward(self, src_tokens, src_lengths, return_all_hiddens: bool = False):
+    def forward(
+        self,
+        src_tokens,
+        src_lengths,
+        return_all_hiddens: bool = False,
+    ):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape

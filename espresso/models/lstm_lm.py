@@ -8,7 +8,7 @@ from omegaconf import II
 from typing import Optional
 
 from fairseq import utils
-from fairseq.dataclass.utils import FairseqDataclass, gen_parser_from_dataclass
+from fairseq.dataclass import FairseqDataclass
 from fairseq.models import (
     FairseqLanguageModel,
     register_model,
@@ -70,7 +70,6 @@ class LSTMLanguageModelEspressoConfig(FairseqDataclass):
             "dictionary from the task instance when calling cls.build_model()"
         },
     )
-    # Granular dropout settings (if not specified these default to --dropout)
     decoder_dropout_in: float = field(
         default=0.1,
         metadata={"help": "dropout probability for decoder input embedding"}
@@ -83,57 +82,14 @@ class LSTMLanguageModelEspressoConfig(FairseqDataclass):
     add_bos_token: bool = II("task.add_bos_token")
     tokens_per_sample: int = II("task.tokens_per_sample")
     max_target_positions: Optional[int] = II("task.max_target_positions")
-    # TODO common var add to parent
     tpu: bool = II("params.common.tpu")
 
 
-@register_model("lstm_lm_espresso")
+@register_model("lstm_lm_espresso", dataclass=LSTMLanguageModelEspressoConfig)
 class LSTMLanguageModelEspresso(FairseqLanguageModel):
     def __init__(self, decoder, args):
         super().__init__(decoder)
         self.is_wordlm = args.is_wordlm
-
-    @staticmethod
-    def add_args(parser):
-        """Add model-specific arguments to the parser."""
-        # fmt: off
-        parser.add_argument("--dropout", type=float, metavar="D",
-                            help="dropout probability")
-        parser.add_argument("--decoder-embed-dim", type=int, metavar="N",
-                            help="decoder embedding dimension")
-        parser.add_argument("--decoder-embed-path", type=str, metavar="STR",
-                            help="path to pre-trained decoder embedding")
-        parser.add_argument("--decoder-freeze-embed", action="store_true",
-                            help="freeze decoder embeddings")
-        parser.add_argument("--decoder-hidden-size", type=int, metavar="N",
-                            help="decoder hidden size")
-        parser.add_argument("--decoder-layers", type=int, metavar="N",
-                            help="number of decoder layers")
-        parser.add_argument("--decoder-out-embed-dim", type=int, metavar="N",
-                            help="decoder output embedding dimension")
-        parser.add_argument("--decoder-rnn-residual",
-                            type=lambda x: utils.eval_bool(x),
-                            help="create residual connections for rnn decoder "
-                            "layers (starting from the 2nd layer), i.e., the actual "
-                            "output of such layer is the sum of its input and output")
-        parser.add_argument("--adaptive-softmax-cutoff", metavar="EXPR",
-                            help="comma separated list of adaptive softmax cutoff points. "
-                                 "Must be used with adaptive_loss criterion")
-        parser.add_argument("--share-embed",
-                            type=lambda x: utils.eval_bool(x),
-                            help="share input and output embeddings")
-        parser.add_argument("--is-wordlm", action="store_true",
-                            help="whether it is word LM or subword LM. Only "
-                            "relevant for ASR decoding with LM, and it determines "
-                            "how the underlying decoder instance gets the dictionary "
-                            "from the task instance when calling cls.build_model()")
-
-        # Granular dropout settings (if not specified these default to --dropout)
-        parser.add_argument("--decoder-dropout-in", type=float, metavar="D",
-                            help="dropout probability for decoder input embedding")
-        parser.add_argument("--decoder-dropout-out", type=float, metavar="D",
-                            help="dropout probability for decoder output")
-        # fmt: on
 
     @classmethod
     def build_model(cls, args, task):
@@ -225,33 +181,39 @@ def lstm_lm_wsj(args):
 
 @register_model_architecture("lstm_lm_espresso", "lstm_lm_librispeech")
 def lstm_lm_librispeech(args):
-    args.dropout = getattr(args, "dropout", 0.0)
-    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 800)
-    args.decoder_hidden_size = getattr(args, "decoder_hidden_size", 800)
-    args.decoder_layers = getattr(args, "decoder_layers", 4)
-    args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 800)
-    args.share_embed = getattr(args, "share_embed", True)
+    args.dropout = 0.0
+    args.decoder_embed_dim = 800
+    args.decoder_hidden_size = 800
+    args.decoder_layers = 4
+    args.decoder_out_embed_dim = 800
+    args.decoder_dropout_in = args.dropout
+    args.decoder_dropout_out = args.dropout
+    args.share_embed = True
     base_lm_architecture(args)
 
 
 @register_model_architecture("lstm_lm_espresso", "lstm_lm_swbd")
 def lstm_lm_swbd(args):
-    args.dropout = getattr(args, "dropout", 0.3)
-    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 1800)
-    args.decoder_hidden_size = getattr(args, "decoder_hidden_size", 1800)
-    args.decoder_layers = getattr(args, "decoder_layers", 3)
-    args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 1800)
-    args.share_embed = getattr(args, "share_embed", True)
+    args.dropout = 0.3
+    args.decoder_embed_dim = 1800
+    args.decoder_hidden_size = 1800
+    args.decoder_layers = 3
+    args.decoder_out_embed_dim = 1800
+    args.decoder_dropout_in = args.dropout
+    args.decoder_dropout_out = args.dropout
+    args.share_embed = True
     base_lm_architecture(args)
 
 
 @register_model_architecture("lstm_lm_espresso", "lstm_wordlm_wsj")
 def lstm_wordlm_wsj(args):
-    args.dropout = getattr(args, "dropout", 0.35)
-    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 1200)
-    args.decoder_hidden_size = getattr(args, "decoder_hidden_size", 1200)
-    args.decoder_layers = getattr(args, "decoder_layers", 3)
-    args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 1200)
-    args.share_embed = getattr(args, "share_embed", True)
+    args.dropout = 0.35
+    args.decoder_embed_dim = 1200
+    args.decoder_hidden_size = 1200
+    args.decoder_layers = 3
+    args.decoder_out_embed_dim = 1200
+    args.decoder_dropout_in = args.dropout
+    args.decoder_dropout_out = args.dropout
+    args.share_embed = True
     args.is_wordlm = True
     base_lm_architecture(args)

@@ -11,7 +11,6 @@ import torch.nn.functional as F
 
 from fairseq.criterions import register_criterion
 from fairseq.criterions.cross_entropy import CrossEntropyCriterion, CrossEntropyCriterionConfig
-from fairseq.dataclass.utils import gen_parser_from_dataclass
 from fairseq.logging import metrics
 
 
@@ -23,7 +22,7 @@ class SubsampledCrossEntropyWithAccuracyCriterionConfig(CrossEntropyCriterionCon
     pass
 
 
-@register_criterion("subsampled_cross_entropy_with_accuracy")
+@register_criterion("subsampled_cross_entropy_with_accuracy", dataclass=SubsampledCrossEntropyWithAccuracyCriterionConfig)
 class SubsampledCrossEntropyWithAccuracyCriterion(CrossEntropyCriterion):
 
     def __init__(self, task, sentence_avg):
@@ -33,11 +32,6 @@ class SubsampledCrossEntropyWithAccuracyCriterion(CrossEntropyCriterion):
         # so that it is B x T x V
         self.transpose_net_output = getattr(task, "transpose_net_output", True)
         self.state_prior_update_interval = getattr(task, "state_prior_update_interval", None)
-
-    @staticmethod
-    def add_args(parser):
-        """Add task-specific arguments to the parser. optionaly register config store"""
-        gen_parser_from_dataclass(parser, SubsampledCrossEntropyWithAccuracyCriterionConfig())
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -107,8 +101,8 @@ class SubsampledCrossEntropyWithAccuracyCriterion(CrossEntropyCriterion):
 
         return loss, num_corr, num_tot, state_post
 
-    @staticmethod
-    def reduce_metrics(logging_outputs) -> None:
+    @classmethod
+    def reduce_metrics(cls, logging_outputs) -> None:
         """Aggregate logging outputs from data parallel training."""
         CrossEntropyCriterion.reduce_metrics(logging_outputs)
         num_corr = sum(log.get("num_corr", 0) for log in logging_outputs)

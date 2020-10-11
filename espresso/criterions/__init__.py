@@ -10,5 +10,5 @@ import os
 # automatically import any Python files in the criterions/ directory
 for file in os.listdir(os.path.dirname(__file__)):
     if not file.startswith("_") and not file.startswith(".") and file.endswith(".py"):
-        criterion_name = file[: file.find(".py")]
-        importlib.import_module("espresso.criterions." + criterion_name)
+        file_name = file[: file.find(".py")]
+        importlib.import_module("espresso.criterions." + file_name)

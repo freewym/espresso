@@ -9,7 +9,8 @@ from typing import List
 
 import torch.optim.lr_scheduler
 
-from fairseq.dataclass.utils import FairseqDataclass, gen_parser_from_dataclass
+from fairseq.dataclass import FairseqDataclass
+from fairseq.dataclass.utils import gen_parser_from_dataclass
 from fairseq.optim.lr_scheduler import register_lr_scheduler
 from fairseq.optim.lr_scheduler.reduce_lr_on_plateau import ReduceLROnPlateau
 
@@ -54,7 +55,7 @@ class ReduceLROnPlateauV2Config(FairseqDataclass):
     lr: List[float] = II("params.optimization.lr")
 
 
-@register_lr_scheduler('reduce_lr_on_plateau_v2')
+@register_lr_scheduler("reduce_lr_on_plateau_v2", dataclass=ReduceLROnPlateauV2Config)
 class ReduceLROnPlateauV2(ReduceLROnPlateau):
     """Decay the LR by a factor every time the validation loss plateaus, starting
     from the epoch specified as args.start_reduce_lr_epoch.
@@ -68,14 +69,15 @@ class ReduceLROnPlateauV2(ReduceLROnPlateau):
 
         self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer.optimizer, patience=args.lr_patience, factor=args.lr_shrink,
-            mode='max' if args.maximize_best_checkpoint_metric else 'min',
+            mode="max" if args.maximize_best_checkpoint_metric else "min",
             threshold=args.lr_threshold, min_lr=args.final_lr_scale * args.lr[0]
         )
 
-    @staticmethod
-    def add_args(parser):
-        """Add arguments to the parser for this LR scheduler."""
-        gen_parser_from_dataclass(parser, ReduceLROnPlateauV2Config())
+    @classmethod
+    def add_args(cls, parser):
+        dc = getattr(cls, "__dataclass", None)
+        if dc is not None:
+            gen_parser_from_dataclass(parser, dc())
 
     def step(self, epoch, val_loss=None):
         if epoch < self.args.start_reduce_lr_epoch:

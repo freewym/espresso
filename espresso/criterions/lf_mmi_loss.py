@@ -12,8 +12,7 @@ import torch
 
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
-from fairseq.dataclass.data_class import DDP_BACKEND_CHOICES
-from fairseq.dataclass.utils import ChoiceEnum, FairseqDataclass, gen_parser_from_dataclass
+from fairseq.dataclass import FairseqDataclass
 from fairseq.logging import metrics
 
 
@@ -23,7 +22,6 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LatticeFreeMMICriterionConfig(FairseqDataclass):
     sentence_avg: bool = II("params.optimization.sentence_avg")
-    ddp_backend: DDP_BACKEND_CHOICES = II("params.distributed_training.ddp_backend")
     denominator_fst_path: str = field(
         default=None, metadata={"help": "path to the denominator fst file"}
     )
@@ -131,12 +129,12 @@ class ChainLossFunction(torch.autograd.Function):
         return input_grad, None, None, None, None
 
 
-@register_criterion("lattice_free_mmi")
+@register_criterion("lattice_free_mmi", dataclass=LatticeFreeMMICriterionConfig)
 class LatticeFreeMMICriterion(FairseqCriterion):
 
     def __init__(
-        self, task, sentence_avg, denominator_fst_path,
-        leaky_hmm_coefficient, xent_regularize, output_l2_regularize,
+        self, task, sentence_avg, denominator_fst_path, leaky_hmm_coefficient,
+        xent_regularization_coefficient, output_l2_regularization_coefficient,
     ):
         super().__init__(task)
         try:
@@ -152,13 +150,8 @@ class LatticeFreeMMICriterion(FairseqCriterion):
         den_fst = simplefst.StdVectorFst.read(denominator_fst_path)
         self.den_graph = ChainGraph(den_fst, initial_mode="leaky", final_mode="ones")
         self.leaky_hmm_coefficient = leaky_hmm_coefficient
-        self.xent_regularize = xent_regularize
-        self.output_l2_regularize = output_l2_regularize
-
-    @staticmethod
-    def add_args(parser):
-        """Add criterion-specific arguments to the parser. Optionally register config store"""
-        gen_parser_from_dataclass(parser, LatticeFreeMMICriterionConfig())
+        self.xent_regularize = xent_regularization_coefficient
+        self.output_l2_regularize = output_l2_regularization_coefficient
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -218,8 +211,8 @@ class LatticeFreeMMICriterion(FairseqCriterion):
 
         return loss, nll_loss
 
-    @staticmethod
-    def reduce_metrics(logging_outputs) -> None:
+    @classmethod
+    def reduce_metrics(cls, logging_outputs) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
         nll_loss_sum = sum(log.get('nll_loss', 0) for log in logging_outputs)

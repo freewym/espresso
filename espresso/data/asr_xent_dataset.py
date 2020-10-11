@@ -611,6 +611,11 @@ class AsrXentDataset(FairseqDataset):
         )
 
     @property
+    def supports_fetch_outside_dataloader(self):
+        """Whether this dataset supports fetching outside the workers of the dataloader."""
+        return False
+
+    @property
     def can_reuse_epoch_itr_across_epochs(self):
         return False  # to avoid running out of CPU RAM
 

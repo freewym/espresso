@@ -192,8 +192,8 @@ if [ ${stage} -le 4 ] && ! $use_wordlm; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval $((4000/ngpus)) --log-format simple \
-    --num-workers 0 --max-tokens 25600 --max-sentences 128 \
-    --valid-subset $valid_subset --max-sentences-valid 256 \
+    --num-workers 0 --max-tokens 25600 --batch-size 128 \
+    --valid-subset $valid_subset --batch-size-valid 256 \
     --distributed-world-size $ngpus \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 5e-06 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
@@ -208,7 +208,7 @@ if [ ${stage} -le 5 ] && ! $use_wordlm; then
     log_file=$lmdir/log/evaluation_$gen_subset.log
     python3 ../../fairseq_cli/eval_lm.py $lmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset $gen_subset \
-      --max-tokens 192000 --max-sentences 256 --sample-break-mode eos \
+      --max-tokens 192000 --batch-size 256 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
   done
 fi
@@ -222,8 +222,8 @@ if [ ${stage} -le 6 ] && $use_wordlm; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $wordlmdatadir --seed 1 --user-dir espresso \
     --task language_modeling_for_asr --dict $wordlmdict \
     --log-interval $((4000/ngpus)) --log-format simple \
-    --num-workers 0 --max-tokens 6400 --max-sentences 256 \
-    --valid-subset $valid_subset --max-sentences-valid 512 \
+    --num-workers 0 --max-tokens 6400 --batch-size 256 \
+    --valid-subset $valid_subset --batch-size-valid 512 \
     --distributed-world-size $ngpus \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
@@ -239,7 +239,7 @@ if [ ${stage} -le 7 ] && $use_wordlm; then
     log_file=$wordlmdir/log/evaluation_$gen_subset.log
     python3 ../../fairseq_cli/eval_lm.py $wordlmdatadir --user-dir espresso --cpu \
       --task language_modeling_for_asr --dict $wordlmdict --gen-subset $gen_subset \
-      --max-tokens 12800 --max-sentences 512 --sample-break-mode eos \
+      --max-tokens 12800 --batch-size 512 --sample-break-mode eos \
       --path $wordlmdir/$lm_checkpoint 2>&1 | tee $log_file
   done
 fi
@@ -285,8 +285,8 @@ if [ ${stage} -le 9 ]; then
   fi
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
     --log-interval $((800/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((2000/ngpus/update_freq)) \
-    --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --max-sentences 32 --curriculum 2 --empty-cache-freq 50 \
-    --valid-subset $valid_subset --max-sentences-valid 64 --ddp-backend no_c10d --update-freq $update_freq \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --batch-size 32 --curriculum 2 --empty-cache-freq 50 \
+    --valid-subset $valid_subset --batch-size-valid 64 --ddp-backend no_c10d --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus/update_freq)) \
@@ -303,11 +303,11 @@ if [ ${stage} -le 10 ]; then
   decode_affix=
   if $lm_shallow_fusion; then
     if ! $use_wordlm; then
-      path="$path:$lmdir/$lm_checkpoint"
+      opts="$opts --lm-path $lmdir/$lm_checkpoint"
       opts="$opts --lm-weight 0.7 --eos-factor 1.5"
       decode_affix=shallow_fusion
     else
-      path="$path:$wordlmdir/$lm_checkpoint"
+      opts="$opts --lm-path $wordlmdir/$lm_checkpoint"
       opts="$opts --word-dict $wordlmdict --lm-weight 0.9 --oov-penalty 1e-7 --eos-factor 1.5"
       decode_affix=shallow_fusion_wordlm
     fi
@@ -316,7 +316,7 @@ if [ ${stage} -le 10 ]; then
   for dataset in $valid_set $test_set; do
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
-      --task speech_recognition_espresso --user-dir espresso --max-tokens 20000 --max-sentences 32 \
+      --task speech_recognition_espresso --user-dir espresso --max-tokens 20000 --batch-size 32 \
       --num-shards 1 --shard-id 0 --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 50 --max-len-a 0.2 --max-len-b 0 --lenpen 1.0 \

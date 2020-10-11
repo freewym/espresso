@@ -8,6 +8,8 @@
 Recognize pre-processed speech with a trained model.
 """
 
+import ast
+from itertools import chain
 import logging
 import math
 import os
@@ -18,7 +20,6 @@ import numpy as np
 import torch
 
 from fairseq import checkpoint_utils, options, tasks, utils
-from fairseq.data import encoders
 from fairseq.logging import progress_bar
 from fairseq.logging.meters import StopwatchMeter, TimeMeter
 from fairseq.models import FairseqLanguageModel
@@ -64,7 +65,7 @@ def _main(args, output_file):
 
     utils.import_user_module(args)
 
-    if args.max_tokens is None and args.max_sentences is None:
+    if args.max_tokens is None and args.batch_size is None:
         args.max_tokens = 12000
     logger.info(args)
 
@@ -82,52 +83,79 @@ def _main(args, output_file):
     # Set dictionary
     dictionary = task.target_dictionary
 
+    overrides = ast.literal_eval(args.model_overrides)
+
     # Load ensemble
     logger.info("loading model(s) from {}".format(args.path))
     models, _model_args = checkpoint_utils.load_model_ensemble(
         utils.split_paths(args.path),
-        arg_overrides=eval(args.model_overrides),
+        arg_overrides=overrides,
         task=task,
         suffix=getattr(args, "checkpoint_suffix", ""),
+        strict=(args.checkpoint_shard_count == 1),
+        num_shards=args.checkpoint_shard_count,
     )
-    for i, m in enumerate(models):
+
+    if args.lm_path is not None:
+        overrides["data"] = args.data
+
+        try:
+            lms, _ = checkpoint_utils.load_model_ensemble(
+                utils.split_paths(args.lm_path),
+                arg_overrides=overrides,
+                task=None,
+            )
+        except:
+            logger.warning(f"Failed to load language model! Please make sure that the language model dict is the same "
+                           f"as target dict and is located in the data dir ({args.data})")
+            raise
+
+        assert len(lms) == 1 or len(lms) == 2  # Multi-level LM expects two LMs
+    else:
+        lms = [None]
+
+    for i, m in enumerate(lms):
+        if m is None:
+            continue
         if hasattr(m, "is_wordlm") and m.is_wordlm:
             # assume subword LM comes before word LM
-            if isinstance(models[i - 1], FairseqLanguageModel):
-                models[i-1] = MultiLevelLanguageModel(
-                    m, models[i-1],
+            if i > 0 and isinstance(lms[i - 1], FairseqLanguageModel):
+                lms[i - 1] = MultiLevelLanguageModel(
+                    m, lms[i - 1],
                     subwordlm_weight=args.subwordlm_weight,
                     oov_penalty=args.oov_penalty,
                     open_vocab=not args.disable_open_vocab,
                 )
-                del models[i]
+                del lms[i]
                 logger.info("LM fusion with Multi-level LM")
             else:
-                models[i] = TensorizedLookaheadLanguageModel(
+                lms[i] = TensorizedLookaheadLanguageModel(
                     m, dictionary,
                     oov_penalty=args.oov_penalty,
                     open_vocab=not args.disable_open_vocab,
                 )
                 logger.info("LM fusion with Look-ahead Word LM")
-        # assume subword LM comes after E2E models
-        elif i == len(models) - 1 and isinstance(m, FairseqLanguageModel):
+        else:
+            assert isinstance(m, FairseqLanguageModel)
             logger.info("LM fusion with Subword LM")
     if args.lm_weight != 0.0:
         logger.info("using LM fusion with lm-weight={:.2f}".format(args.lm_weight))
 
     # Optimize ensemble for generation
-    for model in models:
-        model.prepare_for_inference_(args)
+    for model in chain(models, lms):
+        if model is None:
+            continue
         if args.fp16:
             model.half()
-        if use_cuda:
+        if use_cuda and not args.pipeline_model_parallel:
             model.cuda()
+        model.prepare_for_inference_(args)
 
     # Load dataset (possibly sharded)
     itr = task.get_batch_iterator(
         dataset=task.dataset(args.gen_subset),
         max_tokens=args.max_tokens,
-        max_sentences=args.max_sentences,
+        max_sentences=args.batch_size,
         max_positions=utils.resolve_max_positions(
             task.max_positions(),
             *[model.max_positions() if hasattr(model, "encoder")
@@ -153,11 +181,21 @@ def _main(args, output_file):
             "The option match_source_len is not applicable to speech recognition. Ignoring it."
         )
     gen_timer = StopwatchMeter()
-    generator = task.build_generator(models, args)
+
+    extra_gen_cls_kwargs = {
+        "lm_model": lms[0],
+        "lm_weight": args.lm_weight,
+        "eos_factor": args.eos_factor,
+    }
+    args.score_reference = False  # not applicable for ASR
+    temp_val = args.print_alignment
+    args.print_alignment = False  # not applicable for ASR
+    generator = task.build_generator(models, args, extra_gen_cls_kwargs=extra_gen_cls_kwargs)
+    args.print_alignment = temp_val
 
     # Handle tokenization and BPE
-    tokenizer = encoders.build_tokenizer(args)
-    bpe = encoders.build_bpe(args)
+    tokenizer = task.build_tokenizer(args)
+    bpe = task.build_bpe(args)
 
     def decode_fn(x):
         if bpe is not None:
@@ -294,9 +332,6 @@ def cli_main():
     parser.add_argument("--eos-factor", default=None, type=float, metavar="F",
                         help="only consider emitting EOS if its score is no less "
                         "than the specified factor of the best candidate score")
-    parser.add_argument("--lm-weight", default=0.0, type=float, metavar="W",
-                        help="LM weight in log-prob space, assuming the pretrained "
-                        "external LM is specified as the second one in --path")
     parser.add_argument("--subwordlm-weight", default=0.8, type=float, metavar="W",
                         help="subword LM weight relative to word LM. Only relevant "
                         "to MultiLevelLanguageModel as an external LM")

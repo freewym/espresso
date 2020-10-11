@@ -18,7 +18,7 @@ from espresso.tools.specaug_interpolate import specaug
 try:
     import kaldi_io
 except ImportError:
-    raise ImportError('Please install kaldi_io with: pip install kaldi_io')
+    raise ImportError("Please install kaldi_io with: pip install kaldi_io")
 
 
 class FeatScpDataset(torch.utils.data.Dataset):
@@ -48,7 +48,7 @@ class FeatScpDataset(torch.utils.data.Dataset):
             try:
                 feat = kaldi_io.read_mat(rxfile)
             except Exception:
-                raise Exception('failed to read feature matrix {}.'.format(rxfile))
+                raise Exception("failed to read feature matrix {}.".format(rxfile))
             assert feat is not None and isinstance(feat, np.ndarray)
             if len(self.sizes) == self.size:
                 break
@@ -63,14 +63,13 @@ class FeatScpDataset(torch.utils.data.Dataset):
 
     def check_index(self, i):
         if i < 0 or i >= self.size:
-            raise IndexError('index out of range')
+            raise IndexError("index out of range")
 
     def filter_and_reorder(self, indices):
         assert isinstance(indices, (list, np.ndarray))
         indices = np.array(indices)
         assert all(indices < len(self.utt_ids)) and all(indices >= 0)
-        assert len(np.unique(indices)) == len(indices), \
-            'Duplicate elements in indices.'
+        assert len(np.unique(indices)) == len(indices), "Duplicate elements in indices."
         self.utt_ids = [self.utt_ids[i] for i in indices]
         self.rxfiles = [self.rxfiles[i] for i in indices]
         self.sizes = self.sizes[indices]
@@ -121,6 +120,11 @@ class FeatScpCachedDataset(FeatScpDataset):
         # self.ordered_indices, and doing this will speed up search of the
         # queried index
         self.ordered_prefetch = ordered_prefetch
+        # a flag to indicate whether self.prefetch() has been called. It is related
+        # to dummy_batch in trainer.py that uses the first batch when batch_by_size
+        # has been called but self.prefetch() has not. In this case we simply only
+        # load the queried samples into memory and don't do any caching.
+        self.prefetch_called = False
 
     @property
     def supports_prefetch(self):
@@ -136,28 +140,31 @@ class FeatScpCachedDataset(FeatScpDataset):
         assert self.size >= len(indices)
         self.ordered_indices = indices.copy()
         self.start_pos_for_next_cache = 0
+        self.prefetched_called = True
 
     def __getitem__(self, i):
         self.check_index(i)
+        if not self.prefetch_called:  # no caching
+            feat = kaldi_io.read_mat(self.rxfiles[i])
+            return torch.from_numpy(feat).float()
         if i not in self.cache_index:
-            assert self.start_pos_for_next_cache < \
-                len(self.ordered_indices), \
-                'Position for next cache starting beyond the end of ordered_indices.'
+            assert (
+                self.start_pos_for_next_cache < len(self.ordered_indices)
+            ), "Position for next cache starting beyond the end of ordered_indices."
             try:
                 pos_start = self.ordered_indices.index(
                     i, self.start_pos_for_next_cache,
                 )
             except ValueError:
                 raise ValueError(
-                    'index {} not found in self.ordered_indices. Set '
-                    'self.ordered_prefetch to False, and/or call self.prefetch() '
-                    'with the full list of indices, and then try again.'.format(i)
+                    "index {} not found in self.ordered_indices. Set "
+                    "self.ordered_prefetch to False, and/or call self.prefetch() "
+                    "with the full list of indices, and then try again.".format(i)
                 )
             pos_end = min(
                 pos_start + self.cache_size, len(self.ordered_indices),
             )
-            self.start_pos_for_next_cache = pos_end \
-                if self.ordered_prefetch else 0
+            self.start_pos_for_next_cache = pos_end if self.ordered_prefetch else 0
             total_size = 0
             for idx in self.ordered_indices[pos_start: pos_end]:
                 total_size += self.sizes[idx]
@@ -251,20 +258,23 @@ class AsrTextDataset(torch.utils.data.Dataset):
 
         self.sizes = np.array(self.sizes, dtype=np.int32)
 
-        assert len(self.utt_ids) == len(self.tokens_list) and \
-            (dictionary is None or len(self.utt_ids) == len(self.tensor_list)) and \
-            len(self.utt_ids) == len(self.sizes)
+        assert (
+            len(self.utt_ids) == len(self.tokens_list)
+            and (dictionary is None or len(self.utt_ids) == len(self.tensor_list))
+            and len(self.utt_ids) == len(self.sizes)
+        )
 
     def check_index(self, i):
         if i < 0 or i >= self.size:
-            raise IndexError('index out of range')
+            raise IndexError("index out of range")
 
     def filter_and_reorder(self, indices):
         assert isinstance(indices, (list, np.ndarray))
         indices = np.array(indices)
         assert all(indices < self.size) and all(indices >= 0)
-        assert len(np.unique(indices)) == len(indices), \
-            'Duplicate elements in indices.'
+        assert (
+            len(np.unique(indices)) == len(indices)
+        ), "Duplicate elements in indices."
         self.utt_ids = [self.utt_ids[i] for i in indices]
         self.tokens_list = [self.tokens_list[i] for i in indices]
         if len(self.tensor_list) > 0:

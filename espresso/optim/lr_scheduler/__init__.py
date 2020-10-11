@@ -10,5 +10,5 @@ import os
 # automatically import any Python files in the optim/lr_scheduler/ directory
 for file in os.listdir(os.path.dirname(__file__)):
     if not file.startswith("_") and not file.startswith(".") and file.endswith(".py"):
-        module = file[:file.find(".py")]
-        importlib.import_module("espresso.optim.lr_scheduler." + module)
+        file_name = file[: file.find(".py")]
+        importlib.import_module("espresso.optim.lr_scheduler." + file_name)
