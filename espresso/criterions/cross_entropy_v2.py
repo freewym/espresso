@@ -4,7 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass, field
-from omegaconf import II
 import logging
 import numpy as np
 
@@ -14,7 +13,6 @@ from fairseq import utils
 from fairseq.criterions import register_criterion
 from fairseq.criterions.cross_entropy import CrossEntropyCriterion, CrossEntropyCriterionConfig
 from fairseq.data import data_utils
-from fairseq.dataclass.utils import gen_parser_from_dataclass
 
 
 logger = logging.getLogger(__name__)
@@ -30,7 +28,7 @@ class CrossEntropyV2CriterionConfig(CrossEntropyCriterionConfig):
     )
 
 
-@register_criterion("cross_entropy_v2")
+@register_criterion("cross_entropy_v2", dataclass=CrossEntropyV2CriterionConfig)
 class CrossEntropyV2Criterion(CrossEntropyCriterion):
 
     def __init__(self, task, sentence_avg, print_training_sample_interval):
@@ -40,11 +38,6 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
         self.print_interval = print_training_sample_interval
         self.epoch = 1
         self.prev_num_updates = -1
-
-    @staticmethod
-    def add_args(parser):
-        """Add criterion-specific arguments to the parser. Optionally register config store"""
-        gen_parser_from_dataclass(parser, CrossEntropyV2CriterionConfig())
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample; periodically print out

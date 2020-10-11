@@ -11,7 +11,6 @@ import torch
 
 from fairseq import tokenizer, utils
 from fairseq.data import TruncatedDictionary
-from fairseq.dataclass.utils import gen_parser_from_dataclass
 from fairseq.tasks import register_task
 from fairseq.tasks.language_modeling import LanguageModelingTask, LanguageModelingConfig
 
@@ -26,7 +25,7 @@ class LanguageModelingForASRConfig(LanguageModelingConfig):
     dict: str = field(default=None, metadata={"help": "path to the dictionary"})
 
 
-@register_task("language_modeling_for_asr")
+@register_task("language_modeling_for_asr", dataclass=LanguageModelingForASRConfig)
 class LanguageModelingForASRTask(LanguageModelingTask):
     """
     Train a language model.
@@ -55,11 +54,6 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         :ref: fairseq.tasks.language_modeling_for_asr_parser
         :prog:
     """
-
-    @staticmethod
-    def add_args(parser):
-        """Add task-specific arguments to the parser. Optionally register config store"""
-        gen_parser_from_dataclass(parser, LanguageModelingForASRConfig())
 
     def __init__(self, args, dictionary, output_dictionary=None, targets=None):
         super().__init__(args, dictionary, output_dictionary, targets=targets)
