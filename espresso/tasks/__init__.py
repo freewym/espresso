@@ -10,5 +10,5 @@ import os
 # automatically import any Python files in the tasks/ directory
 for file in os.listdir(os.path.dirname(__file__)):
     if not file.startswith("_") and not file.startswith(".") and file.endswith(".py"):
-        task_name = file[:file.find(".py")]
-        importlib.import_module("espresso.tasks." + task_name)
+        file_name = file[: file.find(".py")]
+        importlib.import_module("espresso.tasks." + file_name)
