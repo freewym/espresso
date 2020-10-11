@@ -330,7 +330,12 @@ class SpeechTransformerEncoder(TransformerEncoder):
             all_ones.triu(self.transformer_context[1] + 1) | all_ones.tril(-self.transformer_context[0] - 1)
         )
 
-    def forward(self, src_tokens, src_lengths, return_all_hiddens: bool = False):
+    def forward(
+        self,
+        src_tokens,
+        src_lengths,
+        return_all_hiddens: bool = False,
+    ):
         """
         Args:
             src_tokens (LongTensor): tokens in the source language of shape
