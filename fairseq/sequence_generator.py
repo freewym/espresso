@@ -14,6 +14,8 @@ from fairseq.models import FairseqIncrementalDecoder
 from torch import Tensor
 from fairseq.ngram_repeat_block import NGramRepeatBlock
 
+from espresso.models.external_language_model import RawOutExternalLanguageModelBase
+
 
 class SequenceGenerator(nn.Module):
     def __init__(
@@ -63,8 +65,7 @@ class SequenceGenerator(nn.Module):
         if isinstance(models, EnsembleModel):
             self.model = models
         else:
-            lm_weight = kwargs.get("lm_weight", 0.0)
-            self.model = EnsembleModel(models) if lm_weight == 0.0 else LMFusionModel(models, lm_weight)
+            self.model = EnsembleModel(models)
         self.tgt_dict = tgt_dict
         self.pad = tgt_dict.pad()
         self.unk = tgt_dict.unk()
@@ -199,6 +200,10 @@ class SequenceGenerator(nn.Module):
                 for i in range(self.model.models_size)
             ],
         )
+        lm_incremental_state = torch.jit.annotate(
+            Dict[str, Dict[str, Optional[Tensor]]],
+            torch.jit.annotate(Dict[str, Dict[str, Optional[Tensor]]], {})
+        ) if self.lm_model is not None else None
         net_input = sample["net_input"]
 
         if "src_tokens" in net_input:
@@ -321,6 +326,10 @@ class SequenceGenerator(nn.Module):
                     )
                     original_batch_idxs = original_batch_idxs[batch_idxs]
                 self.model.reorder_incremental_state(incremental_states, reorder_state)
+                if self.lm_model is not None:
+                    self.lm_model.decoder.reorder_incremental_state_scripting(
+                        lm_incremental_state, reorder_state
+                    )
                 encoder_outs = self.model.reorder_encoder_out(
                     encoder_outs, reorder_state
                 )
@@ -333,10 +342,13 @@ class SequenceGenerator(nn.Module):
             )
 
             if self.lm_model is not None:
-                lm_out = self.lm_model(tokens[:, : step + 1])
-                probs = self.lm_model.get_normalized_probs(
-                    lm_out, log_probs=True, sample=None
-                )
+                lm_out = self.lm_model(tokens[:, : step + 1], incremental_state=lm_incremental_state)
+                if isinstance(self.lm_model, RawOutExternalLanguageModelBase):
+                    probs = lm_out[0]
+                else:
+                    probs = self.lm_model.get_normalized_probs(
+                        lm_out, log_probs=True, sample=None
+                    )
                 probs = probs[:, -1, :] * self.lm_weight
                 lprobs += probs
 
@@ -978,105 +990,3 @@ class EnsembleModelWithAlignment(EnsembleModel):
         if len(self.models) > 1:
             avg_attn.div_(len(self.models))
         return avg_attn
-
-
-class LMFusionModel(EnsembleModel):
-    """A wrapper around an ensemble of an LM fused model."""
-
-    def __init__(self, models, lm_weight):
-        super().__init__(models)
-        self.lm_weight = lm_weight
-        assert self.models_size == 2, "Only support LM fusion with one E2E model"
-        assert self.has_encoder()
-
-    @torch.jit.export
-    def forward_encoder(self, net_input: Dict[str, Tensor]):
-        return [
-            model.encoder.forward_torchscript(net_input) if hasattr(model, "encoder")
-            else None for model in self.models
-        ]
-
-    @torch.jit.export
-    def forward_decoder(
-        self,
-        tokens,
-        encoder_outs: List[EncoderOut],
-        incremental_states: List[Dict[str, Dict[str, Optional[Tensor]]]],
-        temperature: float = 1.0,
-    ):
-        log_probs = []
-        avg_attn: Optional[Tensor] = None
-        attn_count = 0
-        encoder_out: Optional[EncoderOut] = None
-        for i, model in enumerate(self.models):
-            encoder_out = encoder_outs[i]
-            # decode each model
-            if self.has_incremental_states():
-                decoder_out = model.decoder.forward(
-                    tokens,
-                    encoder_out=encoder_out,
-                    incremental_state=incremental_states[i],
-                )
-            else:
-                decoder_out = model.decoder.forward(tokens, encoder_out=encoder_out)
-
-            attn: Optional[Tensor] = None
-            decoder_len = len(decoder_out)
-            if decoder_len > 1 and decoder_out[1] is not None:
-                if isinstance(decoder_out[1], Tensor):
-                    attn = decoder_out[1]
-                else:
-                    attn_holder = decoder_out[1]["attn"]
-                    if isinstance(attn_holder, Tensor):
-                        attn = attn_holder
-                    elif attn_holder is not None:
-                        attn = attn_holder[0]
-                if attn is not None:
-                    attn = attn[:, -1, :]
-
-            decoder_out_tuple = (
-                decoder_out[0][:, -1:, :].div_(temperature),
-                None if decoder_len <= 1 else decoder_out[1],
-            )
-
-            from espresso.models.external_language_model import RawOutExternalLanguageModelBase
-            if isinstance(model, RawOutExternalLanguageModelBase):
-                probs = decoder_out_tuple[0]
-            else:
-                probs = model.get_normalized_probs(
-                    decoder_out_tuple, log_probs=True, sample=None
-                )
-            probs = probs[:, -1, :]
-            if i == 1 and self.lm_weight != 1.0:  # assuming LM is the last model
-                probs.mul_(self.lm_weight)
-
-            log_probs.append(probs)
-            if attn is not None:
-                if avg_attn is None:
-                    avg_attn = attn
-                else:
-                    avg_attn.add_(attn)
-                attn_count += 1
-        avg_probs = torch.sum(torch.stack(log_probs, dim=0), dim=0)
-        if avg_attn is not None:
-            avg_attn.div_(attn_count)
-        return avg_probs, avg_attn
-
-    @torch.jit.export
-    def reorder_encoder_out(self, encoder_outs: Optional[List[EncoderOut]], new_order):
-        """
-        Reorder encoder output according to *new_order*.
-
-        Args:
-            encoder_out: output from the ``forward()`` method
-            new_order (LongTensor): desired order
-
-        Returns:
-            *encoder_out* rearranged according to *new_order*
-        """
-        new_outs: List[EncoderOut] = []
-        for i, model in enumerate(self.models):
-            new_outs.append(
-                model.encoder.reorder_encoder_out(encoder_outs[i], new_order) if hasattr(model, "encoder") else None
-            )
-        return new_outs
