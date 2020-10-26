@@ -15,8 +15,8 @@ from fairseq import utils, checkpoint_utils
 from fairseq.models import (
     FairseqDecoder,
     FairseqEncoder,
-    FairseqIncrementalDecoder,
     FairseqEncoderDecoderModel,
+    FairseqIncrementalDecoder,
     register_model,
     register_model_architecture,
 )
@@ -135,8 +135,12 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         # make sure that all args are properly defaulted (in case there are any new ones)
         base_architecture(args)
 
-        max_source_positions = getattr(args, "max_source_positions", DEFAULT_MAX_SOURCE_POSITIONS)
-        max_target_positions = getattr(args, "max_target_positions", DEFAULT_MAX_TARGET_POSITIONS)
+        max_source_positions = getattr(
+            args, "max_source_positions", DEFAULT_MAX_SOURCE_POSITIONS
+        )
+        max_target_positions = getattr(
+            args, "max_target_positions", DEFAULT_MAX_TARGET_POSITIONS
+        )
 
         def load_pretrained_embedding_from_file(embed_path, dictionary, embed_dim):
             num_embeddings = len(dictionary)
@@ -201,7 +205,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             dropout_out=args.encoder_rnn_dropout_out,
             bidirectional=args.encoder_rnn_bidirectional,
             residual=args.encoder_rnn_residual,
-            src_bucketed=(getattr(task.args, "num_batch_buckets", 0) > 0),
+            src_bucketed=(getattr(task.cfg, "num_batch_buckets", 0) > 0),
             max_source_positions=max_source_positions,
         )
         decoder = SpeechLSTMDecoder(
@@ -221,7 +225,8 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             share_input_output_embed=args.share_decoder_input_output_embed,
             adaptive_softmax_cutoff=(
                 utils.eval_str_list(args.adaptive_softmax_cutoff, type=int)
-                if args.criterion == "adaptive_loss" else None
+                if args.criterion == "adaptive_loss"
+                else None
             ),
             max_target_positions=max_target_positions,
             scheduled_sampling_rate_scheduler=scheduled_sampling_rate_scheduler,
@@ -247,8 +252,10 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
     ):
         encoder_out = self.encoder(src_tokens, src_lengths=src_lengths)
         decoder_out = self.decoder(
-            prev_output_tokens, encoder_out=encoder_out,
-            incremental_state=incremental_state, epoch=epoch,
+            prev_output_tokens,
+            encoder_out=encoder_out,
+            incremental_state=incremental_state,
+            epoch=epoch,
         )
         return decoder_out
 
@@ -260,14 +267,16 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         """Maximum length supported by the model."""
         return (
             self.encoder.max_positions(),
-            self.decoder.max_positions() if self.pretrained_lm is None else
-            min(self.decoder.max_positions(), self.pretrained_lm.max_positions()),
+            self.decoder.max_positions() if self.pretrained_lm is None
+            else min(self.decoder.max_positions(), self.pretrained_lm.max_positions()),
         )
 
     def max_decoder_positions(self):
         """Maximum length supported by the decoder."""
-        return self.decoder.max_positions() if self.pretrained_lm is None else \
-            min(self.decoder.max_positions(), self.pretrained_lm.max_positions())
+        return (
+            self.decoder.max_positions() if self.pretrained_lm is None
+            else min(self.decoder.max_positions(), self.pretrained_lm.max_positions())
+        )
 
 
 class ConvBNReLU(nn.Module):
@@ -327,29 +336,46 @@ class ConvBNReLU(nn.Module):
 class SpeechLSTMEncoder(FairseqEncoder):
     """LSTM encoder."""
     def __init__(
-        self, conv_layers_before=None, input_size=83, hidden_size=512,
-        num_layers=1, dropout_in=0.1, dropout_out=0.1, bidirectional=False,
-        residual=False, left_pad=False, padding_value=0., src_bucketed=False,
+        self,
+        conv_layers_before=None,
+        input_size=83,
+        hidden_size=512,
+        num_layers=1,
+        dropout_in=0.1,
+        dropout_out=0.1,
+        bidirectional=False,
+        residual=False,
+        left_pad=False,
+        padding_value=0.0,
+        src_bucketed=False,
         max_source_positions=DEFAULT_MAX_SOURCE_POSITIONS,
     ):
         super().__init__(None)  # no src dictionary
         self.conv_layers_before = conv_layers_before
         self.num_layers = num_layers
-        self.dropout_in_module = FairseqDropout(dropout_in, module_name=self.__class__.__name__)
-        self.dropout_out_module = FairseqDropout(dropout_out, module_name=self.__class__.__name__)
+        self.dropout_in_module = FairseqDropout(
+            dropout_in, module_name=self.__class__.__name__
+        )
+        self.dropout_out_module = FairseqDropout(
+            dropout_out, module_name=self.__class__.__name__
+        )
         self.bidirectional = bidirectional
         self.hidden_size = hidden_size
         self.residual = residual
         self.max_source_positions = max_source_positions
 
-        self.lstm = nn.ModuleList([
-            LSTM(
-                input_size=input_size if layer == 0 else 2 * hidden_size if self.bidirectional else hidden_size,
-                hidden_size=hidden_size,
-                bidirectional=bidirectional,
-            )
-            for layer in range(num_layers)
-        ])
+        self.lstm = nn.ModuleList(
+            [
+                LSTM(
+                    input_size=input_size if layer == 0
+                    else 2 * hidden_size if self.bidirectional
+                    else hidden_size,
+                    hidden_size=hidden_size,
+                    bidirectional=bidirectional,
+                )
+                for layer in range(num_layers)
+            ]
+        )
         self.left_pad = left_pad
         self.padding_value = padding_value
         self.src_bucketed = src_bucketed
@@ -359,8 +385,10 @@ class SpeechLSTMEncoder(FairseqEncoder):
             self.output_units *= 2
 
     def output_lengths(self, in_lengths):
-        return in_lengths if self.conv_layers_before is None \
+        return (
+            in_lengths if self.conv_layers_before is None
             else self.conv_layers_before.output_lengths(in_lengths)
+        )
 
     def forward(
         self,
@@ -392,8 +420,10 @@ class SpeechLSTMEncoder(FairseqEncoder):
         if self.conv_layers_before is not None:
             x, src_lengths, padding_mask = self.conv_layers_before(src_tokens, src_lengths)
         else:
-            x, padding_mask = src_tokens, \
+            x, padding_mask = (
+                src_tokens,
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
+            )
 
         bsz, seqlen = x.size(0), x.size(1)
 
@@ -422,7 +452,9 @@ class SpeechLSTMEncoder(FairseqEncoder):
             packed_outs, (_, _) = self.lstm[i](packed_x, (h0, c0))
 
             # unpack outputs and apply dropout
-            x, _ = nn.utils.rnn.pad_packed_sequence(packed_outs, padding_value=self.padding_value*1.0)
+            x, _ = nn.utils.rnn.pad_packed_sequence(
+                packed_outs, padding_value=self.padding_value * 1.0
+            )
             if i < len(self.lstm) - 1:  # not applying dropout for the last layer
                 x = self.dropout_out_module(x)
             x = x + prev_x if self.residual and i > 0 else x
@@ -432,7 +464,8 @@ class SpeechLSTMEncoder(FairseqEncoder):
 
         return EncoderOut(
             encoder_out=x,  # T x B x C
-            encoder_padding_mask=encoder_padding_mask if encoder_padding_mask.any() else None,  # T x B
+            encoder_padding_mask=encoder_padding_mask if encoder_padding_mask.any()
+            else None,  # T x B
             encoder_embedding=None,
             encoder_states=None,
             src_tokens=None,
@@ -469,16 +502,32 @@ class SpeechLSTMEncoder(FairseqEncoder):
 class SpeechLSTMDecoder(FairseqIncrementalDecoder):
     """LSTM decoder."""
     def __init__(
-        self, dictionary, embed_dim=512, hidden_size=512, out_embed_dim=512,
-        num_layers=1, dropout_in=0.1, dropout_out=0.1, encoder_output_units=0,
-        attn_type=None, attn_dim=0, need_attn=False, residual=False, pretrained_embed=None,
-        share_input_output_embed=False, adaptive_softmax_cutoff=None,
+        self,
+        dictionary,
+        embed_dim=512,
+        hidden_size=512,
+        out_embed_dim=512,
+        num_layers=1,
+        dropout_in=0.1,
+        dropout_out=0.1,
+        encoder_output_units=0,
+        attn_type=None,
+        attn_dim=0,
+        need_attn=False,
+        residual=False,
+        pretrained_embed=None,
+        share_input_output_embed=False,
+        adaptive_softmax_cutoff=None,
         max_target_positions=DEFAULT_MAX_TARGET_POSITIONS,
         scheduled_sampling_rate_scheduler=None,
     ):
         super().__init__(dictionary)
-        self.dropout_in_module = FairseqDropout(dropout_in, module_name=self.__class__.__name__)
-        self.dropout_out_module = FairseqDropout(dropout_out, module_name=self.__class__.__name__)
+        self.dropout_in_module = FairseqDropout(
+            dropout_in, module_name=self.__class__.__name__
+        )
+        self.dropout_out_module = FairseqDropout(
+            dropout_out, module_name=self.__class__.__name__
+        )
         self.hidden_size = hidden_size
         self.share_input_output_embed = share_input_output_embed
         if attn_type is None or attn_type.lower() == "none":
@@ -500,13 +549,16 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
 
         self.encoder_output_units = encoder_output_units
 
-        self.layers = nn.ModuleList([
-            LSTMCell(
-                input_size=encoder_output_units + (embed_dim if layer == 0 else hidden_size),
-                hidden_size=hidden_size,
-            )
-            for layer in range(num_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                LSTMCell(
+                    input_size=encoder_output_units +
+                    (embed_dim if layer == 0 else hidden_size),
+                    hidden_size=hidden_size,
+                )
+                for layer in range(num_layers)
+            ]
+        )
 
         if attn_type is None or attn_type.lower() == "none":
             self.attention = None
@@ -527,7 +579,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         if adaptive_softmax_cutoff is not None:
             # setting adaptive_softmax dropout to dropout_out for now but can be redefined
             self.adaptive_softmax = AdaptiveSoftmax(
-                num_embeddings, hidden_size, adaptive_softmax_cutoff, dropout=dropout_out,
+                num_embeddings,
+                hidden_size,
+                adaptive_softmax_cutoff,
+                dropout=dropout_out,
             )
         elif not self.share_input_output_embed:
             self.fc_out = Linear(out_embed_dim, num_embeddings, dropout=dropout_out)
@@ -641,8 +696,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             zero_state = x.new_zeros(bsz, self.hidden_size)
             prev_hiddens = [zero_state for i in range(self.num_layers)]
             prev_cells = [zero_state for i in range(self.num_layers)]
-            input_feed = x.new_zeros(bsz, self.encoder_output_units) \
-                if encoder_out is not None else None
+            input_feed = (
+                x.new_zeros(bsz, self.encoder_output_units) if encoder_out is not None
+                else None
+            )
 
         attn_scores = x.new_zeros(srclen, seqlen, bsz) if encoder_out is not None else None
         outs = []
@@ -746,7 +803,9 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         assert prev_cells_ is not None
         prev_hiddens = [prev_hiddens_[i] for i in range(self.num_layers)]
         prev_cells = [prev_cells_[j] for j in range(self.num_layers)]
-        input_feed = cached_state["input_feed"]  # can be None for decoder-only language models
+        input_feed = cached_state[
+            "input_feed"
+        ]  # can be None for decoder-only language models
         return prev_hiddens, prev_cells, input_feed
 
     def reorder_incremental_state(
@@ -767,7 +826,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 "prev_hiddens": torch.stack(prev_hiddens),
                 "prev_cells": torch.stack(prev_cells),
                 "input_feed": input_feed,
-            }
+            },
         )
         self.set_incremental_state(incremental_state, "cached_state", cached_state_new),
         return
@@ -777,8 +836,9 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             assert another_cached_state is None or len(another_cached_state) == 0
             return
         prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
-        another_prev_hiddens, another_prev_cells, another_input_feed = \
+        another_prev_hiddens, another_prev_cells, another_input_feed = (
             another_cached_state[0], another_cached_state[1], another_cached_state[2]
+        )
 
         def mask_copy_state(state: Optional[Tensor], another_state: Optional[Tensor]):
             if state is None:
@@ -807,7 +867,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 "prev_hiddens": torch.stack(prev_hiddens_new),
                 "prev_cells": torch.stack(prev_cells_new),
                 "input_feed": input_feed_new,
-            }
+            },
         )
         self.set_incremental_state(incremental_state, "cached_state", cached_state_new)
 
