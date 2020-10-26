@@ -4,7 +4,6 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass, field
-from omegaconf import II
 import logging
 import math
 
@@ -14,6 +13,7 @@ from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.dataclass import FairseqDataclass
 from fairseq.logging import metrics
+from omegaconf import II
 
 
 logger = logging.getLogger(__name__)
@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class LatticeFreeMMICriterionConfig(FairseqDataclass):
-    sentence_avg: bool = II("params.optimization.sentence_avg")
+    sentence_avg: bool = II("optimization.sentence_avg")
     denominator_fst_path: str = field(
-        default=None, metadata={"help": "path to the denominator fst file"}
+        default="???", metadata={"help": "path to the denominator fst file"}
     )
     leaky_hmm_coefficient: float = field(
         default=1.0e-05,
@@ -215,10 +215,11 @@ class LatticeFreeMMICriterion(FairseqCriterion):
     def reduce_metrics(cls, logging_outputs) -> None:
         """Aggregate logging outputs from data parallel training."""
         loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
-        nll_loss_sum = sum(log.get('nll_loss', 0) for log in logging_outputs)
+        nll_loss_sum = sum(log.get("nll_loss", 0) for log in logging_outputs)
         ntokens = sum(log.get("ntokens", 0) for log in logging_outputs)
         sample_size = sum(log.get("sample_size", 0) for log in logging_outputs)
 
+        # we divide by log(2) to convert the loss from base e to base 2
         metrics.log_scalar(
             "loss", loss_sum / sample_size / math.log(2), sample_size, round=7
         )
