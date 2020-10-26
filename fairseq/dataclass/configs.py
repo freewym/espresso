@@ -840,6 +840,47 @@ class GenerationConfig(FairseqDataclass):
         default=False,
         metadata={"help": "if set, dont use seed for initializing random generators"},
     )
+    # for espresso.speech_recognize.py
+    eos_factor: Optional[float] = field(
+        default=None,
+        metadata={
+            "help": "only consider emitting EOS if its score is no less than "
+            "the specified factor of the best candidate score"
+        },
+    )
+    subwordlm_weight: Optional[float] = field(
+        default=0.8,
+        metadata={
+            "help": "subword LM weight relative to word LM. Only relevant to "
+            "MultiLevelLanguageModel as an external LM"
+        },
+    )
+    oov_penalty: Optional[float] = field(
+        default=1e-4,
+        metadata={"help": "oov penalty with the pretrained external LM"},
+    )
+    disable_open_vocab: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "whether open vocabulary mode is enabled with the "
+            "pretrained external LM"
+        },
+    )
+    # for espresso.dump_posteriors.py
+    apply_log_softmax: Optional[bool] = field(
+        default=False,
+        metadata={
+            "help": "apply log-softmax to the neural network outputs for Xent "
+            "hybrid systems; otherwise use the raw outputs"
+        },
+    )
+    state_prior_file: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "state prior file. If provided, use this file instead of "
+            "that from the checkpoint"
+        },
+    )
 
 
 @dataclass
