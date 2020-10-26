@@ -8,13 +8,17 @@ import itertools
 import json
 import logging
 import os
+from dataclasses import dataclass, field
+from typing import Optional
 
 import torch
 
 from fairseq import utils
 from fairseq.data import BaseWrapperDataset, ConcatDataset
-
+from fairseq.dataclass import FairseqDataclass
+from fairseq.dataclass.configs import GenerationConfig
 from fairseq.tasks import FairseqTask, register_task
+from omegaconf import II, DictConfig
 
 from espresso.data import (
     AliScpCachedDataset,
@@ -35,14 +39,129 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class SpeechRecognitionHybridConfig(FairseqDataclass):
+    data: Optional[str] = field(
+        default=None, metadata={"help": "path to data directory"}
+    )
+    dict: Optional[str] = field(default=None, metadata={"help": "path to the dictionary"})
+    non_lang_syms: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "path to a file listing non-linguistic symbols, e.g., <NOISE> "
+            "etc. One entry per line. To be filtered out when calculating WER/CER"
+        },
+    )
+    wer_output_filter: Optional[str] = field(
+        default=None,
+        metadata={"help": "path to wer_output_filter file for WER evaluation"},
+    )
+    max_source_positions: Optional[int] = field(
+        default=1024, metadata={"help": "max number of tokens in the source sequence"}
+    )
+    max_target_positions: Optional[int] = field(
+        default=1024, metadata={"help": "max number of tokens in the target sequence"}
+    )
+    upsample_primary: int = field(
+        default=1, metadata={"help": "amount to upsample primary dataset"},
+    )
+    num_batch_buckets: Optional[int] = field(
+        default=0,
+        metadata={
+            "help": "if >0, then bucket source and target lengths into N "
+            "buckets and pad accordingly; this is useful on TPUs "
+            "to minimize the number of compilations"
+        },
+    )
+    feat_in_channels: int = field(default=1, metadata={"help": "feature input channels"})
+    specaugment_config: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "SpecAugment config string. If not None and not empty, "
+            "then apply SpecAugment. Should be an evaluatable expression of "
+            "a python dict. See speech_tools.specaug_interpolate.specaug() for "
+            "all allowed arguments. Argments not appearing in this string "
+            "will take on their default values"
+        },
+    )
+    num_targets: int = field(
+        default=3000,
+        metadata={"help": "number of targets for training (e.g., num pdf-ids)"},
+    )
+    initial_state_prior_file: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "path to the file containing initial state prior. Only relevant "
+            "with cross-entropy training"
+        },
+    )
+    state_prior_update_interval: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "state prior estimate will be updated every this number of updates "
+            "during training. If None, then use the initial value estimated from the "
+            "alignments. Only relevant with cross-entropy training"
+        },
+    )
+    state_prior_update_smoothing: Optional[float] = field(
+        default=0.1,
+        metadata={
+            "help": "smoothing factor while updating state prior estimate. Only "
+            "relevant with cross-entropy training"
+        },
+    )
+    chunk_width: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "chunk width for train/test data. Only relevant with chunk-wise "
+            "training (including both cross-entropy and Lattice-free MMI). "
+            "Do utterance-wise training/test if not specified"
+        },
+    )
+    chunk_left_context: Optional[int] = field(
+        default=0,
+        metadata={"help": "number of frames appended to the left of a chunk"},
+    )
+    chunk_right_context: Optional[int] = field(
+        default=0,
+        metadata={"help": "number of frames appended to the right of a chunk"},
+    )
+    label_delay: Optional[int] = field(
+        default=0,
+        metadata={
+            "help": "offet of alignments as prediction labels. Maybe useful "
+            "in archs such as asymmetric convolution, unidirectional LSTM, etc. "
+            "It can be negative. Only relevant with chunk-wise cross-entropy training"
+        },
+    )
+    # TODO common vars below add to parent
+    seed: int = II("common.seed")
+    data_buffer_size: int = II("dataset.data_buffer_size")
+    tpu: bool = II("common.tpu")
+    train_subset: str = II("dataset.train_subset")
+    valid_subset: str = II("dataset.valid_subset")
+    gen_subset: str = II("dataset.gen_subset")
+    required_seq_len_multiple: int = II("dataset.required_seq_len_multiple")
+    criterion_name: str = II("criterion._name")
+    max_epoch: int = II("optimization.max_epoch")  # to determine whether in trainig stage
+
+
 def get_asr_dataset_from_json(
-    data_path, split, dictionary,
-    combine, upsample_primary,
-    num_buckets=0, shuffle=True,
+    data_path,
+    split,
+    dictionary,
+    combine,
+    upsample_primary,
+    num_buckets=0,
+    shuffle=True,
     pad_to_multiple=1,
     lf_mmi=True,
-    seed=1, specaugment_config=None,
-    chunk_width=None, chunk_left_context=None, chunk_right_context=None, label_delay=0,
+    seed=1,
+    specaugment_config=None,
+    chunk_width=None,
+    chunk_left_context=None,
+    chunk_right_context=None,
+    label_delay=0,
 ):
     """
     Parse data json and create dataset.
@@ -72,7 +191,9 @@ def get_asr_dataset_from_json(
             if k > 0:
                 break
             else:
-                raise FileNotFoundError("Dataset not found: {}".format(data_json_path))
+                raise FileNotFoundError(
+                    "Dataset not found: {}".format(data_json_path)
+                )
 
         with open(data_json_path, "rb") as f:
             loaded_json = json.load(f, object_pairs_hook=OrderedDict)
@@ -103,9 +224,12 @@ def get_asr_dataset_from_json(
         else:  # cross-entropy
             if len(alignments) > 0:
                 assert len(utt_ids) == len(alignments)
-                tgt_datasets.append(AliScpCachedDataset(
-                    utt_ids, alignments, utt2num_frames=utt2num_frames, ordered_prefetch=True
-                ))
+                tgt_datasets.append(
+                    AliScpCachedDataset(
+                        utt_ids, alignments, utt2num_frames=utt2num_frames,
+                        ordered_prefetch=True,
+                    )
+                )
 
         if len(text) > 0:
             assert len(utt_ids) == len(text)
@@ -127,8 +251,9 @@ def get_asr_dataset_from_json(
         text_dataset = text_datasets[0] if len(text_datasets) > 0 else None
     else:
         for i in range(1, len(src_datasets)):
-            assert feat_dim == src_datasets[i].feat_dim, \
-                "feature dimension does not match across multiple json files"
+            assert (
+                feat_dim == src_datasets[i].feat_dim
+            ), "feature dimension does not match across multiple json files"
         sample_ratios = [1] * len(src_datasets)
         sample_ratios[0] = upsample_primary
         src_dataset = ConcatDataset(src_datasets, sample_ratios)
@@ -144,8 +269,10 @@ def get_asr_dataset_from_json(
     tgt_dataset_sizes = tgt_dataset.sizes if tgt_dataset is not None else None
     if lf_mmi:
         return AsrChainDataset(
-            src_dataset, src_dataset.sizes,
-            tgt_dataset, tgt_dataset_sizes,
+            src_dataset,
+            src_dataset.sizes,
+            tgt_dataset,
+            tgt_dataset_sizes,
             text=text_dataset,
             num_buckets=num_buckets,
             shuffle=shuffle,
@@ -153,19 +280,24 @@ def get_asr_dataset_from_json(
         )
     else:
         return AsrXentDataset(
-            src_dataset, src_dataset.sizes,
-            tgt_dataset, tgt_dataset_sizes,
+            src_dataset,
+            src_dataset.sizes,
+            tgt_dataset,
+            tgt_dataset_sizes,
             text=text_dataset,
             num_buckets=num_buckets,
             shuffle=shuffle,
             pad_to_multiple=pad_to_multiple,
-            seed=seed, chunk_width=chunk_width,
-            chunk_left_context=chunk_left_context, chunk_right_context=chunk_right_context,
-            label_delay=label_delay, random_chunking=(split == "train" and chunk_width is not None),
+            seed=seed,
+            chunk_width=chunk_width,
+            chunk_left_context=chunk_left_context,
+            chunk_right_context=chunk_right_context,
+            label_delay=label_delay,
+            random_chunking=(split == "train" and chunk_width is not None),
         )
 
 
-@register_task("speech_recognition_hybrid")
+@register_task("speech_recognition_hybrid", dataclass=SpeechRecognitionHybridConfig)
 class SpeechRecognitionHybridTask(FairseqTask):
     """
     Hybrid speech recognition with lattice-free MMI or cross-entropy loss.
@@ -192,64 +324,6 @@ class SpeechRecognitionHybridTask(FairseqTask):
         :prog:
     """
 
-    @staticmethod
-    def add_args(parser):
-        """Add task-specific arguments to the parser."""
-        # fmt: off
-        parser.add_argument("data", help="path to data directory")
-        parser.add_argument("--dict", default=None, type=str,
-                            help="path to the dictionary")
-        parser.add_argument("--non-lang-syms", default=None, type=str,
-                            help="path to a file listing non-linguistic symbols, e.g., <NOISE> "
-                            "etc. One entry per line. To be filtered out when calculating WER/CER.")
-        parser.add_argument("--wer-output-filter", default=None, type=str,
-                            help="path to wer_output_filter file for WER evaluation")
-        parser.add_argument("--max-source-positions", default=1024, type=int, metavar="N",
-                            help="max number of frames in the source sequence")
-        parser.add_argument("--max-target-positions", default=1024, type=int, metavar="N",
-                            help="max number of tokens in the target sequence")
-        parser.add_argument("--upsample-primary", default=1, type=int,
-                            help="amount to upsample primary dataset")
-        parser.add_argument("--num-batch-buckets", default=0, type=int, metavar="N",
-                            help="if >0, then bucket source and target lengths into N "
-                            "buckets and pad accordingly; this is useful on TPUs "
-                            "to minimize the number of compilations")
-        parser.add_argument("--feat-in-channels", default=1, type=int, metavar="N",
-                            help="feature input channels")
-        parser.add_argument("--specaugment-config", default=None, type=str, metavar="EXPR",
-                            help="SpecAugment config string. If not None and not empty, "
-                            "then apply SpecAugment. Should be an evaluatable expression of "
-                            "a python dict. See speech_tools.specaug_interpolate.specaug() for "
-                            "all allowed arguments. Argments not appearing in this string "
-                            "will take on their default values")
-
-        parser.add_argument("--num-targets", type=int, metavar="N",
-                            help="number of targets for training (e.g., num pdf-ids)")
-        parser.add_argument("--initial-state-prior-file", default=None, type=str, metavar="FILE",
-                            help="path to the file containing initial state prior. Only relevant "
-                            "with cross-entropy training")
-        parser.add_argument("--state-prior-update-interval", default=None, type=int, metavar="N",
-                            help="state prior estimate will be updated every this "
-                            "number of updates during training. If None, then use "
-                            "the initial value estimated from the alignments. Only relevant with "
-                            "cross-entropy training")
-        parser.add_argument("--state-prior-update-smoothing", default=0.1, type=float, metavar="D",
-                            help="smoothing factor while updating state prior estimate. Only "
-                            "relevant with cross-entropy training")
-        parser.add_argument("--chunk-width", default=None, type=int, metavar="D",
-                            help="chunk width for train/test data. Only relevant with chunk-wise "
-                            "training (including both cross-entropy and Lattice-free MMI). "
-                            "Do utterance-wise training/test if not specified")
-        parser.add_argument("--chunk-left-context", default=0, type=int, metavar="D",
-                            help="number of frames appended to the left of a chunk")
-        parser.add_argument("--chunk-right-context", default=0, type=int, metavar="D",
-                            help="number of frames appended to the right of a chunk")
-        parser.add_argument("--label-delay", default=0, type=int, metavar="D",
-                            help="offet of alignments as prediction labels. Maybe useful "
-                            "in archs such as asymmetric convolution, unidirectional LSTM, etc. "
-                            "It can be negative. Only relevant with chunk-wise cross-entropy training")
-        # fmt: off
-
     @classmethod
     def load_dictionary(cls, filename, non_lang_syms=None):
         """Load the dictionary from the filename
@@ -265,51 +339,55 @@ class SpeechRecognitionHybridTask(FairseqTask):
         """
         raise NotImplementedError
 
-    def __init__(self, args, dictionary):
-        super().__init__(args)
+    def __init__(self, cfg: DictConfig, dictionary):
+        super().__init__(cfg)
         self.dictionary = dictionary
-        self.feat_in_channels = args.feat_in_channels
-        self.specaugment_config = args.specaugment_config
-        self.num_targets = args.num_targets
-        self.training_stage = hasattr(args, "valid_subset")
+        self.feat_in_channels = cfg.feat_in_channels
+        self.specaugment_config = cfg.specaugment_config
+        self.num_targets = cfg.num_targets
+        self.training_stage = (cfg.max_epoch > 0)  # a hack
 
         # the following attributes are related to state_prior estimate
         self.initial_state_prior = None
-        if args.initial_state_prior_file is not None:  # only relevant for Xent training, used in models
-            self.initial_state_prior = kaldi_io.read_vec_flt(args.initial_state_prior_file)
+        if cfg.initial_state_prior_file is not None:  # only relevant for Xent training, used in models
+            self.initial_state_prior = kaldi_io.read_vec_flt(cfg.initial_state_prior_file)
             self.initial_state_prior = torch.from_numpy(self.initial_state_prior)
-            assert self.initial_state_prior.size(0) == self.num_targets, \
-                "length of initial_state_prior ({}) != num_targets ({})".format(
-                    self.initial_state_prior.size(0), self.num_targets
-                )
-        self.state_prior_update_interval = args.state_prior_update_interval
+            assert (
+                self.initial_state_prior.size(0) == self.num_targets
+            ), "length of initial_state_prior ({}) != num_targets ({})".format(
+                self.initial_state_prior.size(0), self.num_targets
+            )
+        self.state_prior_update_interval = cfg.state_prior_update_interval
         if self.state_prior_update_interval is None and self.initial_state_prior is not None:
             logger.info("state prior will not be updated during training")
-        self.state_prior_update_smoothing = args.state_prior_update_smoothing
+        self.state_prior_update_smoothing = cfg.state_prior_update_smoothing
         self.averaged_state_post = None  # state poterior will be saved here before commited as new state prior
 
         # the following 4 options are for chunk-wise training/test (including Xent and LF-MMI)
-        self.chunk_width = args.chunk_width
-        self.chunk_left_context = args.chunk_left_context
-        self.chunk_right_context = args.chunk_right_context
-        self.label_delay = args.label_delay  # only for chunk-wise Xent training
+        self.chunk_width = cfg.chunk_width
+        self.chunk_left_context = cfg.chunk_left_context
+        self.chunk_right_context = cfg.chunk_right_context
+        self.label_delay = cfg.label_delay  # only for chunk-wise Xent training
 
         torch.backends.cudnn.deterministic = True
 
     @classmethod
-    def setup_task(cls, args, **kwargs):
+    def setup_task(cls, cfg: DictConfig, **kwargs):
         """Setup the task (e.g., load dictionaries).
 
         Args:
-            args (argparse.Namespace): parsed command-line arguments
+            cfg (omegaconf.DictConfig): parsed command-line arguments
         """
         # load dictionaries
-        dict_path = args.dict
-        dictionary = cls.load_dictionary(dict_path, non_lang_syms=args.non_lang_syms) if \
-            dict_path is not None else None
+        dict_path = cfg.dict
+        dictionary = (
+            cls.load_dictionary(dict_path, non_lang_syms=cfg.non_lang_syms)
+            if dict_path is not None
+            else None
+        )
         if dictionary is not None:
             logger.info("dictionary: {} types".format(len(dictionary)))
-        return cls(args, dictionary)
+        return cls(cfg, dictionary)
 
     def load_dataset(self, split, epoch=1, combine=False, **kwargs):
         """Load a given dataset split.
@@ -317,24 +395,30 @@ class SpeechRecognitionHybridTask(FairseqTask):
         Args:
             split (str): name of the split (e.g., train, valid, test)
         """
-        paths = utils.split_paths(self.args.data)
+        paths = utils.split_paths(self.cfg.data)
         assert len(paths) > 0
-        if split != getattr(self.args, "train_subset", None):
+        if split != self.cfg.train_subset:
             # if not training data set, use the first shard for valid and test
             paths = paths[:1]
         data_path = paths[(epoch - 1) % len(paths)]
 
         self.datasets[split] = get_asr_dataset_from_json(
-            data_path, split, self.dictionary,
+            data_path,
+            split,
+            self.dictionary,
             combine=combine,
-            upsample_primary=self.args.upsample_primary,
-            num_buckets=self.args.num_batch_buckets,
-            shuffle=(split != getattr(self.args, "gen_subset", None)),
-            pad_to_multiple=self.args.required_seq_len_multiple,
-            lf_mmi=(self.args.criterion == "lattice_free_mmi"),
-            seed=self.args.seed, specaugment_config=self.specaugment_config,
-            chunk_width=None if self.training_stage and split in self.args.valid_subset.split(",") else self.chunk_width,
-            chunk_left_context=self.chunk_left_context, chunk_right_context=self.chunk_right_context,
+            upsample_primary=self.cfg.upsample_primary,
+            num_buckets=self.cfg.num_batch_buckets,
+            shuffle=(split != self.cfg.gen_subset),
+            pad_to_multiple=self.cfg.required_seq_len_multiple,
+            lf_mmi=(self.cfg.criterion_name == "lattice_free_mmi"),
+            seed=self.cfg.seed,
+            specaugment_config=self.specaugment_config,
+            chunk_width=None if self.training_stage
+            and split in self.cfg.valid_subset.split(",")
+            else self.chunk_width,
+            chunk_left_context=self.chunk_left_context,
+            chunk_right_context=self.chunk_right_context,
             label_delay=self.label_delay,
         )
 
@@ -346,14 +430,15 @@ class SpeechRecognitionHybridTask(FairseqTask):
         else:
             self.feat_dim = src_dataset.feat_dim
 
-    def build_generator(self, models, args):
-        if args.score_reference:
-            args.score_reference = False
+    def build_generator(self, models, cfg: GenerationConfig):
+        if cfg.score_reference:
+            cfg.score_reference = False
             logger.warning(
                 "--score-reference is not applicable to speech recognition, ignoring it."
             )
         from espresso.tools.generate_log_probs_for_decoding import GenerateLogProbsForDecoding
-        apply_log_softmax = getattr(args, "apply_log_softmax", False)
+
+        apply_log_softmax = getattr(cfg, "apply_log_softmax", False)
         return GenerateLogProbsForDecoding(models, apply_log_softmax=apply_log_softmax)
 
     def build_dataset_for_inference(self, src_tokens, src_lengths):
@@ -387,7 +472,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
-        return (self.args.max_source_positions, self.args.max_target_positions)
+        return (self.cfg.max_source_positions, self.cfg.max_target_positions)
 
     @property
     def target_dictionary(self):
