@@ -6,6 +6,7 @@
 import logging
 import os
 from dataclasses import dataclass, field
+from typing import Optional
 
 import torch
 
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class LanguageModelingForASRConfig(LanguageModelingConfig):
-    dict: str = field(default=None, metadata={"help": "path to the dictionary"})
+    dict: Optional[str] = field(default=None, metadata={"help": "path to the dictionary"})
 
 
 @register_task("language_modeling_for_asr", dataclass=LanguageModelingForASRConfig)

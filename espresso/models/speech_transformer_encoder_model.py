@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from argparse import Namespace
 import logging
 from typing import Optional
 
@@ -18,6 +19,7 @@ from fairseq.models import (
 )
 from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.transformer import Linear
+from omegaconf import DictConfig
 
 from espresso.models.speech_lstm import ConvBNReLU
 from espresso.models.speech_transformer import SpeechTransformerEncoder
@@ -70,6 +72,11 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
                                  "can be None or a tuple of two non-negative integers/None")
         parser.add_argument("--no-token-positional-embeddings", action="store_true",
                             help="if set, disables positional embeddings (outside self attention)")
+        parser.add_argument("--layernorm-embedding", action="store_true",
+                            help="add layernorm to embedding")
+        parser.add_argument("--checkpoint-activations", action="store_true",
+                            help="checkpoint activations at each layer, which saves GPU "
+                                 "memory usage at the cost of some additional compute")
         # args for "Reducing Transformer Depth on Demand with Structured Dropout" (Fan et al., 2019)
         parser.add_argument("--encoder-layerdrop", type=float, metavar="D", default=0,
                             help="LayerDrop probability for encoder")
@@ -191,13 +198,21 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
         state_dict["state_prior"] = self.state_prior
         return state_dict
 
-    def load_state_dict(self, state_dict, strict=True, args=None):
+    def load_state_dict(
+        self,
+        state_dict,
+        strict=True,
+        model_cfg: Optional[DictConfig] = None,
+        args: Optional[Namespace] = None,
+    ):
         state_dict_subset = state_dict.copy()
         self.state_prior = state_dict.get("state_prior", None)
         if "state_prior" in state_dict:
             self.state_prior = state_dict["state_prior"]
             del state_dict_subset["state_prior"]
-        super().load_state_dict(state_dict_subset, strict=strict, args=args)
+        super().load_state_dict(
+            state_dict_subset, strict=strict, model_cfg=model_cfg, args=args
+        )
 
 
 class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
@@ -210,19 +225,30 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
             args, conv_layers_before=conv_layers_before, input_size=input_size,
             transformer_context=transformer_context,
         )
-        receptive_field_radius = sum(conv.padding[0] for conv in conv_layers_before.convolutions) \
-            if conv_layers_before is not None else 0
+        receptive_field_radius = (
+            sum(conv.padding[0] for conv in conv_layers_before.convolutions)
+            if conv_layers_before is not None
+            else 0
+        )
         assert chunk_width is None or chunk_width > 0
-        assert (conv_layers_before is None and chunk_left_context >= 0) or \
-            (conv_layers_before is not None and chunk_left_context >= receptive_field_radius)
+        assert (
+            (conv_layers_before is None and chunk_left_context >= 0)
+            or (conv_layers_before is not None and chunk_left_context >= receptive_field_radius)
+        )
         self.out_chunk_begin = self.output_lengths(chunk_left_context + 1) - 1
-        self.out_chunk_end = self.output_lengths(chunk_left_context + chunk_width) \
-            if chunk_width is not None else None
+        self.out_chunk_end = (
+            self.output_lengths(chunk_left_context + chunk_width)
+            if chunk_width is not None
+            else None
+        )
         self.training_stage = training_stage
 
         # only for encoder-only model
-        self.fc_out = Linear(args.encoder_embed_dim, num_targets, dropout=self.dropout_module.p) \
-            if num_targets is not None else None
+        self.fc_out = (
+            Linear(args.encoder_embed_dim, num_targets, dropout=self.dropout_module.p)
+            if num_targets is not None
+            else None
+        )
 
     def forward(
         self,
@@ -360,6 +386,13 @@ def base_architecture(args):
     )
     args.adaptive_input = getattr(args, "adaptive_input", False)
     args.layernorm_embedding = getattr(args, "layernorm_embedding", False)
+    args.checkpoint_activations = getattr(args, "checkpoint_activations", False)
+
+    args.encoder_layers_to_keep = getattr(args, "encoder_layers_to_keep", None)
+    args.encoder_layerdrop = getattr(args, "encoder_layerdrop", 0)
+    args.quant_noise_pq = getattr(args, "quant_noise_pq", 0)
+    args.quant_noise_pq_block_size = getattr(args, "quant_noise_pq_block_size", 8)
+    args.quant_noise_scalar = getattr(args, "quant_noise_scalar", 0)
 
 
 @register_model_architecture("speech_transformer_encoder_model", "speech_transformer_encoder_model_wsj")

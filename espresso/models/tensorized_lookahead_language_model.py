@@ -57,9 +57,10 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         super().__init__(word_lm.decoder.dictionary)
 
         self.lm_decoder: FairseqIncrementalDecoder = word_lm.decoder
-        assert hasattr(self.lm_decoder, 'masked_copy_incremental_state') and \
-            callable(self.lm_decoder.masked_copy_incremental_state), \
-            'The wrapped decoder should implement masked_copy_incremental_state()'
+        assert (
+            hasattr(self.lm_decoder, "masked_copy_incremental_state")
+            and callable(self.lm_decoder.masked_copy_incremental_state)
+        ), "The wrapped decoder should implement masked_copy_incremental_state()"
 
         self.oov_penalty = oov_penalty
         self.open_vocab = open_vocab
@@ -76,7 +77,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         self.subword_vocab_size = len(subword_dict)
 
         def tokenizer(x: str) -> List[str]:
-            return tokenize(x, non_lang_syms=subword_dict.non_lang_syms).split(' ')
+            return tokenize(x, non_lang_syms=subword_dict.non_lang_syms).split(" ")
         self.tree = TensorizedPrefixTree.build(word_dict, subword_dict, tokenizer)
 
         assert self.tree.max_out_degree() <= self.subword_vocab_size
@@ -86,7 +87,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
                 prev_output_tokens: torch.Tensor,  # Z_Tokens[Batch, SeqLength]
                 encoder_out=None,
                 incremental_state: Dict[str, Any] = None):
-        assert incremental_state is not None, 'This model is for incremental decoding only'
+        assert incremental_state is not None, "This model is for incremental decoding only"
         prev_output_tokens = prev_output_tokens[:, -1:]  # Z_Tokens[Batch, Len=1]
         bsz = prev_output_tokens.size(0)
 
@@ -95,11 +96,11 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
 
         # Move the batched state to the next state according to the automaton
         batch_space_mask = prev_output_tokens.squeeze(-1).eq(self.subword_space_idx)  # B[Batch]
-        cached_state = self.lm_decoder.get_incremental_state(incremental_state, 'cached_state')
+        cached_state = self.lm_decoder.get_incremental_state(incremental_state, "cached_state")
 
         if cached_state is None:  # First step
             assert (prev_output_tokens == self.subword_eos_idx).all(), \
-                'expecting the input to the first time step to be <eos>'
+                "expecting the input to the first time step to be <eos>"
             w: torch.Tensor = prev_output_tokens.new_full([bsz, 1], self.word_eos_idx)  # Z[Batch, Len=1]
             lm_probs: torch.Tensor = self.lm_decoder.get_normalized_probs(
                 self.lm_decoder(w, incremental_state=incremental_state),
@@ -110,9 +111,9 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
 
         else:  # Not the first step
             cumsum_probs: torch.Tensor = self.get_incremental_state(
-                incremental_state, 'cumsum_probs',
+                incremental_state, "cumsum_probs",
             )  # R[Batch, 1, Vocab]
-            nodes: torch.Tensor = self.get_incremental_state(incremental_state, 'nodes')  # Z_NodeId[Batch]
+            nodes: torch.Tensor = self.get_incremental_state(incremental_state, "nodes")  # Z_NodeId[Batch]
             assert nodes.size(0) == bsz
             w: torch.Tensor = self.tree.word_idx[nodes].unsqueeze(1)  # Z[Batch, Len=1]
             w[w < 0] = self.word_unk_idx
@@ -139,8 +140,8 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
 
         all_children = self.tree.children[nodes, :]  # Z[Batch, PossibleChildren]
 
-        self.set_incremental_state(incremental_state, 'cumsum_probs', cumsum_probs)
-        self.set_incremental_state(incremental_state, 'nodes', nodes)
+        self.set_incremental_state(incremental_state, "cumsum_probs", cumsum_probs)
+        self.set_incremental_state(incremental_state, "nodes", nodes)
 
         # Compute probabilities
         # initialize out_probs [Batch, 1, Vocab]
@@ -161,7 +162,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
 
             # set transition probability to 1 for those whose node is out of the
             # tree, i.e. node is None (case 4 in Eqn. 15)
-            out_probs[nodes.eq(self.tree.none_id)] = 1.
+            out_probs[nodes.eq(self.tree.none_id)] = 1.0
         else:
             # set out_probs to 0
             out_probs = cumsum_probs.new_full([bsz, 1, self.subword_vocab_size], self.zero)
@@ -226,15 +227,15 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
     def reorder_incremental_state(self, incremental_state, new_order):
         super().reorder_incremental_state(incremental_state, new_order)
 
-        cumsum_probs = self.get_incremental_state(incremental_state, 'cumsum_probs')
+        cumsum_probs = self.get_incremental_state(incremental_state, "cumsum_probs")
         if cumsum_probs is not None:
             new_cumsum_probs = cumsum_probs.index_select(0, new_order)
-            self.set_incremental_state(incremental_state, 'cumsum_probs', new_cumsum_probs)
+            self.set_incremental_state(incremental_state, "cumsum_probs", new_cumsum_probs)
 
-        nodes = self.get_incremental_state(incremental_state, 'nodes')
+        nodes = self.get_incremental_state(incremental_state, "nodes")
         if nodes is not None:
             new_nodes = nodes.index_select(0, new_order)
-            self.set_incremental_state(incremental_state, 'nodes', new_nodes)
+            self.set_incremental_state(incremental_state, "nodes", new_nodes)
 
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""

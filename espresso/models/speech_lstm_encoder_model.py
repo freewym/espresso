@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from argparse import Namespace
 import logging
 from typing import Optional
 
@@ -18,6 +19,7 @@ from fairseq.models import (
 )
 from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.lstm import Linear
+from omegaconf import DictConfig
 
 from espresso.models.speech_lstm import ConvBNReLU, SpeechLSTMEncoder
 import espresso.tools.utils as speech_utils
@@ -72,7 +74,9 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
         """Build a new model instance."""
         # make sure that all args are properly defaulted (in case there are any new ones)
         base_architecture(args)
-        max_source_positions = getattr(args, "max_source_positions", DEFAULT_MAX_SOURCE_POSITIONS)
+        max_source_positions = getattr(
+            args, "max_source_positions", DEFAULT_MAX_SOURCE_POSITIONS
+        )
 
         out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
         kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
@@ -106,7 +110,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
             dropout_out=args.encoder_rnn_dropout_out,
             bidirectional=args.encoder_rnn_bidirectional,
             residual=args.encoder_rnn_residual,
-            src_bucketed=(getattr(task.args, "num_batch_buckets", 0) > 0),
+            src_bucketed=(getattr(task.cfg, "num_batch_buckets", 0) > 0),
             num_targets=getattr(task, "num_targets", None),  # targets for encoder-only model
             chunk_width=getattr(task, "chunk_width", None),
             chunk_left_context=getattr(task, "chunk_left_context", 0),
@@ -140,43 +144,81 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
         state_dict["state_prior"] = self.state_prior
         return state_dict
 
-    def load_state_dict(self, state_dict, strict=True, args=None):
+    def load_state_dict(
+        self,
+        state_dict,
+        strict=True,
+        model_cfg: Optional[DictConfig] = None,
+        args: Optional[Namespace] = None,
+    ):
         state_dict_subset = state_dict.copy()
         self.state_prior = state_dict.get("state_prior", None)
         if "state_prior" in state_dict:
             self.state_prior = state_dict["state_prior"]
             del state_dict_subset["state_prior"]
-        super().load_state_dict(state_dict_subset, strict=strict, args=args)
+        super().load_state_dict(
+            state_dict_subset, strict=strict, model_cfg=model_cfg, args=args
+        )
 
 
 class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
     """LSTM encoder."""
     def __init__(
-        self, conv_layers_before=None, input_size=83, hidden_size=512,
-        num_layers=1, dropout_in=0.1, dropout_out=0.1, bidirectional=False,
-        residual=False, left_pad=False, padding_value=0., src_bucketed=False,
-        num_targets=None, chunk_width=20, chunk_left_context=0, training_stage=True,
+        self,
+        conv_layers_before=None,
+        input_size=83,
+        hidden_size=512,
+        num_layers=1,
+        dropout_in=0.1,
+        dropout_out=0.1,
+        bidirectional=False,
+        residual=False,
+        left_pad=False,
+        padding_value=0.0,
+        src_bucketed=False,
+        num_targets=None,
+        chunk_width=20,
+        chunk_left_context=0,
+        training_stage=True,
         max_source_positions=DEFAULT_MAX_SOURCE_POSITIONS,
     ):
         super().__init__(
-            conv_layers_before=conv_layers_before, input_size=input_size, hidden_size=hidden_size,
-            num_layers=num_layers, dropout_in=dropout_in,  dropout_out=dropout_out,
-            bidirectional=bidirectional, residual=residual, left_pad=left_pad,
-            padding_value=padding_value, src_bucketed=src_bucketed, max_source_positions=max_source_positions,
+            conv_layers_before=conv_layers_before,
+            input_size=input_size,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout_in=dropout_in,
+            dropout_out=dropout_out,
+            bidirectional=bidirectional,
+            residual=residual,
+            left_pad=left_pad,
+            padding_value=padding_value,
+            src_bucketed=src_bucketed,
+            max_source_positions=max_source_positions,
         )
-        receptive_field_radius = sum(conv.padding[0] for conv in conv_layers_before.convolutions) \
-            if conv_layers_before is not None else 0
+        receptive_field_radius = (
+            sum(conv.padding[0] for conv in conv_layers_before.convolutions)
+            if conv_layers_before is not None
+            else 0
+        )
         assert chunk_width is None or chunk_width > 0
-        assert (conv_layers_before is None and chunk_left_context >= 0) or \
-            (conv_layers_before is not None and chunk_left_context >= receptive_field_radius)
+        assert (
+            (conv_layers_before is None and chunk_left_context >= 0)
+            or (conv_layers_before is not None and chunk_left_context >= receptive_field_radius)
+        )
         self.out_chunk_begin = self.output_lengths(chunk_left_context + 1) - 1
-        self.out_chunk_end = self.output_lengths(chunk_left_context + chunk_width) \
-            if chunk_width is not None else None
+        self.out_chunk_end = (
+            self.output_lengths(chunk_left_context + chunk_width) if chunk_width is not None
+            else None
+        )
         self.training_stage = training_stage
 
         # only for encoder-only model
-        self.fc_out = Linear(self.output_units, num_targets, dropout=self.dropout_out_module.p) \
-            if num_targets is not None else None
+        self.fc_out = (
+            Linear(self.output_units, num_targets, dropout=self.dropout_out_module.p)
+            if num_targets is not None
+            else None
+        )
 
     def forward(
         self,
@@ -214,7 +256,8 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
 
         return EncoderOut(
             encoder_out=x,  # T x B x C
-            encoder_padding_mask=encoder_padding_mask if encoder_padding_mask.any() else None,  # T x B
+            encoder_padding_mask=encoder_padding_mask if encoder_padding_mask.any()
+            else None,  # T x B
             encoder_embedding=None,
             encoder_states=None,
             src_tokens=None,

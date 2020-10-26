@@ -43,7 +43,7 @@ DEFAULT_MAX_TARGET_POSITIONS = 1024
 logger = logging.getLogger(__name__)
 
 
-@register_model('speech_transformer')
+@register_model("speech_transformer")
 class SpeechTransformerModel(TransformerModel):
     """
     Transformer model from `"Attention Is All You Need" (Vaswani, et al, 2017)
@@ -246,7 +246,9 @@ class SpeechTransformerEncoder(TransformerEncoder):
         super(TransformerEncoder, self).__init__(None)  # no src dictionary
         self.register_buffer("version", torch.Tensor([3]))
 
-        self.dropout_module = FairseqDropout(args.dropout, module_name=self.__class__.__name__)
+        self.dropout_module = FairseqDropout(
+            args.dropout, module_name=self.__class__.__name__
+        )
         self.encoder_layerdrop = args.encoder_layerdrop
 
         embed_dim = args.encoder_embed_dim
@@ -257,7 +259,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
 
         self.embed_positions = (
             PositionalEmbedding(
-                self.output_lengths(args.max_source_positions),
+                self.output_lengths(self.max_source_positions),
                 embed_dim,
                 0,
                 learned=args.encoder_learned_pos,
@@ -297,8 +299,10 @@ class SpeechTransformerEncoder(TransformerEncoder):
         self.transformer_context = transformer_context
 
     def output_lengths(self, in_lengths):
-        return in_lengths if self.conv_layers_before is None \
+        return (
+            in_lengths if self.conv_layers_before is None
             else self.conv_layers_before.output_lengths(in_lengths)
+        )
 
     def get_attn_mask(self, in_lengths):
         """
@@ -360,8 +364,10 @@ class SpeechTransformerEncoder(TransformerEncoder):
         if self.conv_layers_before is not None:
             x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens, src_lengths)
         else:
-            x, encoder_padding_mask = src_tokens, \
+            x, encoder_padding_mask = (
+                src_tokens,
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
+            )
 
         x = self.dropout_module(x)
         if self.fc0 is not None:
@@ -579,6 +585,15 @@ def base_architecture(args):
     args.no_scale_embedding = getattr(args, "no_scale_embedding", False)
     args.layernorm_embedding = getattr(args, "layernorm_embedding", False)
     args.tie_adaptive_weights = getattr(args, "tie_adaptive_weights", False)
+    args.checkpoint_activations = getattr(args, "checkpoint_activations", False)
+
+    args.encoder_layers_to_keep = getattr(args, "encoder_layers_to_keep", None)
+    args.decoder_layers_to_keep = getattr(args, "decoder_layers_to_keep", None)
+    args.encoder_layerdrop = getattr(args, "encoder_layerdrop", 0)
+    args.decoder_layerdrop = getattr(args, "decoder_layerdrop", 0)
+    args.quant_noise_pq = getattr(args, "quant_noise_pq", 0)
+    args.quant_noise_pq_block_size = getattr(args, "quant_noise_pq_block_size", 8)
+    args.quant_noise_scalar = getattr(args, "quant_noise_scalar", 0)
 
 
 @register_model_architecture("speech_transformer", "speech_transformer_wsj")

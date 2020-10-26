@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from argparse import Namespace
 import logging
 from typing import Optional
 
@@ -21,6 +22,7 @@ from fairseq.models import (
 from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.lstm import Linear
 from fairseq.modules import FairseqDropout
+from omegaconf import DictConfig
 
 import espresso.tools.utils as speech_utils
 
@@ -125,13 +127,21 @@ class SpeechTdnnEncoderModel(FairseqEncoderModel):
         state_dict["state_prior"] = self.state_prior
         return state_dict
 
-    def load_state_dict(self, state_dict, strict=True, args=None):
+    def load_state_dict(
+        self,
+        state_dict,
+        strict=True,
+        model_cfg: Optional[DictConfig] = None,
+        args: Optional[Namespace] = None,
+    ):
         state_dict_subset = state_dict.copy()
         self.state_prior = state_dict.get("state_prior", None)
         if "state_prior" in state_dict:
             self.state_prior = state_dict["state_prior"]
             del state_dict_subset["state_prior"]
-        super().load_state_dict(state_dict_subset, strict=strict, args=args)
+        super().load_state_dict(
+            state_dict_subset, strict=strict, model_cfg=model_cfg, args=args
+        )
 
 
 class TdnnBNReLU(nn.Module):
@@ -192,8 +202,12 @@ class SpeechTdnnEncoder(FairseqEncoder):
             dilations = [dilations] * num_layers
         else:
             assert len(dilations) == num_layers
-        self.dropout_in_module = FairseqDropout(dropout_in, module_name=self.__class__.__name__)
-        self.dropout_out_module = FairseqDropout(dropout_out, module_name=self.__class__.__name__)
+        self.dropout_in_module = FairseqDropout(
+            dropout_in, module_name=self.__class__.__name__
+        )
+        self.dropout_out_module = FairseqDropout(
+            dropout_out, module_name=self.__class__.__name__
+        )
         self.residual = residual
 
         self.tdnn = nn.ModuleList([
@@ -206,15 +220,22 @@ class SpeechTdnnEncoder(FairseqEncoder):
         ])
 
         receptive_field_radius = sum(layer.padding for layer in self.tdnn)
-        assert chunk_width is None or (chunk_width > 0 and chunk_left_context >= receptive_field_radius)
+        assert (
+            chunk_width is None
+            or (chunk_width > 0 and chunk_left_context >= receptive_field_radius)
+        )
         if (
             chunk_width is not None and chunk_width > 0
             and chunk_left_context > receptive_field_radius
         ):
-            logger.warning("chunk_{{left,right}}_context can be reduced to {}".format(receptive_field_radius))
+            logger.warning(
+                "chunk_{{left,right}}_context can be reduced to {}".format(receptive_field_radius)
+            )
         self.out_chunk_begin = self.output_lengths(chunk_left_context + 1) - 1
-        self.out_chunk_end = self.output_lengths(chunk_left_context + chunk_width) \
-            if chunk_width is not None else None
+        self.out_chunk_end = (
+            self.output_lengths(chunk_left_context + chunk_width) if chunk_width is not None
+            else None
+        )
         self.training_stage = training_stage
 
         self.fc_out = Linear(hidden_sizes[-1], output_size, dropout=self.dropout_out_module.p)

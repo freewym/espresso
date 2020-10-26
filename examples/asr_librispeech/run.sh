@@ -153,7 +153,7 @@ if [ ${stage} -le 4 ]; then
   for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
   ${decode_cmd} $lmdatadir/log/preprocess.log \
-    python3 ../../fairseq_cli/preprocess.py --user-dir espresso --task language_modeling_for_asr \
+    python3 ../../fairseq_cli/preprocess.py --task language_modeling_for_asr \
       --workers 50 --srcdict $lmdict --only-source \
       --trainpref $lmdatadir/train.tokens \
       --validpref $lmdatadir/$valid_set.tokens \
@@ -173,7 +173,7 @@ if [ ${stage} -le 5 ]; then
   mkdir -p $lmdir/log
   log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
-  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval $((16000/ngpus)) --log-format simple \
     --num-workers 0 --max-tokens 32000 --batch-size 1024 --curriculum 1 \
@@ -194,7 +194,7 @@ if [ ${stage} -le 6 ]; then
   test_set_array=($test_set)
   for i in $(seq 0 $num); do
     log_file=$lmdir/log/evaluation_${test_set_array[$i]}.log
-    python3 ../../fairseq_cli/eval_lm.py $lmdatadir --user-dir espresso --cpu \
+    python3 ../../fairseq_cli/eval_lm.py $lmdatadir --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
       --max-tokens 40960 --batch-size 1536 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
@@ -245,7 +245,7 @@ if [ ${stage} -le 8 ]; then
       opts="$opts --max-epoch 30 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10"
     fi
   fi
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 \
     --log-interval $((8000/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((4000/ngpus/update_freq)) \
     --num-workers 0 --data-buffer-size 0 --max-tokens 26000 --batch-size 24 --curriculum 1 --empty-cache-freq 50 \
     --valid-subset $valid_subset --batch-size-valid 48 --ddp-backend no_c10d --update-freq $update_freq \
@@ -276,7 +276,7 @@ if [ ${stage} -le 9 ]; then
   for dataset in $test_set; do
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
-      --task speech_recognition_espresso --user-dir espresso --max-tokens 15000 --batch-size 24 \
+      --task speech_recognition_espresso --max-tokens 15000 --batch-size 24 \
       --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-model ${sentencepiece_model}.model \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 60 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \

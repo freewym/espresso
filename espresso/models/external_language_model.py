@@ -56,9 +56,10 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
 
         assert isinstance(wordlm, FairseqLanguageModel)
         self.lm_decoder = wordlm.decoder
-        assert hasattr(self.lm_decoder, 'masked_copy_incremental_state') and \
-            callable(self.lm_decoder.masked_copy_incremental_state), \
-            'The wrapped decoder should implement masked_copy_incremental_state()'
+        assert (
+            hasattr(self.lm_decoder, "masked_copy_incremental_state")
+            and callable(self.lm_decoder.masked_copy_incremental_state)
+        ), "The wrapped decoder should implement masked_copy_incremental_state()"
         self.oov_penalty = oov_penalty
         self.open_vocab = open_vocab
         self.zero = 1e-10  # a sufficiently small value to avoid the log(0) issue
@@ -76,7 +77,7 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
         self.subword_vocab_size = len(subword_dict)
 
         def tokenizer(x):
-            return tokenize(x, non_lang_syms=subword_dict.non_lang_syms).split(' ')
+            return tokenize(x, non_lang_syms=subword_dict.non_lang_syms).split(" ")
         self.lexroot = lexical_prefix_tree(word_dict, subword_dict, tokenizer)
 
         def max_out_degree(node):
@@ -92,18 +93,17 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
 
     @torch.no_grad()
     def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None):
-        assert incremental_state is not None, \
-            'this model is for incremental decoding only'
+        assert incremental_state is not None, "this model is for incremental decoding only"
         prev_output_tokens = prev_output_tokens[:, -1:]
         bsz = prev_output_tokens.size(0)
 
         batch_space_mask = prev_output_tokens.squeeze(-1).eq(self.subword_space_idx)
 
-        cached_state = self.lm_decoder.get_incremental_state(incremental_state, 'cached_state')
+        cached_state = self.lm_decoder.get_incremental_state(incremental_state, "cached_state")
 
         if cached_state is None:  # it is the first time step
             assert (prev_output_tokens == self.subword_eos_idx).all(), \
-                'expecting the input to the first time step to be <eos>'
+                "expecting the input to the first time step to be <eos>"
             w = prev_output_tokens.new_full([bsz, 1], self.word_eos_idx)
             lm_probs = self.lm_decoder.get_normalized_probs(
                 self.lm_decoder(w, incremental_state=incremental_state),
@@ -112,8 +112,8 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             cumsum_probs = torch.cumsum(lm_probs, dim=-1)  # B x 1 x V
             nodes = [self.lexroot] * bsz
         else:
-            cumsum_probs = self.get_incremental_state(incremental_state, 'cumsum_probs')
-            nodes = self.get_incremental_state(incremental_state, 'nodes')
+            cumsum_probs = self.get_incremental_state(incremental_state, "cumsum_probs")
+            nodes = self.get_incremental_state(incremental_state, "nodes")
             assert len(nodes) == bsz
             w = prev_output_tokens.new([
                 node.word_idx if node is not None and node.word_idx >= 0 else
@@ -129,8 +129,9 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             self.lm_decoder.masked_copy_incremental_state(
                 incremental_state, old_cached_state, batch_space_mask,
             )  # restore those not masked
-            cumsum_probs[batch_space_mask] = \
+            cumsum_probs[batch_space_mask] = (
                 torch.cumsum(lm_probs, dim=-1)[batch_space_mask]
+            )
             tokens_list = prev_output_tokens.squeeze(-1).tolist()
             for i in range(bsz):
                 if tokens_list[i] == self.subword_space_idx:
@@ -142,8 +143,8 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
                 else:  # no path in the tree
                     nodes[i] = None
 
-        self.set_incremental_state(incremental_state, 'cumsum_probs', cumsum_probs)
-        self.set_incremental_state(incremental_state, 'nodes', nodes)
+        self.set_incremental_state(incremental_state, "cumsum_probs", cumsum_probs)
+        self.set_incremental_state(incremental_state, "nodes", nodes)
 
         # initialize out_probs (B x 1 x V)
         if self.open_vocab:
@@ -155,8 +156,10 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             # set the probability of emitting <space> to 0 if prev_output_tokens
             # is <space> or <eos>, and that of emitting <eos> to 0 if
             # prev_output_tokens is not <space>
-            batch_space_eos_mask = batch_space_mask | \
+            batch_space_eos_mask = (
+                batch_space_mask |
                 prev_output_tokens.squeeze(-1).eq(self.subword_eos_idx)
+            )
             out_probs[batch_space_eos_mask, :, self.subword_space_idx] = self.zero
             out_probs[~batch_space_mask, :, self.subword_eos_idx] = self.zero
             # set transition probability to 1 for those whose node is out of the
@@ -164,13 +167,13 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             batch_node_none_mask = batch_space_mask.new(
                 [node is None for node in nodes]
             )
-            out_probs[batch_node_none_mask] = 1.
+            out_probs[batch_node_none_mask] = 1.0
         else:
             # set out_probs to 0
             out_probs = cumsum_probs.new_full([bsz, 1, self.subword_vocab_size], self.zero)
 
         # compute parent probabilities for those whose node is not None
-        sum_probs = cumsum_probs.new_full([bsz, 1], 1.)  # default for root node
+        sum_probs = cumsum_probs.new_full([bsz, 1], 1.0)  # default for root node
         left_ranges, right_ranges, batch_node_not_root_mask = [], [], []
         for node in nodes:
             if node is not None and node.word_set is not None:
@@ -243,8 +246,9 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
         out_logprobs = out_probs.clamp(min=self.zero).log_()
 
         # assign log-probs of emitting word <eos> to that of emitting subword <eos>
-        out_logprobs[batch_space_mask, :, self.subword_eos_idx] = \
+        out_logprobs[batch_space_mask, :, self.subword_eos_idx] = (
             lm_probs.log_()[batch_space_mask, :, self.word_eos_idx]
+        )
 
         # note that here we return log-probs rather than logits, and the second
         # element is None, which is usually a tensor of attention weights in
@@ -254,16 +258,16 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
     def reorder_incremental_state(self, incremental_state, new_order):
         super().reorder_incremental_state(incremental_state, new_order)
 
-        cumsum_probs = self.get_incremental_state(incremental_state, 'cumsum_probs')
+        cumsum_probs = self.get_incremental_state(incremental_state, "cumsum_probs")
         if cumsum_probs is not None:
             new_cumsum_probs = cumsum_probs.index_select(0, new_order)
-            self.set_incremental_state(incremental_state, 'cumsum_probs', new_cumsum_probs)
+            self.set_incremental_state(incremental_state, "cumsum_probs", new_cumsum_probs)
 
-        nodes = self.get_incremental_state(incremental_state, 'nodes')
+        nodes = self.get_incremental_state(incremental_state, "nodes")
         if nodes is not None:
             new_order_list = new_order.tolist()
             new_nodes = [nodes[i] for i in new_order_list]
-            self.set_incremental_state(incremental_state, 'nodes', new_nodes)
+            self.set_incremental_state(incremental_state, "nodes", new_nodes)
 
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""
@@ -301,9 +305,10 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
 
         assert isinstance(wordlm, FairseqLanguageModel)
         self.wordlm_decoder = wordlm.decoder
-        assert hasattr(self.wordlm_decoder, 'masked_copy_incremental_state') and \
-            callable(self.wordlm_decoder.masked_copy_incremental_state), \
-            'The wrapped decoder should implement masked_copy_incremental_state()'
+        assert (
+            hasattr(self.wordlm_decoder, "masked_copy_incremental_state") and
+            callable(self.wordlm_decoder.masked_copy_incremental_state)
+        ), "The wrapped decoder should implement masked_copy_incremental_state()"
         assert isinstance(subwordlm, FairseqLanguageModel)
         self.subwordlm_decoder = subwordlm.decoder
         self.subwordlm_weight = subwordlm_weight
@@ -323,13 +328,12 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
         self.subword_vocab_size = len(subword_dict)
 
         def tokenizer(x):
-            return tokenize(x, non_lang_syms=subword_dict.non_lang_syms).split(' ')
+            return tokenize(x, non_lang_syms=subword_dict.non_lang_syms).split(" ")
         self.lexroot = lexical_prefix_tree(word_dict, subword_dict, tokenizer)
 
     @torch.no_grad()
     def forward(self, prev_output_tokens, encoder_out=None, incremental_state=None):
-        assert incremental_state is not None, \
-            'this model is for incremental decoding only'
+        assert incremental_state is not None, "this model is for incremental decoding only"
         prev_output_tokens = prev_output_tokens[:, -1:]
         bsz = prev_output_tokens.size(0)
 
@@ -337,16 +341,16 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
         batch_not_space_mask = ~batch_space_mask
 
         wordlm_cached_state = self.wordlm_decoder.get_incremental_state(
-            incremental_state, 'cached_state',
+            incremental_state, "cached_state",
         )
         subwordlm_cached_state = self.subwordlm_decoder.get_incremental_state(
-            incremental_state, 'cached_state',
+            incremental_state, "cached_state",
         )
 
         if wordlm_cached_state is None:  # it is the first time step
             assert subwordlm_cached_state is None
             assert (prev_output_tokens == self.subword_eos_idx).all(), \
-                'expecting the input to the first time step to be <eos>'
+                "expecting the input to the first time step to be <eos>"
             w = prev_output_tokens.new_full([bsz, 1], self.word_eos_idx)
             wordlm_logprobs = self.wordlm_decoder.get_normalized_probs(
                 self.wordlm_decoder(w, incremental_state=incremental_state),
@@ -362,10 +366,10 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
             subword_cumlogprobs = out_logprobs.new_zeros(sw.size())
             nodes = [self.lexroot] * bsz
         else:
-            wordlm_logprobs = self.get_incremental_state(incremental_state, 'wordlm_logprobs')
-            out_logprobs = self.get_incremental_state(incremental_state, 'out_logprobs')
-            subword_cumlogprobs = self.get_incremental_state(incremental_state, 'subword_cumlogprobs')
-            nodes = self.get_incremental_state(incremental_state, 'nodes')
+            wordlm_logprobs = self.get_incremental_state(incremental_state, "wordlm_logprobs")
+            out_logprobs = self.get_incremental_state(incremental_state, "out_logprobs")
+            subword_cumlogprobs = self.get_incremental_state(incremental_state, "subword_cumlogprobs")
+            nodes = self.get_incremental_state(incremental_state, "nodes")
             assert len(nodes) == bsz
             w = prev_output_tokens.new([
                 node.word_idx if node is not None and node.word_idx >= 0 else
@@ -403,15 +407,17 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
                     batch_is_child_mask.append(False)
             token_idx = prev_output_tokens.new(token_idx).unsqueeze(-1)  # b x 1 x 1
             if self.open_vocab:
-                subword_cumlogprobs[batch_space_mask] = 0.
+                subword_cumlogprobs[batch_space_mask] = 0.0
                 assert batch_not_space_mask.sum().item() == len(token_idx)
-                subword_cumlogprobs[batch_not_space_mask] += \
+                subword_cumlogprobs[batch_not_space_mask] += (
                     out_logprobs[batch_not_space_mask].gather(-1, token_idx).squeeze(-1)
+                )
             else:
-                subword_cumlogprobs[~batch_is_child_mask] = 0.
+                subword_cumlogprobs[~batch_is_child_mask] = 0.0
                 assert batch_is_child_mask.sum().item() == len(token_idx)
-                subword_cumlogprobs[batch_is_child_mask] += \
+                subword_cumlogprobs[batch_is_child_mask] += (
                     out_logprobs[batch_is_child_mask].gather(-1, token_idx).squeeze(-1)
+                )
 
             out_logprobs = self.subwordlm_decoder.get_normalized_probs(
                 self.subwordlm_decoder(prev_output_tokens, incremental_state=incremental_state),
@@ -423,9 +429,9 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
                 batch_oov_mask = batch_not_space_mask & ~batch_is_child_mask
                 out_logprobs[batch_oov_mask] = self.logzero
 
-        self.set_incremental_state(incremental_state, 'wordlm_logprobs', wordlm_logprobs)
-        self.set_incremental_state(incremental_state, 'subword_cumlogprobs', subword_cumlogprobs)
-        self.set_incremental_state(incremental_state, 'nodes', nodes)
+        self.set_incremental_state(incremental_state, "wordlm_logprobs", wordlm_logprobs)
+        self.set_incremental_state(incremental_state, "subword_cumlogprobs", subword_cumlogprobs)
+        self.set_incremental_state(incremental_state, "nodes", nodes)
 
         # apply word-level probabilies for emitting <space>
         w = prev_output_tokens.new([
@@ -443,16 +449,18 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
         # set the probability of emitting <space> to 0 if prev_output_tokens is
         # <space> or <eos>, and that of emitting <eos> to 0 if prev_output_tokens
         # is not <space>
-        batch_space_eos_mask = batch_space_mask | \
-            prev_output_tokens.squeeze(-1).eq(self.subword_eos_idx)
+        batch_space_eos_mask = (
+            batch_space_mask | prev_output_tokens.squeeze(-1).eq(self.subword_eos_idx)
+        )
         out_logprobs[batch_space_eos_mask, :, self.subword_space_idx] = self.logzero
         out_logprobs[~batch_space_mask, :, self.subword_eos_idx] = self.logzero
 
         # add log-probs of emitting word <eos> to that of emitting subword <eos>
-        out_logprobs[batch_space_mask, :, self.subword_eos_idx] += \
+        out_logprobs[batch_space_mask, :, self.subword_eos_idx] += (
             wordlm_logprobs[batch_space_mask, :, self.word_eos_idx]
+        )
 
-        self.set_incremental_state(incremental_state, 'out_logprobs', out_logprobs)
+        self.set_incremental_state(incremental_state, "out_logprobs", out_logprobs)
 
         # note that here we return log-probs rather than logits, and the second
         # element is None, which is usually a tensor of attention weights in
@@ -462,17 +470,17 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
     def reorder_incremental_state(self, incremental_state, new_order):
         super().reorder_incremental_state(incremental_state, new_order)
 
-        for state_name in ['wordlm_logprobs', 'out_logprobs', 'subword_cumlogprobs']:
+        for state_name in ["wordlm_logprobs", "out_logprobs", "subword_cumlogprobs"]:
             state = self.get_incremental_state(incremental_state, state_name)
             if state is not None:
                 new_state = state.index_select(0, new_order)
                 self.set_incremental_state(incremental_state, state_name, new_state)
 
-        nodes = self.get_incremental_state(incremental_state, 'nodes')
+        nodes = self.get_incremental_state(incremental_state, "nodes")
         if nodes is not None:
             new_order_list = new_order.tolist()
             new_nodes = [nodes[i] for i in new_order_list]
-            self.set_incremental_state(incremental_state, 'nodes', new_nodes)
+            self.set_incremental_state(incremental_state, "nodes", new_nodes)
 
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""

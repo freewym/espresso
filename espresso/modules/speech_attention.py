@@ -54,8 +54,8 @@ class BahdanauAttention(BaseAttention):
         self.value_proj.weight.data.uniform_(-0.1, 0.1)
         nn.init.uniform_(self.v, -0.1, 0.1)
         if self.normalize:
-            nn.init.constant_(self.b, 0.)
-            nn.init.constant_(self.g, math.sqrt(1. / self.embed_dim))
+            nn.init.constant_(self.b, 0.0)
+            nn.init.constant_(self.g, math.sqrt(1.0 / self.embed_dim))
 
     def forward(self, query, value, key_padding_mask=None, state=None):
         # projected_query: 1 x bsz x embed_dim
@@ -71,9 +71,11 @@ class BahdanauAttention(BaseAttention):
             attn_scores = self.v * torch.tanh(projected_query + key).sum(dim=2)
 
         if key_padding_mask is not None:
-            attn_scores = attn_scores.float().masked_fill_(
-                key_padding_mask, float('-inf'),
-            ).type_as(attn_scores)  # FP16 support: cast to float and back
+            attn_scores = (
+                attn_scores.float()
+                .masked_fill_(key_padding_mask, float("-inf"))
+                .type_as(attn_scores)
+            )  # FP16 support: cast to float and back
 
         attn_scores = F.softmax(attn_scores, dim=0)  # srclen x bsz
 
@@ -99,7 +101,7 @@ class LuongAttention(BaseAttention):
     def reset_parameters(self):
         self.value_proj.weight.data.uniform_(-0.1, 0.1)
         if self.scale:
-            nn.init.constant_(self.g, 1.)
+            nn.init.constant_(self.g, 1.0)
 
     def forward(self, query, value, key_padding_mask=None, state=None):
         query = query.unsqueeze(1)  # bsz x 1 x query_dim
@@ -110,9 +112,11 @@ class LuongAttention(BaseAttention):
             attn_scores = self.g * attn_scores
 
         if key_padding_mask is not None:
-            attn_scores = attn_scores.float().masked_fill_(
-                key_padding_mask, float('-inf'),
-            ).type_as(attn_scores)  # FP16 support: cast to float and back
+            attn_scores = (
+                attn_scores.float()
+                .masked_fill_(key_padding_mask, float("-inf"))
+                .type_as(attn_scores)
+            )  # FP16 support: cast to float and back
 
         attn_scores = F.softmax(attn_scores, dim=0)  # srclen x bsz
 

@@ -30,8 +30,12 @@ class FeatScpDataset(torch.utils.data.Dataset):
     """
 
     def __init__(
-        self, utt_ids: List[str], rxfiles: List[str], utt2num_frames: Optional[List[int]] = None,
-        seed=1, specaugment_config: Optional[str] = None,
+        self,
+        utt_ids: List[str],
+        rxfiles: List[str],
+        utt2num_frames: Optional[List[int]] = None,
+        seed=1,
+        specaugment_config: Optional[str] = None,
     ):
         super().__init__()
         assert len(utt_ids) == len(rxfiles)

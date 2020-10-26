@@ -13,15 +13,15 @@ import torch
 from fairseq import utils
 
 
-def tokenize(sent, space='<space>', non_lang_syms=None):
+def tokenize(sent, space="<space>", non_lang_syms=None):
     assert isinstance(sent, str)
-    sent = ' '.join(sent.strip().split())
+    sent = " ".join(sent.strip().split())
 
     match_pos = []
     if non_lang_syms is not None:
         assert isinstance(non_lang_syms, list)
         if len(non_lang_syms) > 0:
-            prog = re.compile('|'.join(map(re.escape, non_lang_syms)))
+            prog = re.compile("|".join(map(re.escape, non_lang_syms)))
             matches = prog.finditer(sent)
             for match in matches:
                 match_pos.append([match.start(), match.end()])
@@ -34,8 +34,8 @@ def tokenize(sent, space='<space>', non_lang_syms=None):
         i = end_pos
     tokens.extend([token for token in sent[i:]])
 
-    tokens = [space if token == ' ' else token for token in tokens]
-    return ' '.join(tokens)
+    tokens = [space if token == " " else token for token in tokens]
+    return " ".join(tokens)
 
 
 def collate_frames(values, pad_value=0.0, left_pad=False, pad_to_length=None, pad_to_multiple=1):
@@ -119,7 +119,7 @@ def plot_attention(attention, hypo_sent, utt_id, save_dir):
     """
     try:
         import matplotlib as mpl
-        mpl.use('Agg')
+        mpl.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         raise ImportError(
@@ -131,8 +131,8 @@ def plot_attention(attention, hypo_sent, utt_id, save_dir):
     attn = attention.data.numpy()
     plt.matshow(attn)
     plt.title(hypo_sent, fontsize=8)
-    filename = os.path.join(save_dir, utt_id + '.pdf')
-    plt.savefig(filename, bbox_inches='tight')
+    filename = os.path.join(save_dir, utt_id + ".pdf")
+    plt.savefig(filename, bbox_inches="tight")
     plt.close()
 
 
@@ -149,8 +149,8 @@ def edit_distance(ref, hyp):
         dist: edit distance matrix of size len(ref) x len(hyp)
         steps: list of edit steps
         counter: object of collections.Counter containing counts of
-            reference words ('words'), number of correct words ('corr'),
-            substitutions ('sub'), insertions ('ins'), deletions ('del').
+            reference words ("words"), number of correct words ("corr"),
+            substitutions ("sub"), insertions ("ins"), deletions ("del").
     """
 
     assert isinstance(ref, list) and isinstance(hyp, list)
@@ -182,23 +182,23 @@ def edit_distance(ref, hyp):
             i >= 1 and j >= 1 and dist[i][j] == dist[i - 1][j - 1] and
             ref[i - 1] == hyp[j - 1]
         ):
-            steps.append('corr')
+            steps.append("corr")
             i, j = i - 1, j - 1
         elif i >= 1 and j >= 1 and dist[i][j] == dist[i - 1][j - 1] + 1:
             assert ref[i - 1] != hyp[j - 1]
-            steps.append('sub')
+            steps.append("sub")
             i, j = i - 1, j - 1
         elif j >= 1 and dist[i][j] == dist[i][j - 1] + 1:
-            steps.append('ins')
+            steps.append("ins")
             j = j - 1
         else:
             assert i >= 1 and dist[i][j] == dist[i - 1][j] + 1
-            steps.append('del')
+            steps.append("del")
             i = i - 1
     steps = steps[::-1]
 
     counter = Counter(
-        {'words': len(ref), 'corr': 0, 'sub': 0, 'ins': 0, 'del': 0}
+        {"words": len(ref), "corr": 0, "sub": 0, "ins": 0, "del": 0}
     )
     counter.update(steps)
 
@@ -212,7 +212,7 @@ def aligned_print(ref, hyp, steps):
     Args:
         ref: list of words obtained by splitting reference sentence string
         hyp: list of words obtained by splitting hypothesis sentence string
-        steps: list of edit steps with elements 'corr', 'sub', 'ins' or 'del'.
+        steps: list of edit steps with elements "corr", "sub", "ins" or "del".
 
     Return:
         out_str: aligned reference and hypothesis string with edit steps.
@@ -223,70 +223,76 @@ def aligned_print(ref, hyp, steps):
 
     if len(steps) == 0:  # in case both ref and hyp are empty
         assert len(ref) == 0 and len(hyp) == 0
-        out_str = 'REF: \nHYP: \nSTP: \nWER: {:.2f}%\n\n'.format(0.)
+        out_str = "REF: \nHYP: \nSTP: \nWER: {:.2f}%\n\n".format(0.0)
         return out_str
 
-    out_str = 'REF: '
+    out_str = "REF: "
     for i in range(len(steps)):
-        delim = ' ' if i < len(steps) - 1 else '\n'
-        if steps[i] == 'sub':
-            ref_idx = i - steps[:i].count('ins')
-            hyp_idx = i - steps[:i].count('del')
+        delim = " " if i < len(steps) - 1 else "\n"
+        if steps[i] == "sub":
+            ref_idx = i - steps[: i].count("ins")
+            hyp_idx = i - steps[: i].count("del")
             if len(ref[ref_idx]) < len(hyp[hyp_idx]):
-                out_str += ref[ref_idx] + \
-                    ' ' * (len(hyp[hyp_idx]) - len(ref[ref_idx])) + delim
+                out_str += (
+                    ref[ref_idx] + " " * (len(hyp[hyp_idx]) - len(ref[ref_idx])) + delim
+                )
             else:
                 out_str += ref[ref_idx] + delim
-        elif steps[i] == 'ins':
-            idx = i - steps[:i].count('del')
-            out_str += ' ' * len(hyp[idx]) + delim
+        elif steps[i] == "ins":
+            idx = i - steps[: i].count("del")
+            out_str += " " * len(hyp[idx]) + delim
         else:
-            assert steps[i] == 'del' or steps[i] == 'corr'
-            idx = i - steps[:i].count('ins')
+            assert steps[i] == "del" or steps[i] == "corr"
+            idx = i - steps[: i].count("ins")
             out_str += ref[idx] + delim
 
-    out_str += 'HYP: '
+    out_str += "HYP: "
     for i in range(len(steps)):
-        delim = ' ' if i < len(steps) - 1 else '\n'
-        if steps[i] == 'sub':
-            ref_idx = i - steps[:i].count('ins')
-            hyp_idx = i - steps[:i].count('del')
+        delim = " " if i < len(steps) - 1 else "\n"
+        if steps[i] == "sub":
+            ref_idx = i - steps[: i].count("ins")
+            hyp_idx = i - steps[: i].count("del")
             if len(ref[ref_idx]) > len(hyp[hyp_idx]):
-                out_str += hyp[hyp_idx] + \
-                    ' ' * (len(ref[ref_idx]) - len(hyp[hyp_idx])) + delim
+                out_str += (
+                    hyp[hyp_idx] + " " * (len(ref[ref_idx]) - len(hyp[hyp_idx])) +
+                    delim
+                )
             else:
                 out_str += hyp[hyp_idx] + delim
-        elif steps[i] == 'del':
-            idx = i - steps[:i].count('ins')
-            out_str += ' ' * len(ref[idx]) + delim
+        elif steps[i] == "del":
+            idx = i - steps[: i].count("ins")
+            out_str += " " * len(ref[idx]) + delim
         else:
-            assert steps[i] == 'ins' or steps[i] == 'corr'
-            idx = i - steps[:i].count('del')
+            assert steps[i] == "ins" or steps[i] == "corr"
+            idx = i - steps[: i].count("del")
             out_str += hyp[idx] + delim
 
-    out_str += 'STP: '
+    out_str += "STP: "
     for i in range(len(steps)):
-        delim = ' ' if i < len(steps) - 1 else '\n'
-        if steps[i] == 'sub':
-            ref_idx = i - steps[:i].count('ins')
-            hyp_idx = i - steps[:i].count('del')
+        delim = " " if i < len(steps) - 1 else "\n"
+        if steps[i] == "sub":
+            ref_idx = i - steps[: i].count("ins")
+            hyp_idx = i - steps[: i].count("del")
             if len(ref[ref_idx]) > len(hyp[hyp_idx]):
-                out_str += 'S' + ' ' * (len(ref[ref_idx]) - 1) + delim
+                out_str += "S" + " " * (len(ref[ref_idx]) - 1) + delim
             else:
-                out_str += 'S' + ' ' * (len(hyp[hyp_idx]) - 1) + delim
-        elif steps[i] == 'ins':
-            idx = i - steps[:i].count('del')
-            out_str += 'I' + ' ' * (len(hyp[idx]) - 1) + delim
+                out_str += "S" + " " * (len(hyp[hyp_idx]) - 1) + delim
+        elif steps[i] == "ins":
+            idx = i - steps[: i].count("del")
+            out_str += "I" + " " * (len(hyp[idx]) - 1) + delim
         else:
-            assert steps[i] == 'del' or steps[i] == 'corr'
-            idx = i - steps[:i].count('ins')
-            sym = 'D' if steps[i] == 'del' else ' '
-            out_str += sym + ' ' * (len(ref[idx]) - 1) + delim
+            assert steps[i] == "del" or steps[i] == "corr"
+            idx = i - steps[: i].count("ins")
+            sym = "D" if steps[i] == "del" else " "
+            out_str += sym + " " * (len(ref[idx]) - 1) + delim
 
     counter = Counter(steps)
-    wer = float(counter['sub'] + counter['ins'] + counter['del']) / len(ref) \
-        * 100 if len(ref) > 0 else 0.
-    out_str += 'WER: ' + '{:.2f}%'.format(wer) + '\n'
-    out_str += '\n'
+    wer = (
+        float(counter["sub"] + counter["ins"] + counter["del"]) / len(ref) * 100
+        if len(ref) > 0
+        else 0.0
+    )
+    out_str += "WER: " + "{:.2f}%".format(wer) + "\n"
+    out_str += "\n"
 
     return out_str

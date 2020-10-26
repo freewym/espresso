@@ -13,7 +13,6 @@ from collections import Counter
 import torch
 
 from espresso.data import AsrDictionary
-
 import espresso.tools.utils as utils
 
 
@@ -91,8 +90,11 @@ class TestSpeechUtils(unittest.TestCase):
                 tensor, extra_symbols_to_ignore={self.dictionary.pad()}
             )
             expected_tokens = " ".join(
-                [token if self.dictionary.index(token) != self.dictionary.unk() else
-                    self.dictionary.unk_word for token in tokens.split(" ")]
+                [
+                    token if self.dictionary.index(token) != self.dictionary.unk()
+                    else self.dictionary.unk_word
+                    for token in tokens.split(" ")
+                ]
             )
             self.assertEqual(reconstructed_tokens, expected_tokens)
 
