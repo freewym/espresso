@@ -12,14 +12,17 @@ import ast
 import logging
 import os
 import sys
+from argparse import Namespace
 
 import numpy as np
 
 import torch
 
 from fairseq import checkpoint_utils, options, tasks, utils
+from fairseq.dataclass.utils import convert_namespace_to_omegaconf
 from fairseq.logging import progress_bar
 from fairseq.logging.meters import StopwatchMeter
+from omegaconf import DictConfig
 
 try:
     import kaldi_io
@@ -27,12 +30,16 @@ except ImportError:
     raise ImportError("Please install kaldi_io with: pip install kaldi_io")
 
 
-def main(args):
-    assert args.path is not None, "--path required for decoding!"
-    return _main(args, sys.stderr)
+def main(cfg: DictConfig):
+
+    if isinstance(cfg, Namespace):
+        cfg = convert_namespace_to_omegaconf(cfg)
+
+    assert cfg.common_eval.path is not None, "--path required for decoding!"
+    return _main(cfg, sys.stderr)
 
 
-def _main(args, output_file):
+def _main(cfg, output_file):
     logging.basicConfig(
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -41,41 +48,41 @@ def _main(args, output_file):
     )
     logger = logging.getLogger("espresso.dump_posteriors")
 
-    print_options_meaning_changes(args, logger)
+    print_options_meaning_changes(cfg, logger)
 
-    utils.import_user_module(args)
+    utils.import_user_module(cfg.common)
 
-    if args.max_tokens is None and args.batch_size is None:
-        args.max_tokens = 12000
-    logger.info(args)
+    if cfg.dataset.max_tokens is None and cfg.dataset.batch_size is None:
+        cfg.dataset.max_tokens = 12000
+    logger.info(cfg)
 
     # Fix seed for stochastic decoding
-    if args.seed is not None and not args.no_seed_provided:
-        np.random.seed(args.seed)
-        utils.set_torch_seed(args.seed)
+    if cfg.common.seed is not None and not cfg.generation.no_seed_provided:
+        np.random.seed(cfg.common.seed)
+        utils.set_torch_seed(cfg.common.seed)
 
-    use_cuda = torch.cuda.is_available() and not args.cpu
+    use_cuda = torch.cuda.is_available() and not cfg.common.cpu
 
     # Load dataset split
-    task = tasks.setup_task(args)
-    task.load_dataset(args.gen_subset)
+    task = tasks.setup_task(cfg.task)
+    task.load_dataset(cfg.dataset.gen_subset)
 
-    overrides = ast.literal_eval(args.model_overrides)
+    overrides = ast.literal_eval(cfg.common_eval.model_overrides)
 
     # Load ensemble
-    logger.info("loading model(s) from {}".format(args.path))
+    logger.info("loading model(s) from {}".format(cfg.common_eval.path))
     models, _model_args = checkpoint_utils.load_model_ensemble(
-        utils.split_paths(args.path),
+        utils.split_paths(cfg.common_eval.path),
         arg_overrides=overrides,
         task=task,
-        suffix=getattr(args, "checkpoint_suffix", ""),
-        strict=(args.checkpoint_shard_count == 1),
-        num_shards=args.checkpoint_shard_count,
+        suffix=cfg.checkpoint.checkpoint_suffix,
+        strict=(cfg.checkpoint.checkpoint_shard_count == 1),
+        num_shards=cfg.checkpoint.checkpoint_shard_count,
     )
 
     # Load state prior for cross-entropy trained systems decoding
-    if args.state_prior_file is not None:
-        prior = torch.from_numpy(kaldi_io.read_vec_flt(args.state_prior_file))
+    if cfg.generation.state_prior_file is not None:
+        prior = torch.from_numpy(kaldi_io.read_vec_flt(cfg.generation.state_prior_file))
     else:
         prior = []
 
@@ -83,11 +90,11 @@ def _main(args, output_file):
     for model in models:
         if model is None:
             continue
-        if args.fp16:
+        if cfg.common.fp16:
             model.half()
-        if use_cuda and not args.pipeline_model_parallel:
+        if use_cuda and not cfg.distributed_training.pipeline_model_parallel:
             model.cuda()
-        model.prepare_for_inference_(args)
+        model.prepare_for_inference_(cfg)
         if isinstance(prior, list) and getattr(model, "state_prior", None) is not None:
             prior.append(model.state_prior.unsqueeze(0))
 
@@ -98,7 +105,7 @@ def _main(args, output_file):
         prior = None
 
     if prior is not None:
-        if args.fp16:
+        if cfg.common.fp16:
             prior = prior.half()
         if use_cuda:
             prior = prior.cuda()
@@ -108,31 +115,30 @@ def _main(args, output_file):
 
     # Load dataset (possibly sharded)
     itr = task.get_batch_iterator(
-        dataset=task.dataset(args.gen_subset),
-        max_tokens=args.max_tokens,
-        max_sentences=args.batch_size,
+        dataset=task.dataset(cfg.dataset.gen_subset),
+        max_tokens=cfg.dataset.max_tokens,
+        max_sentences=cfg.dataset.batch_size,
         max_positions=utils.resolve_max_positions(
-            task.max_positions(),
-            *[model.max_positions() if hasattr(model, "encoder")
-              else (None, model.max_positions()) for model in models]
+            task.max_positions(), *[m.max_positions() for m in models]
         ),
-        ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-        required_batch_size_multiple=args.required_batch_size_multiple,
-        num_shards=args.num_shards,
-        shard_id=args.shard_id,
-        num_workers=args.num_workers,
-        data_buffer_size=args.data_buffer_size,
+        ignore_invalid_inputs=cfg.dataset.skip_invalid_size_inputs_valid_test,
+        required_batch_size_multiple=cfg.dataset.required_batch_size_multiple,
+        seed=cfg.common.seed,
+        num_shards=cfg.distributed_training.distributed_world_size,
+        shard_id=cfg.distributed_training.distributed_rank,
+        num_workers=cfg.dataset.num_workers,
+        data_buffer_size=cfg.dataset.data_buffer_size,
     ).next_epoch_itr(shuffle=False)
     progress = progress_bar.progress_bar(
         itr,
-        log_format=args.log_format,
-        log_interval=args.log_interval,
-        default_log_format=("tqdm" if not args.no_progress_bar else "none"),
+        log_format=cfg.common.log_format,
+        log_interval=cfg.common.log_interval,
+        default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
     )
 
     # Initialize generator
     gen_timer = StopwatchMeter()
-    generator = task.build_generator(models, args)
+    generator = task.build_generator(models, cfg.generation)
 
     # Generate and dump
     num_sentences = 0
@@ -153,12 +159,12 @@ def _main(args, output_file):
                 out_lengths = (~padding_mask).long().sum(dim=1).cpu() if padding_mask is not None else None
                 num_processed_frames = sample["ntokens"]
                 gen_timer.stop(num_processed_frames)
-                num_sentences += sample["nsentences"] if "nsentences" in sample else sample['id'].numel()
+                num_sentences += sample["nsentences"] if "nsentences" in sample else sample["id"].numel()
 
                 if out_lengths is not None:
                     for i in range(sample["nsentences"]):
                         length = out_lengths[i]
-                        kaldi_io.write_mat(f, lprobs[i, :length, :].cpu().numpy(), key=sample["utt_id"][i])
+                        kaldi_io.write_mat(f, lprobs[i, : length, :].cpu().numpy(), key=sample["utt_id"][i])
                 else:
                     for i in range(sample["nsentences"]):
                         kaldi_io.write_mat(f, lprobs[i, :, :].cpu().numpy(), key=sample["utt_id"][i])
@@ -189,9 +195,9 @@ def _main(args, output_file):
                         num_sentences += len(utt_id)
                         for j in range(len(utt_id)):
                             truncated_length = models[0].output_lengths(
-                                task.dataset(args.gen_subset).src_sizes[id[j]]
+                                task.dataset(cfg.dataset.gen_subset).src_sizes[id[j]]
                             )  # length is after possible subsampling by the model
-                            mat = whole_lprobs[j, :truncated_length, :]
+                            mat = whole_lprobs[j, : truncated_length, :]
                             kaldi_io.write_mat(f, mat.numpy(), key=utt_id[j])
 
     logger.info("Dumped {} utterances ({} frames) in {:.1f}s ({:.2f} sentences/s, {:.2f} frames/s)".format(
@@ -200,7 +206,7 @@ def _main(args, output_file):
     return
 
 
-def print_options_meaning_changes(args, logger):
+def print_options_meaning_changes(cfg, logger):
     """Options that have different meanings than those in the translation task
     are explained here.
     """
@@ -209,12 +215,6 @@ def print_options_meaning_changes(args, logger):
 
 def cli_main():
     parser = options.get_generation_parser(default_task="speech_recognition_hybrid")
-    parser.add_argument("--apply-log-softmax", action="store_true",
-                        help="Apply log-softmax to the neural network outputs for some "
-                        "systems, e.g., Xent. Otherwise use the raw outputs")
-    parser.add_argument("--state-prior-file", default=None, type=str, metavar="FILE",
-                        help="state prior file. If provided, use this file instead of "
-                        "that from the checkpoint")
     args = options.parse_args_and_arch(parser)
     main(args)
 

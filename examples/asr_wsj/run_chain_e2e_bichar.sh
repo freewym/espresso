@@ -185,7 +185,7 @@ if [ ${stage} -le 6 ]; then
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   update_freq=1
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/chain_e2e_bichar --task speech_recognition_hybrid --seed 1 --user-dir espresso \
+  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/chain_e2e_bichar --task speech_recognition_hybrid --seed 1 \
     --log-interval $((200/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --data-buffer-size 0 --max-tokens 120000 --batch-size 128 --curriculum 1 --empty-cache-freq 50 \
     --valid-subset $valid_subset --batch-size-valid 128 --ddp-backend no_c10d --update-freq $update_freq \
@@ -212,7 +212,7 @@ if [ ${stage} -le 7 ]; then
       for lmtype in tgpr bd_tgpr; do
         graph_dir=$tree_dir/graph_${lmtype}
         $decode_cmd $queue_opt JOB=1:$nj $dir/decode_${lmtype}_${data_affix}/log/decode.JOB.log \
-          dump_posteriors.py data/chain_e2e_bichar --cpu --task speech_recognition_hybrid --user-dir espresso \
+          dump_posteriors.py data/chain_e2e_bichar --cpu --task speech_recognition_hybrid \
             --max-tokens 120000 --batch-size 128 --num-shards 1 --shard-id 0 --num-targets $num_targets \
             --gen-subset $dataset.JOB \
             --max-source-positions 9999 --path $path \| \
