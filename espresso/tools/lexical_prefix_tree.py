@@ -24,8 +24,8 @@ def lexical_prefix_tree(
 
     Return:
         root (Node): the root of the prefix tree, where each node has the fields:
-            ('children': Dict[int,Node], 'word_idx': int, 'word_set': Tuple[int]).
-            'children' is subword_idx -> node, and 'word_set' is (first-1, last),
+            ("children": Dict[int,Node], "word_idx": int, "word_set": Tuple[int]).
+            "children" is subword_idx -> node, and "word_set" is (first-1, last),
             where [first, last] is the range of the word indexes (inclusive) in
             the word dictionary who share the same prefix at that node.
             We assume words in the word dictionary are in lexical order.
@@ -43,8 +43,11 @@ def lexical_prefix_tree(
     for widx in range(len(word_dict)):
         if widx not in special_symbols:  # skip <pad>, <eos>, <unk>
             # tokenize a word into a list of subwords
-            subwords = subword_tokenizer(word_dict[widx]) \
-                if subword_tokenizer is not None else list(word_dict[widx])
+            subwords = (
+                subword_tokenizer(word_dict[widx])
+                if subword_tokenizer is not None
+                else list(word_dict[widx])
+            )
             if any(subword_dict.index(s) == subword_dict.unk() for s in subwords):
                 # skip words containing any unknown subwords
                 continue

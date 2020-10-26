@@ -13,7 +13,7 @@ import numpy as np
 try:
     import kaldi_io
 except ImportError:
-    raise ImportError('Please install kaldi_io with: pip install kaldi_io')
+    raise ImportError("Please install kaldi_io with: pip install kaldi_io")
 
 
 logging.basicConfig(

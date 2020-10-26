@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import torch
 
-from fairseq.data import data_utils, FairseqDataset
+from fairseq.data import FairseqDataset, data_utils
 
 import espresso.tools.utils as speech_utils
 
@@ -48,14 +48,15 @@ def collate(
 
     id = torch.LongTensor([s["id"] for s in samples])
     src_frames = merge(
-        "source", left_pad=left_pad_source,
+        "source",
+        left_pad=left_pad_source,
         pad_to_length=pad_to_length["source"] if pad_to_length is not None else None,
     )
     # sort by descending source length
     if pad_to_length is not None or src_bucketed:
-        src_lengths = torch.IntTensor([
-            s["source"].ne(0.0).any(dim=1).int().sum() for s in samples
-        ])
+        src_lengths = torch.IntTensor(
+            [s["source"].ne(0.0).any(dim=1).int().sum() for s in samples]
+        )
     else:
         src_lengths = torch.IntTensor([s["source"].size(0) for s in samples])
     src_lengths, sort_order = src_lengths.sort(descending=True)
@@ -68,7 +69,9 @@ def collate(
     if samples[0].get("target", None) is not None:
         target = merge(
             "target", left_pad=left_pad_target,
-            pad_to_length=pad_to_length["target"] if pad_to_length is not None else None,
+            pad_to_length=pad_to_length["target"]
+            if pad_to_length is not None
+            else None,
         )
         target = target.index_select(0, sort_order)
         ntokens = sum(s["target"].ne(pad_idx).int().sum().item() for s in samples)
@@ -82,7 +85,9 @@ def collate(
                 "target",
                 left_pad=left_pad_target,
                 move_eos_to_beginning=True,
-                pad_to_length=pad_to_length["target"] if pad_to_length is not None else None,
+                pad_to_length=pad_to_length["target"]
+                if pad_to_length is not None
+                else None,
             )
     else:
         ntokens = src_lengths.sum().item()
@@ -104,7 +109,9 @@ def collate(
         "target_raw_text": target_raw_text,
     }
     if prev_output_tokens is not None:
-        batch["net_input"]["prev_output_tokens"] = prev_output_tokens.index_select(0, sort_order)
+        batch["net_input"]["prev_output_tokens"] = prev_output_tokens.index_select(
+            0, sort_order
+        )
 
     if samples[0].get("constraints", None) is not None:
         # Collate the packed constraints across the samples, padding to
@@ -112,7 +119,7 @@ def collate(
         lens = [sample.get("constraints").size(0) for sample in samples]
         constraints = torch.zeros((len(samples), max(lens))).long()
         for i, sample in enumerate(samples):
-            constraints[i, 0:lens[i]] = samples[i].get("constraints")
+            constraints[i, 0: lens[i]] = samples[i].get("constraints")
         batch["constraints"] = constraints
 
     return batch
@@ -141,19 +148,25 @@ class AsrDataset(FairseqDataset):
         num_buckets (int, optional): if set to a value greater than 0, then
             batches will be bucketed into the given number of batch shapes.
         src_lang_id (int, optional): source language ID, if set, the collated batch
-            will contain a field 'src_lang_id' in 'net_input' which indicates the
+            will contain a field "src_lang_id" in "net_input" which indicates the
             source language of the samples.
         tgt_lang_id (int, optional): target language ID, if set, the collated batch
-            will contain a field 'tgt_lang_id' which indicates the target language
+            will contain a field "tgt_lang_id" which indicates the target language
             of the samples.
         pad_to_multiple (int, optional): pad src/tgt lengths to a multiple of this value
     """
 
     def __init__(
-        self, src, src_sizes,
-        tgt=None, tgt_sizes=None, dictionary=None,
-        left_pad_source=False, left_pad_target=False,
-        shuffle=True, input_feeding=True,
+        self,
+        src,
+        src_sizes,
+        tgt=None,
+        tgt_sizes=None,
+        dictionary=None,
+        left_pad_source=False,
+        left_pad_target=False,
+        shuffle=True,
+        input_feeding=True,
         constraints=None,
         num_buckets=0,
         src_lang_id=None,
@@ -175,10 +188,15 @@ class AsrDataset(FairseqDataset):
         self.tgt_lang_id = tgt_lang_id
         if self.tgt is not None:
             self._match_src_tgt()
-        self.sizes = np.vstack((self.src_sizes, self.tgt_sizes)).T if self.tgt_sizes is not None else self.src_sizes
+        self.sizes = (
+            np.vstack((self.src_sizes, self.tgt_sizes)).T
+            if self.tgt_sizes is not None
+            else self.src_sizes
+        )
 
         if num_buckets > 0:
             from espresso.data import FeatBucketPadLengthDataset, TextBucketPadLengthDataset
+
             self.src = FeatBucketPadLengthDataset(
                 self.src,
                 sizes=self.src_sizes,
@@ -204,8 +222,7 @@ class AsrDataset(FairseqDataset):
             num_tokens = np.vectorize(self.num_tokens, otypes=[np.long])
             self.bucketed_num_tokens = num_tokens(np.arange(len(self.src)))
             self.buckets = [
-                (None, num_tokens)
-                for num_tokens in np.unique(self.bucketed_num_tokens)
+                (None, num_tokens) for num_tokens in np.unique(self.bucketed_num_tokens)
             ]
         else:
             self.buckets = None
@@ -261,7 +278,7 @@ class AsrDataset(FairseqDataset):
         Args:
             samples (List[dict]): samples to collate
             pad_to_length (dict, optional): a dictionary of
-                {'source': source_pad_to_length, 'target': target_pad_to_length}
+                {"source": source_pad_to_length, "target": target_pad_to_length}
                 to indicate the max length to pad to in source and target respectively.
 
         Returns:
@@ -309,13 +326,13 @@ class AsrDataset(FairseqDataset):
             src_tokens = res["net_input"]["src_tokens"]
             bsz = src_tokens.size(0)
             if self.src_lang_id is not None:
-                res["net_input"]["src_lang_id"] = torch.LongTensor(
-                    [[self.src_lang_id]]
-                ).expand(bsz, 1).to(src_tokens)
+                res["net_input"]["src_lang_id"] = (
+                    torch.LongTensor([[self.src_lang_id]]).expand(bsz, 1).to(src_tokens)
+                )
             if self.tgt_lang_id is not None:
-                res["tgt_lang_id"] = torch.LongTensor(
-                    [[self.tgt_lang_id]]
-                ).expand(bsz, 1).to(src_tokens)
+                res["tgt_lang_id"] = (
+                    torch.LongTensor([[self.tgt_lang_id]]).expand(bsz, 1).to(src_tokens)
+                )
         return res
 
     def num_tokens(self, index):
@@ -326,7 +343,10 @@ class AsrDataset(FairseqDataset):
     def size(self, index):
         """Return an example's size as a float or tuple. This value is used when
         filtering a dataset with ``--max-positions``."""
-        return (self.src_sizes[index], self.tgt_sizes[index] if self.tgt_sizes is not None else 0)
+        return (
+            self.src_sizes[index],
+            self.tgt_sizes[index] if self.tgt_sizes is not None else 0,
+        )
 
     def ordered_indices(self):
         """Return an ordered list of indices. Batches will be constructed based
@@ -338,9 +358,7 @@ class AsrDataset(FairseqDataset):
         if self.buckets is None:
             # sort by target length, then source length
             if self.tgt_sizes is not None:
-                indices = indices[
-                    np.argsort(self.tgt_sizes[indices], kind="mergesort")
-                ]
+                indices = indices[np.argsort(self.tgt_sizes[indices], kind="mergesort")]
             return indices[np.argsort(self.src_sizes[indices], kind="mergesort")]
         else:
             # sort by bucketed_num_tokens, which is padded_src_len
@@ -357,7 +375,7 @@ class AsrDataset(FairseqDataset):
         self.src.prefetch(indices)
 
     def filter_indices_by_size(self, indices, max_sizes):
-        """ Filter a list of sample indices. Remove those that are longer
+        """Filter a list of sample indices. Remove those that are longer
             than specified in max_sizes.
 
         Args:
