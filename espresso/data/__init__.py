@@ -6,6 +6,7 @@
 from .asr_bucket_pad_length_dataset import FeatBucketPadLengthDataset, TextBucketPadLengthDataset
 from .asr_chain_dataset import AsrChainDataset, NumeratorGraphDataset
 from .asr_dataset import AsrDataset
+from .asr_k2_dataset import AsrK2Dataset
 from .asr_dictionary import AsrDictionary
 from .asr_xent_dataset import AliScpCachedDataset, AsrXentDataset
 from .feat_text_dataset import (
@@ -20,6 +21,7 @@ __all__ = [
     "AsrChainDataset",
     "AsrDataset",
     "AsrDictionary",
+    "AsrK2Dataset",
     "AsrTextDataset",
     "AsrXentDataset",
     "FeatBucketPadLengthDataset",

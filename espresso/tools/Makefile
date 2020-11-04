@@ -1,5 +1,5 @@
 KALDI =
-PYTHON_DIR = ~/anaconda3/bin
+PYTHON_DIR = /export/b03/ywang/anaconda3/bin
 
 CXX ?= g++
 
@@ -30,6 +30,7 @@ kaldi:
 endif
 
 clean: openfst_cleaned
+	rm -rf lhotse
 	rm -rf pychain
 	rm -rf kaldi
 
@@ -79,3 +80,8 @@ pychain:
 	export PATH=$(PYTHON_DIR):$$PATH && \
 	cd pychain/openfst_binding && python3 setup.py install && \
 	cd ../pytorch_binding && python3 setup.py install
+
+.PHONY: lhotse
+lhotse:
+	test -d lhotse || git clone https://github.com/lhotse-speech/lhotse.git
+	export PATH=$(PYTHON_DIR):$$PATH && cd lhotse && pip install -e .
