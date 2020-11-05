@@ -20,7 +20,7 @@ class CharactersAsrConfig(FairseqDataclass):
 @register_bpe("characters_asr", dataclass=CharactersAsrConfig)
 class CharactersAsr(object):
     def __init__(
-        self, cfg, space_symbol="<space>", ends_with_space=True,
+        self, cfg: CharactersAsrConfig, space_symbol="<space>", ends_with_space=True,
         non_lang_syms: Optional[List[str]] = None,
     ):
         self.space_symbol = space_symbol
