@@ -307,7 +307,7 @@ class AsrChainDataset(FairseqDataset):
             samples (List[dict]): samples to collate
             pad_to_length (dict, optional): a dictionary of
                 {"source": source_pad_to_length}
-                to indicate the max length to pad to in source and target respectively.
+                to indicate the max length to pad to in source.
 
         Returns:
             dict: a mini-batch with the following keys:

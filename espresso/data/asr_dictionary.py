@@ -8,8 +8,8 @@ from typing import Union
 
 import torch
 from fairseq.data import Dictionary, encoders
+from fairseq.dataclass import FairseqDataclass
 from fairseq.file_io import PathManager
-from omegaconf import DictConfig
 
 # will automatically load modules defined from there
 from espresso.data import encoders as encoders_espresso
@@ -99,12 +99,12 @@ class AsrDictionary(Dictionary):
         t[-1] = self.eos()
         return t
 
-    def build_tokenizer(self, cfg: Union[DictConfig, Namespace]):
+    def build_tokenizer(self, cfg: Union[FairseqDataclass, Namespace]):
         self.tokenizer = encoders.build_tokenizer(cfg)
 
-    def build_bpe(self, cfg: Union[DictConfig, Namespace]):
+    def build_bpe(self, cfg: Union[FairseqDataclass, Namespace]):
         if (
-            (isinstance(cfg, DictConfig) and cfg._name == "characters_asr")
+            (isinstance(cfg, FairseqDataclass) and cfg._name == "characters_asr")
             or (isinstance(cfg, Namespace) and getattr(cfg, "bpe", None) == "characters_asr")
         ):
             self.bpe = encoders.build_bpe(
