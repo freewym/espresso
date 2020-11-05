@@ -18,7 +18,7 @@ from fairseq.data import BaseWrapperDataset, ConcatDataset
 from fairseq.dataclass import FairseqDataclass
 from fairseq.dataclass.configs import GenerationConfig
 from fairseq.tasks import FairseqTask, register_task
-from omegaconf import II, DictConfig
+from omegaconf import II
 
 from espresso.data import (
     AliScpCachedDataset,
@@ -339,7 +339,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
         """
         raise NotImplementedError
 
-    def __init__(self, cfg: DictConfig, dictionary):
+    def __init__(self, cfg: SpeechRecognitionHybridConfig, dictionary):
         super().__init__(cfg)
         self.dictionary = dictionary
         self.feat_in_channels = cfg.feat_in_channels
@@ -372,11 +372,11 @@ class SpeechRecognitionHybridTask(FairseqTask):
         torch.backends.cudnn.deterministic = True
 
     @classmethod
-    def setup_task(cls, cfg: DictConfig, **kwargs):
+    def setup_task(cls, cfg: SpeechRecognitionHybridConfig, **kwargs):
         """Setup the task (e.g., load dictionaries).
 
         Args:
-            cfg (omegaconf.DictConfig): parsed command-line arguments
+            cfg (SpeechRecognitionHybridConfig): configuration of this task
         """
         # load dictionaries
         dict_path = cfg.dict
