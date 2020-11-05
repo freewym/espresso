@@ -115,7 +115,7 @@ class AsrK2Dataset(FairseqDataset):
             [cut.num_frames if cut.has_features else cut.num_samples for cut in cuts]
         )
         self.tgt_sizes = None
-        first_cut = cuts[self.cut_ids[0]]
+        first_cut = next(iter(cuts))
         # assume all cuts have no supervisions if the first one does not
         if len(first_cut.supervisions) > 0:
             assert len(first_cut.supervisions) == 1, "Only single-supervision cuts are allowed"
