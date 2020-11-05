@@ -18,7 +18,7 @@ from fairseq.data import BaseWrapperDataset, ConcatDataset
 from fairseq.dataclass import FairseqDataclass
 from fairseq.logging import metrics
 from fairseq.tasks import FairseqTask, register_task
-from omegaconf import II, DictConfig
+from omegaconf import II
 
 from espresso.data import (
     AsrDataset,
@@ -233,7 +233,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         raise NotImplementedError
 
-    def __init__(self, cfg: DictConfig, tgt_dict, word_dict=None):
+    def __init__(self, cfg: SpeechRecognitionEspressoConfig, tgt_dict, word_dict=None):
         super().__init__(cfg)
         self.tgt_dict = tgt_dict
         self.word_dict = word_dict
@@ -246,11 +246,11 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         torch.rand(1)
 
     @classmethod
-    def setup_task(cls, cfg: DictConfig, **kwargs):
+    def setup_task(cls, cfg: SpeechRecognitionEspressoConfig, **kwargs):
         """Setup the task (e.g., load dictionaries).
 
         Args:
-            cfg (omegaconf.DictConfig): parsed command-line arguments
+            cfg (SpeechRecognitionEspressoConfig): configuration of this task
         """
         # load dictionaries
         dict_path = os.path.join(cfg.data, "dict.txt") if cfg.dict is None else cfg.dict
@@ -315,8 +315,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             constraints=constraints,
         )
 
-    def build_model(self, cfg: DictConfig):
-        model = super().build_model(cfg)
+    def build_model(self, model_cfg: FairseqDataclass):
+        model = super().build_model(model_cfg)
         # build the greedy decoder for validation with WER
         from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
 
@@ -353,13 +353,13 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """Return the target :class:`~fairseq.data.AsrDictionary`."""
         return self.tgt_dict
 
-    def build_tokenizer(self, cfg: DictConfig):
+    def build_tokenizer(self, cfg: FairseqDataclass):
         """Build the pre-tokenizer for this task."""
         self.tgt_dict.build_tokenizer(cfg)
         # the instance is built within self.tgt_dict
         return self.tgt_dict.tokenizer
 
-    def build_bpe(self, cfg: DictConfig):
+    def build_bpe(self, cfg: FairseqDataclass):
         """Build the tokenizer for this task."""
         self.tgt_dict.build_bpe(cfg)
         # the instance is built within self.tgt_dict
