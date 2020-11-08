@@ -6,7 +6,7 @@
 import logging
 import os
 import re
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -17,12 +17,23 @@ from fairseq.data import FairseqDataset, data_utils
 import espresso.tools.utils as speech_utils
 try:
     # TODO use pip install once it's available
-    from espresso.tools.lhotse.cut import CutSet
+    from espresso.tools.lhotse.lhotse import CutSet
 except ImportError:
     raise ImportError("Please install Lhotse by `make lhotse` after entering espresso/tools")
 
 
-def collate(samples, pad_to_length=None, pad_to_multiple=1):
+def collate(
+    samples: List[Dict[str, Any]],
+    pad_to_length: Optional[Dict[str, int]] = None,
+    pad_to_multiple: int = 1,
+) -> Dict[str, Any]:
+    """Collate samples into a batch. We use :func:`speech_utils.collate_frames`
+    to collate and pad input frames, and PyTorch's :func:`default_collate`
+    to collate and pad target/supervisions (following the example provided in Lhotse).
+    Samples in the batch are in descending order of their input frame lengths.
+    It also allows to specify the padded input length and further enforce the length
+    to be a multiple of `pad_to_multiple`
+    """
     if len(samples) == 0:
         return {}
 
@@ -92,12 +103,12 @@ def collate(samples, pad_to_length=None, pad_to_multiple=1):
     return batch
 
 
-class AsrK2Dataset(FairseqDataset):
+class K2AsrDataset(FairseqDataset):
     """
     A K2 Dataset for ASR.
 
     Args:
-        cuts (lhotse.CutSet): Lhotse CutSet to wrap
+        cuts (lhotse.CutSet): instance of Lhotse's CutSet to wrap
         shuffle (bool, optional): shuffle dataset elements before batching
             (default: True).
         pad_to_multiple (int, optional): pad src lengths to a multiple of this value
@@ -165,14 +176,18 @@ class AsrK2Dataset(FairseqDataset):
     def __len__(self):
         return len(self.cuts)
 
-    def collater(self, samples, pad_to_length=None):
+    def collater(
+        self,
+        samples: List[Dict[str, Any]],
+        pad_to_length: Optional[Dict[str, int]] = None,
+    ) -> Dict[str, Any]:
         """Merge a list of samples to form a mini-batch.
 
         Args:
             samples (List[dict]): samples to collate
             pad_to_length (dict, optional): a dictionary of
                 {"source": source_pad_to_length}
-                to indicate the max length to pad to in source and target respectively.
+                to indicate the max length to pad to in source.
 
         Returns:
             dict: a mini-batch with the following keys:
@@ -188,7 +203,7 @@ class AsrK2Dataset(FairseqDataset):
                   - `src_lengths` (IntTensor): 1D Tensor of the unpadded
                     lengths of each source sequence of shape `(bsz)`
 
-                - `target` (List[Dict[str, Any]]): an List representing a batch of
+                - `target` (List[Dict[str, Any]]): a List representing a batch of
                     supervisions
         """
         return collate(

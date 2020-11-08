@@ -9,20 +9,24 @@ import logging
 import os
 import sys
 from typing import List
+from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor
+import multiprocessing
 from pathlib import Path
 
 import numpy as np
 
 from fairseq.data.data_utils import numpy_seed
 
+
 try:
     # TODO use pip install once it's available
-    from espresso.tools.lhotse import (
-        CutSet, Mfcc, MfccConfig, LilcomFilesWriter, SupervisionSet, WavAugmenter
+    from espresso.tools.lhotse.lhotse import (
+        CutSet, Mfcc, MfccConfig, LilcomFilesWriter, RecordingSet, SupervisionSet
     )
-    from espresso.tools.lhotse.manipulation import combine
-    from espresso.tools.lhotse.recipes.mobvoihotwords import download_and_untar, prepare_mobvoihotwords
+    from espresso.tools.lhotse.lhotse.augmentation import SoxEffectTransform, RandomValue
+    from espresso.tools.lhotse.lhotse.manipulation import combine
+    from espresso.tools.lhotse.lhotse.recipes.mobvoihotwords import download_and_untar, prepare_mobvoihotwords
 except ImportError:
     raise ImportError("Please install Lhotse by `make lhotse` after entering espresso/tools")
 
@@ -33,7 +37,7 @@ logging.basicConfig(
     level=os.environ.get("LOGLEVEL", "INFO").upper(),
     stream=sys.stdout,
 )
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mobvoihotwords.data_prep")
 
 
 def get_parser():
@@ -44,7 +48,7 @@ def get_parser():
     parser.add_argument("--data-dir", default="data", type=str, help="data directory")
     parser.add_argument("--seed", default=1, type=int, help="random seed")
     parser.add_argument(
-        "--num-jobs", default=1, type=int, help="number of jobs for features extraction"
+        "--num-workers", default=1, type=int, help="number of workers for features extraction"
     )
     parser.add_argument(
         "--max-remaining-duration", default=0.3, type=float,
@@ -64,11 +68,25 @@ def main(args):
     corpus_dir = root_dir / "MobvoiHotwords"
     output_dir = root_dir
 
-    # Download and extract the corpus
+    logger.info(f"Download and extract the corpus")
     download_and_untar(root_dir)
 
-    # Prepare manifests
-    mobvoihotwords_manifests = prepare_mobvoihotwords(corpus_dir, output_dir)
+    logger.info(f"Prepare the manifests")
+    partitions = ["train", "dev", "test"]
+    if all(
+        (output_dir / f"{key}_{part}.json").is_file()
+        for key in ["recordings", "supervisions"] for part in partitions
+    ):
+        logger.info(f"All the manifests files are found in {output_dir}. Load from them directly")
+        mobvoihotwords_manifests = defaultdict(dict)
+        for part in partitions:
+            mobvoihotwords_manifests[part] = {
+                "recordings": RecordingSet.from_json(output_dir / f"recordings_{part}.json"),
+                "supervisions": SupervisionSet.from_json(output_dir / f"supervisions_{part}.json")
+            }
+    else:
+        logger.info("It may take long time")
+        mobvoihotwords_manifests = prepare_mobvoihotwords(corpus_dir, output_dir)
     logger.info(
         "train/dev/test size: {}/{}/{}".format(
             len(mobvoihotwords_manifests["train"]["recordings"]),
@@ -81,16 +99,17 @@ def main(args):
     np.random.seed(args.seed)
     # equivalent to Kaldi's mfcc_hires config
     mfcc = Mfcc(config=MfccConfig(num_mel_bins=40, num_ceps=40, low_freq=20, high_freq=-400))
-    for partition, manifests in mobvoihotwords_manifests.items():
+    for part, manifests in mobvoihotwords_manifests.items():
         cut_set = CutSet.from_manifests(
             recordings=manifests["recordings"],
             supervisions=manifests["supervisions"],
         )
         sampling_rate = next(iter(cut_set)).sampling_rate
-        with ProcessPoolExecutor(args.num_jobs) as ex:
-            if "train" in partition:
+        with ProcessPoolExecutor(args.num_workers, mp_context=multiprocessing.get_context("spawn")) as ex:
+            if part == "train":
                 # split negative recordings into smaller chunks with lengths sampled from
                 # length distribution of positive recordings
+                logger.info(f"Split negative recordings in '{part}' set")
                 pos_durs = get_positive_durations(manifests["supervisions"])
                 with numpy_seed(args.seed):
                     cut_set = keep_positives_and_split_negatives(
@@ -99,65 +118,103 @@ def main(args):
                         max_remaining_duration=args.max_remaining_duration,
                         overlap_duration=args.overlap_duration,
                     )
+
                 # "clean" set
-                with LilcomFilesWriter(f"{output_dir}/feats_{partition}_clean") as storage:
-                    cut_set_clean = cut_set.compute_and_store_features(
-                        extractor=mfcc,
-                        storage=storage,
-                        augmenter=None,
-                        executor=ex,
-                    )
-                # augmented with reverberation
-                with LilcomFilesWriter(f"{output_dir}/feats_{partition}_rev") as storage:
-                    with numpy_seed(args.seed):
-                        cut_set_rev = cut_set.compute_and_store_features(
+                logger.info(f"Extract features for '{part}' set")
+                json_path = output_dir / f"cuts_{part}_clean.json.gz"
+                if json_path.is_file():
+                    logger.info(f"{json_path} exists, skip the extraction (remove it if you want to re-generate it)")
+                    cut_set_clean = CutSet.from_json(json_path)
+                else:
+                    with LilcomFilesWriter(f"{output_dir}/feats_{part}_clean") as storage:
+                        cut_set_clean = cut_set.compute_and_store_features(
                             extractor=mfcc,
                             storage=storage,
-                            augmenter=WavAugmenter(effect_chain=reverb()),
-                            excutor=ex,
+                            augment_fn=None,
+                            executor=ex,
                         )
+                    cut_set_clean.to_json(json_path)
+
+                # augmented with reverberation
+                logger.info(f"Extract features for '{part}' set with reverberation")
+                json_path = output_dir / f"cuts_{part}_rev.json.gz"
+                if json_path.is_file():
+                    logger.info(f"{json_path} exists, skip the extraction (remove it if you want to re-generate it)")
+                    cut_set_rev = CutSet.from_json(json_path)
+                else:
+                    augment_fn = SoxEffectTransform(effects=reverb(sampling_rate=sampling_rate))
+                    with LilcomFilesWriter(f"{output_dir}/feats_{part}_rev") as storage:
+                        with numpy_seed(args.seed):
+                            cut_set_rev = cut_set.compute_and_store_features(
+                                extractor=mfcc,
+                                storage=storage,
+                                augment_fn=augment_fn,
+                                executor=ex,
+                            )
                     cut_set_rev = CutSet.from_cuts(
-                        cut.with_id("rev-" + cut.id) for cut in cut_set_rev.cuts
+                        cut.with_id("rev-" + cut.id) for cut in cut_set_rev
                     )
+                    cut_set_rev.to_json(json_path)
+
                 # augmented with speed perturbation
-                with LilcomFilesWriter(f"{output_dir}/feats_{partition}_sp1.1") as storage:
-                    cut_set_sp1p1 = cut_set.compute_and_store_features(
-                        extractor=mfcc,
-                        storage=storage,
-                        augmenter=WavAugmenter(
-                            effect_chain=speed(sampling_rate=sampling_rate, factor=1.1)
-                        ),
-                        excutor=ex,
-                    )
+                logger.info(f"Extract features for '{part}' set with speed perturbation")
+                json_path = output_dir / f"cuts_{part}_sp1.1.json.gz"
+                if json_path.is_file():
+                    logger.info(f"{json_path} exists, skip the extraction (remove it if you want to re-generate it)")
+                    cut_set_sp1p1 = CutSet.from_json(json_path)
+                else:
+                    augment_fn = SoxEffectTransform(effects=speed(sampling_rate=sampling_rate, factor=1.1))
+                    with LilcomFilesWriter(f"{output_dir}/feats_{part}_sp1.1") as storage:
+                        cut_set_sp1p1 = cut_set.compute_and_store_features(
+                            extractor=mfcc,
+                            storage=storage,
+                            augment_fn=augment_fn,
+                            executor=ex,
+                        )
                     cut_set_sp1p1 = CutSet.from_cuts(
-                        cut.with_id("sp1.1-" + cut.id) for cut in cut_set_sp1p1.cuts
+                        cut.with_id("sp1.1-" + cut.id) for cut in cut_set_sp1p1
                     )
-                with LilcomFilesWriter(f"{output_dir}/feats_{partition}_sp0.9") as storage:
-                    cut_set_sp0p9 = cut_set.compute_and_store_features(
-                        extractor=mfcc,
-                        storage=storage,
-                        augmenter=WavAugmenter(
-                            effect_chain=speed(sampling_rate=sampling_rate, factor=0.9)
-                        ),
-                        excutor=ex,
-                    )
+                    cut_set_sp1p1.to_json(json_path)
+                json_path = output_dir / f"cuts_{part}_sp0.9.json.gz"
+                if json_path.is_file():
+                    logger.info(f"{json_path} exists, skip the extraction")
+                    cut_set_sp1p1 = CutSet.from_json(json_path)
+                else:
+                    augment_fn = SoxEffectTransform(effects=speed(sampling_rate=sampling_rate, factor=0.9))
+                    with LilcomFilesWriter(f"{output_dir}/feats_{part}_sp0.9") as storage:
+                        cut_set_sp0p9 = cut_set.compute_and_store_features(
+                            extractor=mfcc,
+                            storage=storage,
+                            augment_fn=augment_fn,
+                            executor=ex,
+                        )
                     cut_set_sp0p9 = CutSet.from_cuts(
-                        cut.with_id("sp0.9-" + cut.id) for cut in cut_set_sp0p9.cuts
+                        cut.with_id("sp0.9-" + cut.id) for cut in cut_set_sp0p9
                     )
+                    cut_set_sp0p9.to_json(json_path)
+
                 # combine the clean and augmented sets together
+                logger.info(f"Combine all the features above")
                 cut_set = combine(
                     cut_set_clean, cut_set_rev, cut_set_sp1p1, cut_set_sp0p9
                 )
             else:  # no augmentations for dev and test sets
-                with LilcomFilesWriter(f"{output_dir}/feats_{partition}") as storage:
-                    cut_set = cut_set.compute_and_store_features(
-                        extractor=mfcc,
-                        storage=storage,
-                        augmenter=None,
-                        executor=ex,
-                    )
-            mobvoihotwords_manifests[partition]["cuts"] = cut_set
-            cut_set.to_json(output_dir / f"cuts_{partition}.json.gz")
+                logger.info(f"extract features for '{part}' set")
+                json_path = output_dir / f"cuts_{part}.json.gz"
+                if json_path.is_file():
+                    logger.info(f"{json_path} exists, skip the extraction (remove it if you want to re-generate it)")
+                    cut_set = CutSet.from_json(json_path)
+                else:
+                    with LilcomFilesWriter(f"{output_dir}/feats_{part}") as storage:
+                        cut_set = cut_set.compute_and_store_features(
+                            extractor=mfcc,
+                            storage=storage,
+                            augmenter=None,
+                            executor=ex,
+                        )
+
+            mobvoihotwords_manifests[part]["cuts"] = cut_set
+            cut_set.to_json(output_dir / f"cuts_{part}.json.gz")
 
 
 def get_positive_durations(sup_set: SupervisionSet) -> List[float]:
@@ -166,7 +223,7 @@ def get_positive_durations(sup_set: SupervisionSet) -> List[float]:
     "FREETEXT" for all negative recordings, and SupervisionSegment.duration
     equals to the corresponding Recording.duration.
     """
-    return [sup.dur for sup in sup_set.filter(lambda seg: seg.text != "FREETEXT")]
+    return [sup.duration for sup in sup_set.filter(lambda seg: seg.text != "FREETEXT")]
 
 
 def keep_positives_and_split_negatives(
@@ -234,30 +291,19 @@ def keep_positives_and_split_negatives(
     return CutSet.from_cuts(new_cuts)
 
 
-def reverb(*args, **kwargs):
-    """
-    Returns a reverb effect for wav augmentation.
-    """
-    import augment
-    effect_chain = augment.EffectChain()
-    # Reverb it makes the signal to have two channels,
-    # which we combine into 1 by running `channels` w/o parameters
-    effect_chain.reverb(50, 50, lambda: np.random.randint(1, 30)).channels()
-    return effect_chain
+def reverb(sampling_rate: int) -> List[List[str]]:
+    return [
+        ["reverb", 50, 50, RandomValue(1, 30)],
+        ["remix", "-"],  # Merge all channels (reverb changes mono to stereo)
+    ]
 
 
-def speed(sampling_rate: int, factor: float):
-    """
-    Returns a speed perturbation effect with <factor> for wav augmentation.
-    :param sampling_rate: a sampling rate value for which the effect will be created (resampling is needed for speed).
-    :param factor: speed perturbation factor
-    """
-    import augment
-    effect_chain = augment.EffectChain()
-    # The speed effect changes the sampling ratio; we have to compensate for that.
-    # Here, we specify 'quick' options on both pitch and rate effects, to speed up things
-    effect_chain.speed("-q", lambda: factor).rate("-q", sampling_rate)
-    return effect_chain
+def speed(sampling_rate: int, factor: float) -> List[List[str]]:
+    return [
+        # speed perturbation with a factor
+        ["speed", factor],
+        ["rate", sampling_rate],  # Resample back to the original sampling rate (speed changes it)
+    ]
 
 
 if __name__ == "__main__":

@@ -23,11 +23,11 @@ from omegaconf import II
 from espresso.data import (
     AliScpCachedDataset,
     AsrChainDataset,
-    AsrK2Dataset,
     AsrXentDataset,
     AsrDictionary,
     AsrTextDataset,
     FeatScpCachedDataset,
+    K2AsrDataset,
     NumeratorGraphDataset,
 )
 
@@ -151,7 +151,7 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
 def get_k2_dataset_from_json(data_path, split, shuffle=True, pad_to_multiple=1, seed=1):
     try:
         # TODO use pip install once it's available
-        from espresso.tools.lhotse.cut import CutSet
+        from espresso.tools.lhotse.lhotse import CutSet
     except ImportError:
         raise ImportError("Please install Lhotse by `make lhotse` after entering espresso/tools")
 
@@ -161,7 +161,7 @@ def get_k2_dataset_from_json(data_path, split, shuffle=True, pad_to_multiple=1, 
 
     cut_set = CutSet.from_json(data_json_path)
     logger.info("{} {} examples".format(data_json_path, len(cut_set)))
-    return AsrK2Dataset(cut_set, shuffle=shuffle, pad_to_multiple=pad_to_multiple)
+    return K2AsrDataset(cut_set, shuffle=shuffle, pad_to_multiple=pad_to_multiple)
 
 
 def get_asr_dataset_from_json(
@@ -413,6 +413,12 @@ class SpeechRecognitionHybridTask(FairseqTask):
         assert len(paths) > 0
         data_path = paths[0]
         split = cfg.valid_subset.split(",")[0]  # valid set is usually much smaller than train set, so it's faster
+        if cfg.use_k2_dataset:
+            try:
+                feat_dim = get_k2_dataset_from_json(data_path, split).feat_dim
+            except FileNotFoundError:
+                feat_dim = get_k2_dataset_from_json(data_path, cfg.gen_subset).feat_dim
+            return cls(cfg, dictionary, feat_dim)
         try:
             src_dataset = get_asr_dataset_from_json(data_path, split, dictionary, combine=False).src
         except FileNotFoundError:
@@ -460,7 +466,6 @@ class SpeechRecognitionHybridTask(FairseqTask):
                 pad_to_multiple=self.cfg.required_seq_len_multiple,
                 seed=self.cfg.seed,
             )
-            self.feat_dim = self.datasets[split].feat_dim
             return
 
         self.datasets[split] = get_asr_dataset_from_json(
