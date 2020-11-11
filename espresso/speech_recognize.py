@@ -82,9 +82,7 @@ def _main(cfg, output_file):
 
     use_cuda = torch.cuda.is_available() and not cfg.common.cpu
 
-    # Load dataset split
     task = tasks.setup_task(cfg.task)
-    task.load_dataset(cfg.dataset.gen_subset)
 
     # Set dictionary
     dictionary = task.target_dictionary
@@ -93,7 +91,7 @@ def _main(cfg, output_file):
 
     # Load ensemble
     logger.info("loading model(s) from {}".format(cfg.common_eval.path))
-    models, _model_args = checkpoint_utils.load_model_ensemble(
+    models, saved_cfg = checkpoint_utils.load_model_ensemble(
         utils.split_paths(cfg.common_eval.path),
         arg_overrides=overrides,
         task=task,
@@ -101,6 +99,9 @@ def _main(cfg, output_file):
         strict=(cfg.checkpoint.checkpoint_shard_count == 1),
         num_shards=cfg.checkpoint.checkpoint_shard_count,
     )
+
+    # loading the dataset should happen after the checkpoint has been loaded so we can give it the saved task config
+    task.load_dataset(cfg.dataset.gen_subset, task_cfg=saved_cfg.task)
 
     if cfg.generation.lm_path is not None:
         overrides["data"] = cfg.task.data

@@ -85,6 +85,7 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
     data_buffer_size: int = II("dataset.data_buffer_size")
     tpu: bool = II("common.tpu")
     train_subset: str = II("dataset.train_subset")
+    valid_subset: str = II("dataset.valid_subset")
     gen_subset: str = II("dataset.gen_subset")
     required_seq_len_multiple: int = II("dataset.required_seq_len_multiple")
 
@@ -94,7 +95,7 @@ def get_asr_dataset_from_json(
     split,
     tgt_dict,
     combine,
-    upsample_primary,
+    upsample_primary=1,
     num_buckets=0,
     shuffle=True,
     pad_to_multiple=1,
@@ -233,10 +234,11 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         raise NotImplementedError
 
-    def __init__(self, cfg: SpeechRecognitionEspressoConfig, tgt_dict, word_dict=None):
+    def __init__(self, cfg: SpeechRecognitionEspressoConfig, tgt_dict, feat_dim, word_dict=None):
         super().__init__(cfg)
         self.tgt_dict = tgt_dict
         self.word_dict = word_dict
+        self.feat_dim = feat_dim
         self.feat_in_channels = cfg.feat_in_channels
         self.specaugment_config = cfg.specaugment_config
         torch.backends.cudnn.deterministic = True
@@ -256,19 +258,48 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         dict_path = os.path.join(cfg.data, "dict.txt") if cfg.dict is None else cfg.dict
         tgt_dict = cls.load_dictionary(dict_path, non_lang_syms=cfg.non_lang_syms)
         logger.info("dictionary: {} types".format(len(tgt_dict)))
+
+        # minimum code for loading data in order to obtain feat_dim
+        paths = utils.split_paths(cfg.data)
+        assert len(paths) > 0
+        data_path = paths[0]
+        split = cfg.valid_subset.split(",")[0]  # valid set is usually much smaller than train set, so it's faster
+        try:
+            src_dataset = get_asr_dataset_from_json(data_path, split, tgt_dict, combine=False).src
+        except FileNotFoundError:
+            logger.warning(f"'{split}' set not found. Try to obtain feat_dim from '{cfg.gen_subset}'")
+            src_dataset = get_asr_dataset_from_json(data_path, cfg.gen_subset, tgt_dict, combined=False).src
+        if isinstance(src_dataset, ConcatDataset):
+            feat_dim = src_dataset.datasets[0].feat_dim
+        elif isinstance(src_dataset, BaseWrapperDataset):
+            feat_dim = src_dataset.dataset.feat_dim
+        else:
+            feat_dim = src_dataset.feat_dim
+
         if cfg.word_dict is not None:
             word_dict = cls.load_dictionary(cfg.word_dict)
             logger.info("word dictionary: {} types".format(len(word_dict)))
-            return cls(cfg, tgt_dict, word_dict)
+            return cls(cfg, tgt_dict, feat_dim, word_dict=word_dict)
 
         else:
-            return cls(cfg, tgt_dict)
+            return cls(cfg, tgt_dict, feat_dim)
 
-    def load_dataset(self, split, epoch=1, combine=False, **kwargs):
+    def load_dataset(
+        self,
+        split: str,
+        epoch: int = 1,
+        combine: bool = False,
+        task_cfg: FairseqDataclass = None,
+        **kwargs,
+    ):
         """Load a given dataset split.
 
         Args:
             split (str): name of the split (e.g., train, valid, test)
+            epoch (int): epoch number determining which shard of training data to load
+            combine (bool): combines a split segmented into pieces into one dataset
+            task_cfg (FairseqDataclass): optional task configuration stored in the checkpoint that can be used
+                                         to load datasets
         """
         paths = utils.split_paths(self.cfg.data)
         assert len(paths) > 0
@@ -276,6 +307,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             # if not training data set, use the first shard for valid and test
             paths = paths[:1]
         data_path = paths[(epoch - 1) % len(paths)]
+        task_cfg = task_cfg or self.cfg
 
         self.datasets[split] = get_asr_dataset_from_json(
             data_path,
@@ -289,14 +321,6 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             seed=self.cfg.seed,
             specaugment_config=self.specaugment_config,
         )
-
-        src_dataset = self.datasets[split].src
-        if isinstance(src_dataset, ConcatDataset):
-            self.feat_dim = src_dataset.datasets[0].feat_dim
-        elif isinstance(src_dataset, BaseWrapperDataset):
-            self.feat_dim = src_dataset.dataset.feat_dim
-        else:
-            self.feat_dim = src_dataset.feat_dim
 
         # update the counts of <eos> and <unk> in tgt_dict with training data
         if split == "train":
