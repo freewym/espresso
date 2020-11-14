@@ -44,7 +44,7 @@ FREETEXT 1.0 freetext
 EOF
 
   utils/lang/make_lexicon_fst.py --sil-prob 0.5 --sil-phone SIL \
-    data/lang/lexiconp.txt > data/lang/L.fst.txt.sym
+    data/lang/lexiconp.txt > data/lang/L.fst.sym
 
   echo "Prepare phones symbol table"
   cat > data/lang/phones.txt <<EOF
@@ -64,7 +64,7 @@ HiXiaowen 3
 NihaoWenwen 4
 EOF
 
-  utils/sym2int.pl -f 3 data/lang/phones.txt <data/lang/L.fst.txt.sym - | \
+  utils/sym2int.pl -f 3 data/lang/phones.txt <data/lang/L.fst.sym - | \
     utils/sym2int.pl -f 4 data/lang/words.txt - > data/lang/L.fst.txt
 
   echo "Prepare HMMs for phones"
@@ -74,13 +74,13 @@ EOF
   id_word1=`cat data/lang/phones.txt | grep "nihaowenwen" | awk '{print $2}'`
   id_freetext=`cat data/lang/phones.txt | grep "freetext" | awk '{print $2}'`
 
-   cat > data/lang/hmm_sil.txt <<EOF
+   cat > data/lang/hmm_sil.fst.txt <<EOF
 0 0 0 $id_sil 0.5
 0 0 1 0 0.5
 0
 EOF
 
-  cat > data/lang/hmm_freetext.txt <<EOF
+  cat > data/lang/hmm_freetext.fst.txt <<EOF
 0 0 2 $id_freetext 0.5
 0 1 3 0 0.5
 1 1 4 0 0.5
@@ -92,7 +92,7 @@ EOF
 0
 EOF
 
-  cat > data/lang/hmm_hixiaowen.txt <<EOF
+  cat > data/lang/hmm_hixiaowen.fst.txt <<EOF
 0 0 10 $id_word0 0.5
 0 1 11 0 0.5
 1 1 12 0 0.5
@@ -104,7 +104,7 @@ EOF
 0
 EOF
 
-  cat > data/lang/hmm_nihaowenwen.txt <<EOF
+  cat > data/lang/hmm_nihaowenwen.fst.txt <<EOF
 0 0 18 $id_word1 0.5
 0 1 19 0 0.5
 1 1 20 0 0.5
@@ -117,7 +117,7 @@ EOF
 EOF
 
   echo "Prepare an unnormalized phone language model for the denominator graph"
-  cat <<EOF > data/lang/phone_lm.txt
+  cat <<EOF > data/lang/phone_lm.fsa.txt
 0 1 $id_sil
 0 5 $id_sil
 1 2 $id_word0
@@ -132,8 +132,8 @@ EOF
 EOF
 
   echo "Generate graphs for training"
-  local/generate_graphs.py --hmm-paths data/lang/hmm_{sil,freetext,hixiaowen,nihaowenwen}.txt \
-    --lexicon-fst-path data/lang/L.fst.txt --phone-lm-fsa-path data/lang/phone_lm.txt \
+  local/generate_graphs.py --hmm-paths data/lang/hmm_{sil,freetext,hixiaowen,nihaowenwen}.fst.txt \
+    --lexicon-fst-path data/lang/L.fst.txt --phone-lm-fsa-path data/lang/phone_lm.fsa.txt \
     --out-dir data
 fi
 

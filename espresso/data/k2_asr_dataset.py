@@ -37,20 +37,11 @@ def collate(
     if len(samples) == 0:
         return {}
 
-    def merge(key, pad_to_length=None):
-        if key == "source":
-            return speech_utils.collate_frames(
-                [sample[key] for sample in samples], 0.0,
-                pad_to_length=pad_to_length,
-                pad_to_multiple=pad_to_multiple,
-            )
-        else:
-            raise ValueError("Invalid key.")
-
     id = torch.LongTensor([sample["id"] for sample in samples])
-    src_frames = merge(
-        "source",
+    src_frames = speech_utils.collate_frames(
+        [sample["source"] for sample in samples], 0.0,
         pad_to_length=pad_to_length["source"] if pad_to_length is not None else None,
+        pad_to_multiple=pad_to_multiple,
     )
     # sort by descending source length
     if pad_to_length is not None:
@@ -141,7 +132,7 @@ class K2AsrDataset(FairseqDataset):
         self.shuffle = shuffle
         self.epoch = 1
         self.sizes = (
-            np.vstack((self.src_sizes, self.tgt_sizes)).T
+            np.stack((self.src_sizes, self.tgt_sizes), axis=1)
             if self.tgt_sizes is not None
             else self.src_sizes
         )
@@ -192,18 +183,18 @@ class K2AsrDataset(FairseqDataset):
         Returns:
             dict: a mini-batch with the following keys:
 
-                - `id` (LongTensor): example IDs in the original input order
-                - `utt_id` (List[str]): list of utterance ids
-                - `nsentences` (int): batch size
-                - `ntokens` (int): total number of tokens in the batch
-                - `net_input` (dict): the input to the Model, containing keys:
+                - `id` -> LongTensor: example IDs in the original input order
+                - `utt_id` -> List[str]: list of utterance ids
+                - `nsentences` -> int: batch size
+                - `ntokens` -> int: total number of tokens in the batch
+                - `net_input` -> Dict: the input to the Model, containing keys:
 
-                  - `src_tokens` (FloatTensor): a padded 3D Tensor of features in
+                  - `src_tokens` -> FloatTensor: a padded 3D Tensor of features in
                     the source of shape `(bsz, src_len, feat_dim)`.
-                  - `src_lengths` (IntTensor): 1D Tensor of the unpadded
+                  - `src_lengths` -> IntTensor: 1D Tensor of the unpadded
                     lengths of each source sequence of shape `(bsz)`
 
-                - `target` (List[Dict[str, Any]]): a List representing a batch of
+                - `target` -> List[Dict[str, Any]]: a List representing a batch of
                     supervisions
         """
         return collate(

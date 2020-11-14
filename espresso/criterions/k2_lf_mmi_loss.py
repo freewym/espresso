@@ -6,13 +6,16 @@
 from dataclasses import dataclass, field
 import logging
 import math
-from typing import List
+from typing import Any, Dict, List, Optional
 
 import torch
 
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.dataclass import FairseqDataclass
+from fairseq.models import BaseFairseqModel
+from fairseq.models.fairseq_encoder import EncoderOut
+from fairseq.tasks import FairseqTask
 from fairseq.logging import metrics
 from omegaconf import II
 
@@ -37,17 +40,9 @@ class K2LatticeFreeMMICriterionConfig(FairseqDataclass):
     word_symbol_table_path: str = field(
         default="???", metadata={"help": "path to the word symbol table file"}
     )
-    leaky_hmm_coefficient: float = field(
-        default=1.0e-05,
-        metadata={"help": "leaky-hmm coefficient for the denominator"},
-    )
     xent_regularization_coefficient: float = field(
         default=0.0,
         metadata={"help": "cross-entropy regularization coefficient"},
-    )
-    output_l2_regularization_coefficient: float = field(
-        default=0.0,
-        metadata={"help": "L2 regularization coefficient for the network's output"},
     )
 
 
@@ -62,7 +57,6 @@ def create_numerator_graphs(texts: List[str], HCL_fst_inv: k2.Fsa, symbols: k2.S
 
     fsa = k2.linear_fsa(word_ids_list)  # create an FsaVec from a list of list of word ids
     num_graph = k2.intersect(fsa, HCL_fst_inv).invert_()
-    num_graph = k2.add_epsilon_self_loops(num_graph)
     return num_graph
 
 
@@ -70,23 +64,23 @@ def create_numerator_graphs(texts: List[str], HCL_fst_inv: k2.Fsa, symbols: k2.S
 class K2LatticeFreeMMICriterion(FairseqCriterion):
 
     def __init__(
-        self, task, sentence_avg, denominator_fst_path, HCL_fst_path, word_symbol_table_path,
-        leaky_hmm_coefficient, xent_regularization_coefficient, output_l2_regularization_coefficient,
+        self, task: FairseqTask, sentence_avg: bool, denominator_fst_path: str,
+        HCL_fst_path: str, word_symbol_table_path: str, xent_regularization_coefficient: float,
     ):
         super().__init__(task)
 
         self.sentence_avg = sentence_avg
         self.den_graph = k2.create_fsa_vec(
             k2.Fsa.from_dict(torch.load(denominator_fst_path))
-        )  # has to be FsaVec to be able to intersect with a batch of dense fsas
+        )  # has to be an FsaVec to be able to intersect with a batch of dense fsas
         self.den_graph.scores.requires_grad_(False)
         self.HCL_fst_inv = k2.Fsa.from_dict(torch.load(HCL_fst_path)).invert_()
         self.symbol_table = k2.SymbolTable.from_file(word_symbol_table_path)
-        self.leaky_hmm_coefficient = leaky_hmm_coefficient
         self.xent_regularize = xent_regularization_coefficient
-        self.output_l2_regularize = output_l2_regularization_coefficient
 
-    def forward(self, model, sample, reduce=True):
+    def forward(
+        self, model: BaseFairseqModel, sample: List[Dict[str, Any]], reduce: Optional[bool] = True,
+    ):
         """Compute the loss for the given sample.
 
         Returns a tuple with three elements:
@@ -109,7 +103,9 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
         }
         return loss, sample_size, logging_output
 
-    def compute_loss(self, net_output, sample, reduce=True):
+    def compute_loss(
+        self, net_output: EncoderOut, sample: List[Dict[str, Any]], reduce: Optional[bool] = True,
+    ):
         # create the dense fsts from the network's output
         encoder_out = net_output.encoder_out.transpose(0, 1)  # T x B x V -> B x T x V
         out_lengths = net_output.src_lengths.long()  # B
@@ -127,28 +123,23 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
         num_graphs_unrolled = k2.intersect_dense_pruned(
             num_graphs, dense_fsa_vec, beam=100000, max_active_states=10000, min_active_states=0
         )
-        num_scores = k2.get_tot_scores(num_graphs_unrolled, log_semiring=False, use_float_scores=True)
+        num_scores = k2.get_tot_scores(num_graphs_unrolled, log_semiring=True, use_float_scores=True)
 
         # denominator computation
         self.den_graph.to_(encoder_out.device)
         den_graph_unrolled = k2.intersect_dense_pruned(
             self.den_graph, dense_fsa_vec, beam=100000, max_active_states=10000, min_active_states=0
         )
-        den_scores = k2.get_tot_scores(den_graph_unrolled, log_semiring=False, use_float_scores=True)
+        den_scores = k2.get_tot_scores(den_graph_unrolled, log_semiring=True, use_float_scores=True)
 
         # obtain the loss
-        loss = -num_scores + den_scores
+        if reduce:
+            num_scores = num_scores.sum()
+            den_scores = den_scores.sum()
+        loss = -num_scores + den_scores  # negative log-probs
         nll_loss = loss.clone().detach()
         if self.xent_regularize > 0.0:
             loss -= self.xent_regularize * num_scores
-
-        if self.output_l2_regularize > 0.0:
-            encoder_padding_mask = net_output.encoder_padding_mask
-            encoder_out_squared = encoder_out.pow(2.0)
-            if encoder_padding_mask is not None:
-                pad_mask = encoder_padding_mask.transpose(0, 1).unsqueeze(-1)  # T x B -> B x T x 1
-                encoder_out_squared.masked_fill_(pad_mask, 0.0)
-            loss += 0.5 * self.output_l2_regularize * encoder_out_squared.sum()
 
         return loss, nll_loss
 

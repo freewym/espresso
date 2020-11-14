@@ -41,14 +41,14 @@ def main(args):
     except ImportError:
         raise ImportError("Please install k2 by `pip install k2`")
 
-    H = []
-    hmm_paths = args.hmm_paths
-    for hmm in hmm_paths:
+    hmms = []
+    for hmm in args.hmm_paths:
         with open(hmm, "r", encoding="utf-8") as f:
-            H.append(k2.Fsa.from_openfst(f.read(), acceptor=False))
-        H[-1] = k2.arc_sort(H[-1])
-    #TODO: H = fsa.union([H])
-    H = k2.arc_sort(H.invert_())
+            hmms.append(k2.Fsa.from_openfst(f.read(), acceptor=False))
+        hmms[-1] = k2.arc_sort(hmms[-1])
+    hmm_vec = k2.create_fsa_vec(hmms)
+    H = k2.union(hmm_vec)
+    H_inv = k2.arc_sort(H.invert_())
 
     with open(args.lexicon_fst_path, "r", encoding="utf-8") as f:
         L = k2.Fsa.from_openfst(f.read(), acceptor=False)
@@ -62,21 +62,20 @@ def main(args):
     if hasattr(L, "aux_symbols"):
         setattr(L, "temp_symbols", L.aux_symbols)
         delattr(L, "aux_symbols")
-    HL = k2.intersect(H, L)
+    HL = k2.intersect(H_inv, L)
     if hasattr(L, "temp_symbols"):
         setattr(L, "aux_symbols", L.temp_symbols)
         delattr(L, "temp_symbols")
     HL = k2.arc_sort(HL)
     save_path = os.path.join(args.out_dir, "HL.pt")
     torch.save(HL.as_dict(), save_path)
-    logger.info(f"save HL as {save_path}")
+    logger.info(f"saved the HL fst as {save_path}")
 
-    den_graph = k2.intersect(H, phone_lm).invert_()
+    den_graph = k2.intersect(H_inv, phone_lm).invert_()
     den_graph = k2.arc_sort(den_graph)
-    #den_graph = k2.add_epsilon_self_loops(den_graph)
     save_path = os.path.join(args.out_dir, "denominator.pt")
     torch.save(den_graph.as_dict(), save_path)
-    logger.info(f"save the denominator graph as {save_path}")
+    logger.info(f"saved the denominator graph as {save_path}")
 
 
 if __name__ == "__main__":
