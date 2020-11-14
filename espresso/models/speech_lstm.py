@@ -677,7 +677,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             encoder_padding_mask = torch.empty(0)
         srclen = encoder_outs.size(0)
 
-        if incremental_state is not None and len(incremental_state) > 0:
+        if (
+            incremental_state is not None
+            and self._get_full_incremental_state_key("cached_state") in incremental_state
+        ):
             prev_output_tokens = prev_output_tokens[:, -1:]
 
         bsz, seqlen = prev_output_tokens.size()
@@ -690,7 +693,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         x = x.transpose(0, 1)
 
         # initialize previous states (or get from cache during incremental generation)
-        if incremental_state is not None and len(incremental_state) > 0:
+        if (
+            incremental_state is not None
+            and self._get_full_incremental_state_key("cached_state") in incremental_state
+        ):
             prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
         else:
             zero_state = x.new_zeros(bsz, self.hidden_size)
@@ -813,7 +819,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         incremental_state: Dict[str, Dict[str, Optional[Tensor]]],
         new_order: Tensor,
     ):
-        if incremental_state is None or len(incremental_state) == 0:
+        if (
+            incremental_state is None
+            or self._get_full_incremental_state_key("cached_state") not in incremental_state
+        ):
             return
         prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
         prev_hiddens = [p.index_select(0, new_order) for p in prev_hiddens]
@@ -832,7 +841,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         return
 
     def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
-        if incremental_state is None or len(incremental_state) == 0:
+        if (
+            incremental_state is None
+            or self._get_full_incremental_state_key("cached_state") not in incremental_state
+        ):
             assert another_cached_state is None or len(another_cached_state) == 0
             return
         prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
