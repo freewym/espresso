@@ -47,25 +47,32 @@ def main(args):
             hmms.append(k2.Fsa.from_openfst(f.read(), acceptor=False))
         hmms[-1] = k2.arc_sort(hmms[-1])
     hmm_vec = k2.create_fsa_vec(hmms)
-    H = k2.union(hmm_vec)
+    H = k2.closure(k2.union(hmm_vec))
     H_inv = k2.arc_sort(H.invert_())
 
     with open(args.lexicon_fst_path, "r", encoding="utf-8") as f:
         L = k2.Fsa.from_openfst(f.read(), acceptor=False)
-    L = k2.arc_sort(L.invert_()).invert_()  # sort on olabels
+    L = k2.arc_sort(L)
 
-    with open(args.phone_lm_fst_path, "r", encoding="utf-8") as f:
+    with open(args.phone_lm_fsa_path, "r", encoding="utf-8") as f:
         phone_lm = k2.Fsa.from_openfst(f.read(), acceptor=True)
+    assert not hasattr(phone_lm, "aux_labels")
     phone_lm = k2.arc_sort(phone_lm)
 
     # emulate composition
-    if hasattr(L, "aux_symbols"):
-        setattr(L, "temp_symbols", L.aux_symbols)
-        delattr(L, "aux_symbols")
-    HL = k2.intersect(H_inv, L)
-    if hasattr(L, "temp_symbols"):
-        setattr(L, "aux_symbols", L.temp_symbols)
-        delattr(L, "temp_symbols")
+    if hasattr(L, "aux_labels"):
+        L.temp_labels = L.aux_labels
+        del L.aux_labels
+        if hasattr(L, "aux_symbols"):
+            L.temp_symbols = L.aux_symbols
+            del L.aux_symbols
+    HL = k2.intersect(H_inv, L).invert_()
+    if hasattr(HL, "temp_labels"):
+        HL.aux_labels = HL.temp_labels
+        del HL.temp_labels
+        if hasattr(HL, "temp_symbols"):
+            HL.aux_symbols = HL.temp_symbols
+            del HL.temp_symbols
     HL = k2.arc_sort(HL)
     save_path = os.path.join(args.out_dir, "HL.pt")
     torch.save(HL.as_dict(), save_path)

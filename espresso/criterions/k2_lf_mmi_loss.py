@@ -6,18 +6,18 @@
 from dataclasses import dataclass, field
 import logging
 import math
+from omegaconf import II
 from typing import Any, Dict, List, Optional
 
 import torch
+from torch import Tensor
 
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.dataclass import FairseqDataclass
 from fairseq.models import BaseFairseqModel
-from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.tasks import FairseqTask
 from fairseq.logging import metrics
-from omegaconf import II
 
 try:
     import k2
@@ -46,7 +46,7 @@ class K2LatticeFreeMMICriterionConfig(FairseqDataclass):
     )
 
 
-def create_numerator_graphs(texts: List[str], HCL_fst_inv: k2.Fsa, symbols: k2.SymbolTable):
+def create_numerator_graphs(texts: List[str], HCL_fst_inv: k2.Fsa, symbols: k2.SymbolTable, den_graph=None):
     word_ids_list = []
     for text in texts:
         filtered_text = [
@@ -56,27 +56,34 @@ def create_numerator_graphs(texts: List[str], HCL_fst_inv: k2.Fsa, symbols: k2.S
         word_ids_list.append(word_ids)
 
     fsa = k2.linear_fsa(word_ids_list)  # create an FsaVec from a list of list of word ids
-    num_graph = k2.intersect(fsa, HCL_fst_inv).invert_()
-    return num_graph
+    num_graphs = k2.intersect(fsa, HCL_fst_inv).invert_()
+    # TODO: normalize numerator
+    if False: #den_graph is not None:
+        num_graphs = k2.arc_sort(num_graphs)
+        num_graphs.scores = num_graphs.scores.new_zeros(num_graphs.scores.size()) # zero the score before intersect to avoid double counting
+        num_graphs = k2.intersect(num_graphs, den_graph)
+    return num_graphs
 
 
 @register_criterion("k2_lattice_free_mmi", dataclass=K2LatticeFreeMMICriterionConfig)
 class K2LatticeFreeMMICriterion(FairseqCriterion):
-
-    def __init__(
-        self, task: FairseqTask, sentence_avg: bool, denominator_fst_path: str,
-        HCL_fst_path: str, word_symbol_table_path: str, xent_regularization_coefficient: float,
-    ):
+    def __init__(self, cfg: K2LatticeFreeMMICriterionConfig, task: FairseqTask):
         super().__init__(task)
 
-        self.sentence_avg = sentence_avg
+        self.sentence_avg = cfg.sentence_avg
         self.den_graph = k2.create_fsa_vec(
-            k2.Fsa.from_dict(torch.load(denominator_fst_path))
+            [k2.Fsa.from_dict(torch.load(cfg.denominator_fst_path))]
         )  # has to be an FsaVec to be able to intersect with a batch of dense fsas
+        if hasattr(self.den_graph, "aux_labels"):
+            del self.den_graph.aux_labels
+            if hasattr(self.den_graph, "aux_symbols"):
+                del self.den_graph.aux_symbols
         self.den_graph.scores.requires_grad_(False)
-        self.HCL_fst_inv = k2.Fsa.from_dict(torch.load(HCL_fst_path)).invert_()
-        self.symbol_table = k2.SymbolTable.from_file(word_symbol_table_path)
-        self.xent_regularize = xent_regularization_coefficient
+        self.den_graph_cpu = self.den_graph.clone()
+        self.HCL_fst_inv = k2.arc_sort(k2.Fsa.from_dict(torch.load(cfg.HCL_fst_path)).invert_())
+        self.symbol_table = k2.SymbolTable.from_file(cfg.word_symbol_table_path)
+        self.xent_regularize = cfg.xent_regularization_coefficient
+        self.subsampling_factor = None
 
     def forward(
         self, model: BaseFairseqModel, sample: List[Dict[str, Any]], reduce: Optional[bool] = True,
@@ -88,6 +95,10 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
         2) the sample size, which is used as the denominator for the gradient
         3) logging outputs to display while training
         """
+        if self.subsampling_factor is None:
+            assert hasattr(model, "output_lengths"), "model should implement the method `output_lengths()`"
+            self.subsampling_factor = int(round(100.0 / model.output_lengths(100)))
+
         net_output = model(**sample["net_input"])
         loss, nll_loss = self.compute_loss(net_output, sample, reduce=reduce)
 
@@ -104,36 +115,48 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
         return loss, sample_size, logging_output
 
     def compute_loss(
-        self, net_output: EncoderOut, sample: List[Dict[str, Any]], reduce: Optional[bool] = True,
+        self, net_output: Dict[str, List[Tensor]], sample: List[Dict[str, Any]], reduce: Optional[bool] = True,
     ):
         # create the dense fsts from the network's output
-        encoder_out = net_output.encoder_out.transpose(0, 1)  # T x B x V -> B x T x V
-        out_lengths = net_output.src_lengths.long()  # B
+        encoder_out = net_output["encoder_out"][0].transpose(0, 1)  # T x B x V -> B x T x V
+        if torch.isnan(encoder_out).int().sum().item() > 0 or torch.isinf(encoder_out).int().sum().item() > 0:
+            print("nan",torch.isnan(encoder_out).int().sum().item(), "inf", torch.isinf(encoder_out).int().sum().item())
+        encoder_out = encoder_out.clamp(-30, 30)  # clamp to avoid numerical overflows
+        out_lengths = net_output["src_lengths"][0]  # B
         supervision_segments = torch.stack(
             # seq_index, start_frame, lengths
-            (sample["target"]["sequence_idx"], sample["target"]["start_frame"], out_lengths),
+            (
+                sample["target"]["sequence_idx"],
+                torch.floor_divide(sample["target"]["start_frame"], self.subsampling_factor),
+                out_lengths
+            ),
             dim=1
-        )
+        ).int().cpu()
         dense_fsa_vec = k2.DenseFsaVec(encoder_out, supervision_segments)
 
         # numerator computation
-        num_graphs = create_numerator_graphs(sample["target"]["text"], self.HCL_fst_inv, self.symbol_table)
-        num_graphs.to_(encoder_out.device)
+        num_graphs = create_numerator_graphs(
+            sample["target"]["text"], self.HCL_fst_inv, self.symbol_table, den_graph=self.den_graph_cpu
+        ).to(encoder_out.device)
         num_graphs.scores.requires_grad_(False)
         num_graphs_unrolled = k2.intersect_dense_pruned(
-            num_graphs, dense_fsa_vec, beam=100000, max_active_states=10000, min_active_states=0
+            num_graphs, dense_fsa_vec, search_beam=100000, output_beam=100000, min_active_states=0, max_active_states=10000
         )
         num_scores = k2.get_tot_scores(num_graphs_unrolled, log_semiring=True, use_float_scores=True)
 
         # denominator computation
-        self.den_graph.to_(encoder_out.device)
+        self.den_graph = self.den_graph.to(encoder_out.device)
         den_graph_unrolled = k2.intersect_dense_pruned(
-            self.den_graph, dense_fsa_vec, beam=100000, max_active_states=10000, min_active_states=0
+            self.den_graph, dense_fsa_vec, search_beam=100000, output_beam=100000, min_active_states=0, max_active_states=10000
         )
         den_scores = k2.get_tot_scores(den_graph_unrolled, log_semiring=True, use_float_scores=True)
 
         # obtain the loss
         if reduce:
+            if torch.isnan(num_scores).int().sum().item() > 0 or torch.isinf(num_scores).int().sum().item() > 0:
+                print("num nan", torch.isnan(num_scores).int().sum().item(), "inf", torch.isinf(num_scores).int().sum().item())
+            if torch.isnan(den_scores).int().sum().item() > 0 or torch.isinf(den_scores).int().sum().item() > 0:
+                print("den nan", torch.isnan(den_scores).int().sum().item(), "inf", torch.isinf(den_scores).int().sum().item())
             num_scores = num_scores.sum()
             den_scores = den_scores.sum()
         loss = -num_scores + den_scores  # negative log-probs

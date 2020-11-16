@@ -1,6 +1,5 @@
 KALDI =
 PYTHON_DIR = /export/b03/ywang/anaconda3/bin
-CMAKE = /home/ywang/cmake-3.18.4-Linux-x86_64/bin/cmake
 
 CXX ?= g++
 
@@ -31,8 +30,6 @@ kaldi:
 endif
 
 clean: openfst_cleaned
-	rm -rf k2
-	rm -rf lhotse
 	rm -rf pychain
 	rm -rf kaldi
 
@@ -82,13 +79,3 @@ pychain:
 	export PATH=$(PYTHON_DIR):$$PATH && \
 	cd pychain/openfst_binding && python3 setup.py install && \
 	cd ../pytorch_binding && python3 setup.py install
-
-.PHONY: lhotse
-lhotse:
-	test -d lhotse || git clone https://github.com/lhotse-speech/lhotse.git
-	export PATH=$(PYTHON_DIR):$$PATH && cd lhotse && pip install -e .
-
-.PHONY: k2
-k2:
-	test -d k2 || git clone https://github.com/k2-fsa/k2.git
-	cd k2 && mkdir -p build && cd build && $(CMAKE) .. && $(MAKE)

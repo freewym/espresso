@@ -22,7 +22,7 @@ wake_word1="NihaoWenwen"
 . ./cmd.sh
 . ./utils/parse_options.sh
 
-dir=exp/tdnn_k2_${affix:+_$affix}
+dir=exp/tdnn_k2${affix:+_$affix}
 
 if [ ${stage} -le 0 ]; then
   echo "Stage 0: Data Preparation"
@@ -75,51 +75,51 @@ EOF
   id_freetext=`cat data/lang/phones.txt | grep "freetext" | awk '{print $2}'`
 
    cat > data/lang/hmm_sil.fst.txt <<EOF
-0 0 0 $id_sil 0.5
-0 0 1 0 0.5
-0
+0 0 0 0 0.693147181
+0 1 1 $id_sil 0.693147181
+1
 EOF
 
   cat > data/lang/hmm_freetext.fst.txt <<EOF
-0 0 2 $id_freetext 0.5
-0 1 3 0 0.5
-1 1 4 0 0.5
-1 2 5 0 0.5
-2 2 6 0 0.5
-2 3 7 0 0.5
-3 3 8 0 0.5
-3 0 9 0 0.5
-0
+0 0 2 0 0.693147181
+0 1 3 $id_freetext 0.693147181
+1 1 4 0 0.693147181
+1 2 5 0 0.693147181
+2 2 6 0 0.693147181
+2 3 7 0 0.693147181
+3 3 8 0 0.693147181
+3 4 9 0 0.693147181
+4
 EOF
 
   cat > data/lang/hmm_hixiaowen.fst.txt <<EOF
-0 0 10 $id_word0 0.5
-0 1 11 0 0.5
-1 1 12 0 0.5
-1 2 13 0 0.5
-2 2 14 0 0.5
-2 3 15 0 0.5
-3 3 16 0 0.5
-3 0 17 0 0.5
-0
+0 0 10 0 0.693147181
+0 1 11 $id_word0 0.693147181
+1 1 12 0 0.693147181
+1 2 13 0 0.693147181
+2 2 14 0 0.693147181
+2 3 15 0 0.693147181
+3 3 16 0 0.693147181
+3 4 17 0 0.693147181
+4
 EOF
 
   cat > data/lang/hmm_nihaowenwen.fst.txt <<EOF
-0 0 18 $id_word1 0.5
-0 1 19 0 0.5
-1 1 20 0 0.5
-1 2 21 0 0.5
-2 2 22 0 0.5
-2 3 23 0 0.5
-3 3 24 0 0.5
-3 0 25 0 0.5
-0
+0 0 18 0 0.693147181
+0 1 19 $id_word1 0.693147181
+1 1 20 0 0.693147181
+1 2 21 0 0.693147181
+2 2 22 0 0.693147181
+2 3 23 0 0.693147181
+3 3 24 0 0.693147181
+3 4 25 0 0.693147181
+4
 EOF
 
   echo "Prepare an unnormalized phone language model for the denominator graph"
   cat <<EOF > data/lang/phone_lm.fsa.txt
 0 1 $id_sil
-0 5 $id_sil
+0 7 $id_sil
 1 2 $id_word0
 2 3 $id_sil
 1 4 $id_word1
@@ -132,7 +132,8 @@ EOF
 EOF
 
   echo "Generate graphs for training"
-  local/generate_graphs.py --hmm-paths data/lang/hmm_{sil,freetext,hixiaowen,nihaowenwen}.fst.txt \
+  log_file=data/log/generate_graphs.log
+  $train_cmd $log_file local/generate_graphs.py --hmm-paths data/lang/hmm_{sil,freetext,hixiaowen,nihaowenwen}.fst.txt \
     --lexicon-fst-path data/lang/L.fst.txt --phone-lm-fsa-path data/lang/phone_lm.fsa.txt \
     --out-dir data
 fi
@@ -154,7 +155,7 @@ if [ ${stage} -le 2 ]; then
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   update_freq=1
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_hybrid --seed 1 \
-    --log-interval $((1500/ngpus/update_freq)) --log-format simple \
+    --log-interval $((1500/ngpus/update_freq)) --log-format simple --use-k2-dataset \
     --num-workers 0 --data-buffer-size 0 --max-tokens 25600 --batch-size 128 --empty-cache-freq 50 \
     --valid-subset $valid_subset --batch-size-valid 128 --ddp-backend no_c10d --update-freq $update_freq \
     --distributed-world-size $ngpus --arch speech_tdnn_mobvoi \
@@ -162,11 +163,11 @@ if [ ${stage} -le 2 ]; then
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((1500/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
-    --criterion k2_lattice_free_mmi --num-targets $num_targets --word-symbol-path data/lang/words.txt \
+    --criterion k2_lattice_free_mmi --num-targets $num_targets --word-symbol-table-path data/lang/words.txt \
     --denominator-fst-path data/denominator.pt --HCL-fst-path data/HL.pt \
     --max-source-positions 9999 --max-target-positions 9999 $opts 2>&1 | tee $log_file
 fi
 
 if [ ${stage} -le 3 ]; then
-  echo "Stage 3: Decoding"
+  echo "Stage 3: Dump Posteriors for Evaluation"
 fi

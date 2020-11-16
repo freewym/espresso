@@ -150,12 +150,11 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
 
 def get_k2_dataset_from_json(data_path, split, shuffle=True, pad_to_multiple=1, seed=1):
     try:
-        # TODO use pip install once it's available
-        from espresso.tools.lhotse.lhotse import CutSet
+        from lhotse import CutSet
     except ImportError:
-        raise ImportError("Please install Lhotse by `make lhotse` after entering espresso/tools")
+        raise ImportError("Please install Lhotse by `pip install lhotse`")
 
-    data_json_path = os.path.join(data_path, "cuts_{}.json".format(split))
+    data_json_path = os.path.join(data_path, "cuts_{}.json.gz".format(split))
     if not os.path.isfile(data_json_path):
         raise FileNotFoundError("Dataset not found: {}".format(data_json_path))
 
