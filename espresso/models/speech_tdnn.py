@@ -5,7 +5,7 @@
 
 from argparse import Namespace
 import logging
-from typing import Optional
+from typing import Dict, List, Optional
 
 import torch
 from torch import Tensor
@@ -19,7 +19,6 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.lstm import Linear
 from fairseq.modules import FairseqDropout
 from omegaconf import DictConfig
@@ -259,14 +258,19 @@ class SpeechTdnnEncoder(FairseqEncoder):
             assert not encoder_padding_mask.any()
         x = self.output_layer(x)
 
-        return EncoderOut(
-            encoder_out=x,  # T x B x C
-            encoder_padding_mask=encoder_padding_mask if encoder_padding_mask.any() else None,  # T x B
-            encoder_embedding=None,
-            encoder_states=None,
-            src_tokens=None,
-            src_lengths=x_lengths,  # B
-        )
+        # The Pytorch Mobile lite interpreter does not supports returning NamedTuple in
+        # `foward` so we use a dictionary instead.
+        # TorchScript does not support mixed values so the values are all lists.
+        # The empty list is equivalent to None.
+        return {
+            "encoder_out": [x],  # T x B x C
+            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any()
+            else [],  # T x B
+            "encoder_embedding": [],
+            "encoder_states": [],
+            "src_tokens": [],
+            "src_lengths": [x_lengths],  # B
+        }
 
     def extract_features(self, src_tokens, src_lengths, **unused):
         x, x_lengths = src_tokens, src_lengths
@@ -289,27 +293,30 @@ class SpeechTdnnEncoder(FairseqEncoder):
         """Project features to the vocabulary size."""
         return self.fc_out(features)  # T x B x C -> T x B x V
 
-    def reorder_encoder_out(self, encoder_out: EncoderOut, new_order):
-        encoder_padding_mask: Optional[Tensor] = encoder_out.encoder_padding_mask
-        src_lengths: Optional[Tensor] = encoder_out.src_lengths
-        new_encoder_padding_mask = (
-            encoder_padding_mask
-            if encoder_padding_mask is None
-            else encoder_padding_mask.index_select(1, new_order)
-        )
-        new_src_lengths = (
-            src_lengths
-            if src_lengths is None
-            else src_lengths.index_select(0, new_order)
-        )
-        return EncoderOut(
-            encoder_out=encoder_out.encoder_out.index_select(1, new_order),
-            encoder_padding_mask=new_encoder_padding_mask,
-            encoder_embedding=None,
-            encoder_states=None,
-            src_tokens=None,
-            src_lengths=new_src_lengths,
-        )
+    def reorder_encoder_out(self, encoder_out: Dict[str, List[Tensor]], new_order):
+        if len(encoder_out["encoder_out"]) == 0:
+            new_encoder_out = []
+        else:
+            new_encoder_out = [encoder_out["encoder_out"][0].index_select(1, new_order)]
+        if len(encoder_out["encoder_padding_mask"]) == 0:
+            new_encoder_padding_mask = []
+        else:
+            new_encoder_padding_mask = [
+                encoder_out["encoder_padding_mask"][0].index_select(1, new_order)  # note: transposed
+            ]
+        if len(encoder_out["src_lengths"]) == 0:
+            new_src_lengths = []
+        else:
+            new_src_lengths = [(encoder_out["src_lengths"][0]).index_select(0, new_order)]
+
+        return {
+            "encoder_out": new_encoder_out,  # T x B x C
+            "encoder_padding_mask": new_encoder_padding_mask,  # B x T
+            "encoder_embedding": [],
+            "encoder_states": [],
+            "src_tokens": [],
+            "src_lengths": new_src_lengths,  # B x 1
+        }
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""

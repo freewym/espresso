@@ -34,7 +34,7 @@ fisher_dirs=
 
 if [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
   swbd1_dir=/export/corpora3/LDC/LDC97S62
-  eval2000_dir="/export/corpora2/LDC/LDC2002S09/hub5e_00 /export/corpora2/LDC/LDC2002T43"
+  eval2000_dir="/export/corpora3/LDC/LDC2002S09/hub5e_00 /export/corpora3/LDC/LDC2002T43"
   rt03_dir=/export/corpora/LDC/LDC2007S10
   fisher_dirs="/export/corpora3/LDC/LDC2004T19/fe_03_p1_tran/ /export/corpora3/LDC/LDC2005T19/fe_03_p2_tran/"
 fi

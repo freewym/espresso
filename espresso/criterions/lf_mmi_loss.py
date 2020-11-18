@@ -6,14 +6,15 @@
 from dataclasses import dataclass, field
 import logging
 import math
+from omegaconf import II
 
 import torch
 
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.dataclass import FairseqDataclass
+from fairseq.tasks import FairseqTask
 from fairseq.logging import metrics
-from omegaconf import II
 
 
 logger = logging.getLogger(__name__)
@@ -131,11 +132,7 @@ class ChainLossFunction(torch.autograd.Function):
 
 @register_criterion("lattice_free_mmi", dataclass=LatticeFreeMMICriterionConfig)
 class LatticeFreeMMICriterion(FairseqCriterion):
-
-    def __init__(
-        self, task, sentence_avg, denominator_fst_path, leaky_hmm_coefficient,
-        xent_regularization_coefficient, output_l2_regularization_coefficient,
-    ):
+    def __init__(self, cfg: LatticeFreeMMICriterionConfig, task: FairseqTask):
         super().__init__(task)
         try:
             from pychain.graph import ChainGraph
@@ -146,12 +143,12 @@ class LatticeFreeMMICriterion(FairseqCriterion):
                 "after entering espresso/tools"
             )
 
-        self.sentence_avg = sentence_avg
-        den_fst = simplefst.StdVectorFst.read(denominator_fst_path)
+        self.sentence_avg = cfg.sentence_avg
+        den_fst = simplefst.StdVectorFst.read(cfg.denominator_fst_path)
         self.den_graph = ChainGraph(den_fst, initial_mode="leaky", final_mode="ones")
-        self.leaky_hmm_coefficient = leaky_hmm_coefficient
-        self.xent_regularize = xent_regularization_coefficient
-        self.output_l2_regularize = output_l2_regularization_coefficient
+        self.leaky_hmm_coefficient = cfg.leaky_hmm_coefficient
+        self.xent_regularize = cfg.xent_regularization_coefficient
+        self.output_l2_regularize = cfg.output_l2_regularization_coefficient
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample.
@@ -183,8 +180,8 @@ class LatticeFreeMMICriterion(FairseqCriterion):
         except ImportError:
             raise ImportError("Please install OpenFST and PyChain by `make openfst pychain` after entering espresso/tools")
 
-        encoder_out = net_output.encoder_out.transpose(0, 1)  # T x B x V -> B x T x V
-        out_lengths = net_output.src_lengths.long()  # B
+        encoder_out = net_output["encoder_out"][0].transpose(0, 1)  # T x B x V -> B x T x V
+        out_lengths = net_output["src_lengths"][0].long()  # B
         den_graphs = ChainGraphBatch(self.den_graph, sample["nsentences"])
         if self.xent_regularize > 0.0:
             den_objf = ChainFunction.apply(encoder_out, out_lengths, den_graphs, self.leaky_hmm_coefficient)
@@ -202,7 +199,10 @@ class LatticeFreeMMICriterion(FairseqCriterion):
             nll_loss = loss.clone().detach()
 
         if self.output_l2_regularize > 0.0:
-            encoder_padding_mask = net_output.encoder_padding_mask
+            encoder_padding_mask = (
+                net_output["encoder_padding_mask"][0] if len(net_output["encoder_padding_mask"]) > 0
+                else None
+            )
             encoder_out_squared = encoder_out.pow(2.0)
             if encoder_padding_mask is not None:
                 pad_mask = encoder_padding_mask.transpose(0, 1).unsqueeze(-1)  # T x B -> B x T x 1

@@ -17,7 +17,6 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.lstm import Linear
 from omegaconf import DictConfig
 
@@ -254,15 +253,19 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
         if self.fc_out is not None:
             x = self.fc_out(x)  # T x B x C -> T x B x V
 
-        return EncoderOut(
-            encoder_out=x,  # T x B x C
-            encoder_padding_mask=encoder_padding_mask if encoder_padding_mask.any()
-            else None,  # T x B
-            encoder_embedding=None,
-            encoder_states=None,
-            src_tokens=None,
-            src_lengths=x_lengths,  # B
-        )
+        # The Pytorch Mobile lite interpreter does not supports returning NamedTuple in
+        # `foward` so we use a dictionary instead.
+        # TorchScript does not support mixed values so the values are all lists.
+        # The empty list is equivalent to None.
+        return {
+            "encoder_out": [x],  # T x B x C
+            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any()
+            else [],  # T x B
+            "encoder_embedding": [],
+            "encoder_states": [],
+            "src_tokens": [],
+            "src_lengths": [x_lengths],  # B
+        }
 
 
 @register_model_architecture("speech_lstm_encoder_model", "speech_lstm_encoder_model")
