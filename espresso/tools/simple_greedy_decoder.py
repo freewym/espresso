@@ -90,7 +90,7 @@ class SimpleGreedyDecoder(nn.Module):
         target = sample["target"]
         # target can only be None if not for validation
         assert target is not None or not self.for_validation
-        max_encoder_output_length = encoder_outs[0].encoder_out.size(0)
+        max_encoder_output_length = encoder_outs[0]["encoder_out"][0].size(0)
         # for validation, make the maximum decoding length equal to at least the
         # length of target, and the length of encoder_out if possible; otherwise
         # max_len is obtained from max_len_a/b
@@ -105,7 +105,7 @@ class SimpleGreedyDecoder(nn.Module):
         tokens = src_tokens.new(bsz, max_len + 2).long().fill_(self.pad)
         tokens[:, 0] = self.eos if bos_token is None else bos_token
         # lprobs is only used when target is not None (i.e., for validation)
-        lprobs = encoder_outs[0].encoder_out.new_full(
+        lprobs = encoder_outs[0]["encoder_out"][0].new_full(
             (bsz, target.size(1), self.vocab_size), -np.log(self.vocab_size),
         ) if self.for_validation else None
         attn = None
