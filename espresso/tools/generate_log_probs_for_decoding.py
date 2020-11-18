@@ -53,10 +53,13 @@ class GenerateLogProbsForDecoding(nn.Module):
 
         # compute the encoder output
         encoder_outs = self.model.forward_encoder(net_input)
-        logits = encoder_outs[0].encoder_out.transpose(0, 1).float()  # T x B x V -> B x T x V
+        logits = encoder_outs[0]["encoder_out"][0].transpose(0, 1).float()  # T x B x V -> B x T x V
         assert logits.size(0) == bsz
-        padding_mask = encoder_outs[0].encoder_padding_mask.t() \
-            if encoder_outs[0].encoder_padding_mask is not None else None
+        padding_mask = (
+            encoder_outs[0]["encoder_padding_mask"][0].t()
+            if len(encoder_outs[0]["encoder_padding_mask"]) > 0
+            else None
+        )
         if self.apply_log_softmax:
             return F.log_softmax(logits, dim=-1), padding_mask
         return logits, padding_mask

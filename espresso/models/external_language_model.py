@@ -375,7 +375,7 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
                 node.word_idx if node is not None and node.word_idx >= 0 else
                 self.word_unk_idx for node in nodes
             ]).unsqueeze(-1)  # B x 1
-            old_wordlm_cached_state = _clone_cached_state(wordlm_cached_state)
+            old_wordlm_cached_state = _clone_cached_state(self.wordlm_decoder.get_cached_state(incremental_state))
 
             # recompute wordlm_logprobs from inter-word transition probabilities
             # only for those whose prev_output_token is <space>

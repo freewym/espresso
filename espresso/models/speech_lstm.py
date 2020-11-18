@@ -20,7 +20,6 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.lstm import (
     Embedding,
     LSTM,
@@ -462,37 +461,44 @@ class SpeechLSTMEncoder(FairseqEncoder):
 
         encoder_padding_mask = padding_mask.t()
 
-        return EncoderOut(
-            encoder_out=x,  # T x B x C
-            encoder_padding_mask=encoder_padding_mask if encoder_padding_mask.any()
-            else None,  # T x B
-            encoder_embedding=None,
-            encoder_states=None,
-            src_tokens=None,
-            src_lengths=src_lengths,  # B
-        )
+        # The Pytorch Mobile lite interpreter does not supports returning NamedTuple in
+        # `foward` so we use a dictionary instead.
+        # TorchScript does not support mixed values so the values are all lists.
+        # The empty list is equivalent to None.
+        return {
+            "encoder_out": [x],  # T x B x C
+            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any()
+            else [],  # T x B
+            "encoder_embedding": [],
+            "encoder_states": [],
+            "src_tokens": [],
+            "src_lengths": [src_lengths],  # B
+        }
 
-    def reorder_encoder_out(self, encoder_out: EncoderOut, new_order):
-        encoder_padding_mask: Optional[Tensor] = encoder_out.encoder_padding_mask
-        src_lengths: Optional[Tensor] = encoder_out.src_lengths
-        new_encoder_padding_mask = (
-            encoder_padding_mask
-            if encoder_padding_mask is None
-            else encoder_padding_mask.index_select(1, new_order)
-        )
-        new_src_lengths = (
-            src_lengths
-            if src_lengths is None
-            else src_lengths.index_select(0, new_order)
-        )
-        return EncoderOut(
-            encoder_out=encoder_out.encoder_out.index_select(1, new_order),
-            encoder_padding_mask=new_encoder_padding_mask,
-            encoder_embedding=None,
-            encoder_states=None,
-            src_tokens=None,
-            src_lengths=new_src_lengths,
-        )
+    def reorder_encoder_out(self, encoder_out: Dict[str, List[Tensor]], new_order):
+        if len(encoder_out["encoder_out"]) == 0:
+            new_encoder_out = []
+        else:
+            new_encoder_out = [encoder_out["encoder_out"][0].index_select(1, new_order)]
+        if len(encoder_out["encoder_padding_mask"]) == 0:
+            new_encoder_padding_mask = []
+        else:
+            new_encoder_padding_mask = [
+                encoder_out["encoder_padding_mask"][0].index_select(1, new_order)  # note: transposed
+            ]
+        if len(encoder_out["src_lengths"]) == 0:
+            new_src_lengths = []
+        else:
+            new_src_lengths = [(encoder_out["src_lengths"][0]).index_select(0, new_order)]
+
+        return {
+            "encoder_out": new_encoder_out,  # T x B x C
+            "encoder_padding_mask": new_encoder_padding_mask,  # B x T
+            "encoder_embedding": [],
+            "encoder_states": [],
+            "src_tokens": [],
+            "src_lengths": new_src_lengths,  # B x 1
+        }
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""
@@ -592,7 +598,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
     def forward(
         self,
         prev_output_tokens,
-        encoder_out: Optional[EncoderOut] = None,
+        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         **kwargs,
     ):
@@ -600,7 +606,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         Args:
             prev_output_tokens (LongTensor): previous decoder outputs of shape
                 `(batch, tgt_len)`, for input feeding/teacher forcing
-            encoder_out (EncoderOut, optional): output from the encoder, used for
+            encoder_out (optional): output from the encoder, used for
                 encoder-side attention
             incremental_state (dict): dictionary used for storing state during
                 :ref:`Incremental decoding`
@@ -628,7 +634,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         self,
         prev_output_tokens,
         sampling_prob,
-        encoder_out: Optional[EncoderOut] = None,
+        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
     ):
         bsz, seqlen = prev_output_tokens.size()
@@ -655,7 +661,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
     def extract_features(
         self,
         prev_output_tokens,
-        encoder_out: Optional[EncoderOut] = None,
+        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         **unused,
     ):
@@ -670,8 +676,16 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         # get outputs from encoder
         if encoder_out is not None:
             assert self.attention is not None
-            encoder_outs = encoder_out.encoder_out
-            encoder_padding_mask = encoder_out.encoder_padding_mask
+            encoder_outs = (
+                encoder_out["encoder_out"][0]
+                if len(encoder_out["encoder_out"]) > 0
+                else torch.empty(0)
+            )
+            encoder_padding_mask = (
+                encoder_out["encoder_padding_mask"][0]
+                if len(encoder_out["encoder_padding_mask"]) > 0
+                else None
+            )
         else:
             encoder_outs = torch.empty(0)
             encoder_padding_mask = torch.empty(0)
