@@ -415,7 +415,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
         combine: bool = False,
         task_cfg: FairseqDataclass = None,
         **kwargs,
-        ):
+    ):
         """Load a given dataset split.
 
         Args:

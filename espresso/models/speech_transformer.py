@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 from torch import Tensor
@@ -15,7 +15,6 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.models.fairseq_encoder import EncoderOut
 from fairseq.models.transformer import (
     Linear,
     TransformerModel,
@@ -384,15 +383,12 @@ class SpeechTransformerEncoder(TransformerEncoder):
             if self.layernorm_embedding is not None:
                 x = self.layernorm_embedding(x)
 
-        if not encoder_padding_mask.any():
-            encoder_padding_mask = None
-
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
         attn_mask = self.get_attn_mask(src_lengths)
 
-        encoder_states = [] if return_all_hiddens else None
+        encoder_states = []
 
         # encoder layers
         for layer in self.layers:
@@ -404,14 +400,19 @@ class SpeechTransformerEncoder(TransformerEncoder):
         if self.layer_norm is not None:
             x = self.layer_norm(x)
 
-        return EncoderOut(
-            encoder_out=x,  # T x B x C
-            encoder_padding_mask=encoder_padding_mask,  # B x T
-            encoder_embedding=None,
-            encoder_states=encoder_states,  # List[T x B x C]
-            src_tokens=None,
-            src_lengths=None,
-        )
+        # The Pytorch Mobile lite interpreter does not supports returning NamedTuple in
+        # `foward` so we use a dictionary instead.
+        # TorchScript does not support mixed values so the values are all lists.
+        # The empty list is equivalent to None.
+        return {
+            "encoder_out": [x],  # T x B x C
+            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any()
+            else [],  # B x T
+            "encoder_embedding": [],
+            "encoder_states": encoder_states,  # List[T x B x C]
+            "src_tokens": [],
+            "src_lengths": [],
+        }
 
     def max_positions(self):
         """Maximum input length supported by the encoder."""
@@ -433,7 +434,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
     def forward(
         self,
         prev_output_tokens,
-        encoder_out: Optional[EncoderOut] = None,
+        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         features_only: bool = False,
         full_context_alignment: bool = False,
@@ -447,7 +448,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
         Args:
             prev_output_tokens (LongTensor): previous decoder outputs of shape
                 `(batch, tgt_len)`, for input feeding/teacher forcing
-            encoder_out (EncoderOut, optional): output from the encoder, used for
+            encoder_out (optional): output from the encoder, used for
                 encoder-side attention
             incremental_state (dict): dictionary used for storing state during
                 :ref:`Incremental decoding`
@@ -494,7 +495,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
         self,
         prev_output_tokens,
         sampling_prob,
-        encoder_out: Optional[EncoderOut] = None,
+        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
         features_only: bool = False,
         full_context_alignment: bool = False,
