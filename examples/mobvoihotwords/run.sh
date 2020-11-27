@@ -170,4 +170,78 @@ fi
 
 if [ ${stage} -le 3 ]; then
   echo "Stage 3: Dump Posteriors for Evaluation"
+  path=$dir/$checkpoint
+  for dataset in $test_set; do
+    mkdir -p $dir/decode_$dataset/log
+    log_file=$dir/decode_$dataset/log/dump_posteriors.log
+    $cuda_cmd $log_file dump_posteriors.py data --use-k2-dataset \
+      --task speech_recognition_hybrid --max-tokens 25600 --max-sentences 128 \
+      --num-shards 1 --shard-id 0 --num-targets $num_targets --gen-subset $dataset \
+      --max-source-positions 9999 --path $path \
+    \| copy-matrix ark:- ark,scp:$dir/decode_$dataset/posteriors.ark,$dir/decode_$dataset/posteriors.scp || exit 1;
+    echo "log saved in $log_file"
+  done
+fi
+
+if [ ${stage} -le 4 ]; then
+  echo "Stage 7: Decoding"
+  lang_test=data/lang_test
+  rm -rf $lang_test
+  cp -r data/lang $lang_test
+  utils/lang/make_lexicon_fst.py --sil-prob 0.0 --sil-phone SIL $lang_test/lexiconp.txt > $lang_test/L.fst.sym
+  utils/sym2int.pl -f 3 $lang_test/phones.txt <$lang_test/L.fst.sym - | \
+    utils/sym2int.pl -f 4 $lang_test/words.txt - > $lang_test/L.fst.txt
+
+  for wake_word in $wake_word0 $wake_word1; do
+    if [[ "$wake_word" == "$wake_word0" ]]; then
+      wake_word0_cost_range="-1.5 -1.0 -0.5 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0"
+      wake_word1_cost_range="0.0"
+    else
+      wake_word0_cost_range="0.0"
+      wake_word1_cost_range="-1.5 -1.0 -0.5 0.0 0.5 1.0 1.5 2.0 2.5 3.0 3.5 4.0"
+    fi
+    for wake_word0_cost in $wake_word0_cost_range; do
+      for wake_word1_cost in $wake_word1_cost_range; do
+        sil_id=`cat $lang_test/words.txt | grep "<sil>" | awk '{print $2}'`
+        freetext_id=`cat $lang_test/words.txt | grep "FREETEXT" | awk '{print $2}'`
+        id0=`cat $lang_test/words.txt | grep $wake_word0 | awk '{print $2}'`
+        id1=`cat $lang_test/words.txt | grep $wake_word1 | awk '{print $2}'`
+        mkdir -p $lang_test/lm
+        cat <<EOF > $lang_test/lm/fsa.txt
+0 1 $sil_id
+0 4 $sil_id 7.0
+1 4 $freetext_id 0.0
+4 0 $sil_id 0.0
+1 2 $id0 $wake_word0_cost
+1 3 $id1 $wake_word1_cost
+2 0 $sil_id
+3 0 $sil_id
+0
+EOF
+        local/create_decoding_graph.py --HCL-fst-path data/HL.pt --lm-fsa-path $lang_test/lm/fsa.txt $lang_test/graph || exit 1;
+
+        rm $dir/.error 2>/dev/null || true
+        for dataset in $test_set; do
+          (
+            nj=30
+            score_dir=$dir/decode_$dataset/score_${wake_word}_${wake_word0_cost}_${wake_word1_cost}
+            mkdir -p $score_dir
+            $decode_cmd $dir/decode_$dataset/log/decode_${wake_word}.log \
+              local/decode_best_path.py --beam=10 --word-symbol-table $lang_test/words.txt \
+                $lang_test/graph/HCLG.pt $dir/decode_$dataset/posteriors.scp $score_dir/hyp.txt
+            local/evaluate.py --wake-word $wake_word \
+              data/supervisions_${dataset}.json $score_dir/hyp.txt $score_dir/metrics
+          ) || touch $dir/.error &
+        done
+        wait
+        [ -f $dir/.error ] && echo "$0: there was a problem while decoding" && exit 1
+      done
+    done
+  done
+  for dataset in $test_set; do
+    for wake_word in $wake_word0 $wake_word1; do
+      echo "Results on $dataset set with wake word ${wake_word}:"
+      cat $dir/decode_$dataset/score_${wake_word}_*/metrics
+    done
+  done
 fi
