@@ -51,7 +51,7 @@ class ChainLossFunction(torch.autograd.Function):
                 "after entering espresso/tools"
             )
 
-        input = input.clamp(-30, 30)  # clamp for both the denominator and the numerator
+        input = input.contiguous().clamp(-30, 30)  # clamp for both the denominator and the numerator
         B = input.size(0)
         if B != num_graphs.batch_size or B != den_graphs.batch_size:
             raise ValueError(
@@ -60,7 +60,7 @@ class ChainLossFunction(torch.autograd.Function):
                 .format(B, num_graphs.batch_size, den_graphs.batch_size)
             )
         packed_data = torch.nn.utils.rnn.pack_padded_sequence(
-            input, input_lengths, batch_first=True,
+            input, input_lengths.cpu(), batch_first=True,
         )
         batch_sizes = packed_data.batch_sizes
         input_lengths = input_lengths.cpu()

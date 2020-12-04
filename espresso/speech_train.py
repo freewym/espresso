@@ -80,7 +80,7 @@ def main(cfg: DictConfig) -> None:
     logger.info(model)
     logger.info("task: {}".format(task.__class__.__name__))
     logger.info("model: {}".format(model.__class__.__name__))
-    logger.info("criterion: {})".format(criterion.__class__.__name__))
+    logger.info("criterion: {}".format(criterion.__class__.__name__))
     logger.info(
         "num. model params: {} (num. trained: {})".format(
             sum(p.numel() for p in model.parameters()),
@@ -129,7 +129,15 @@ def main(cfg: DictConfig) -> None:
     lr = trainer.get_lr()
     train_meter = meters.StopwatchMeter()
     train_meter.start()
-    while lr > cfg.optimization.min_lr and epoch_itr.next_epoch_idx <= max_epoch:
+    while epoch_itr.next_epoch_idx <= max_epoch:
+        if lr <= cfg.optimization.stop_min_lr:
+            logger.info(
+                f"stopping training because current learning rate ({lr}) is smaller "
+                "than or equal to minimum learning rate "
+                f"(--stop-min-lr={cfg.optimization.stop_min_lr})"
+            )
+            break
+
         # train for one epoch
         valid_losses, should_stop = train(cfg, trainer, task, epoch_itr)
         if should_stop:
@@ -193,7 +201,7 @@ def train(
         else cfg.optimization.update_freq[-1]
     )
     itr = iterators.GroupedIterator(itr, update_freq)
-    if getattr(cfg.common, "tpu", False):
+    if cfg.common.tpu:
         itr = utils.tpu_data_loader(itr)
     progress = progress_bar.progress_bar(
         itr,
@@ -207,7 +215,15 @@ def train(
         ),
         default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
         wandb_project=(
-            cfg.common.wandb_project if distributed_utils.is_master(cfg.distributed_training) else None
+            cfg.common.wandb_project
+            if distributed_utils.is_master(cfg.distributed_training)
+            else None
+        ),
+        wandb_run_name=os.environ.get(
+            "WANDB_NAME", os.path.basename(cfg.checkpoint.save_dir)
+        ),
+        azureml_logging=(
+            cfg.common.azureml_logging if distributed_utils.is_master(cfg.distributed_training) else False
         ),
     )
 
@@ -355,7 +371,12 @@ def validate(
             ),
             default_log_format=("tqdm" if not cfg.common.no_progress_bar else "simple"),
             wandb_project=(
-                cfg.common.wandb_project if distributed_utils.is_master(cfg.distributed_training) else None
+                cfg.common.wandb_project
+                if distributed_utils.is_master(cfg.distributed_training)
+                else None
+            ),
+            wandb_run_name=os.environ.get(
+                "WANDB_NAME", os.path.basename(cfg.checkpoint.save_dir)
             ),
         )
 

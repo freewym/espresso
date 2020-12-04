@@ -320,7 +320,7 @@ if [ ${stage} -le 10 ]; then
       --num-shards 1 --shard-id 0 --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 50 --max-len-a 0.2 --max-len-b 0 --lenpen 1.0 \
-      --results-path $decode_dir $opts --print-alignment
+      --results-path $decode_dir $opts --print-alignment hard
 
     echo "log saved in ${decode_dir}/decode.log"
     if $kaldi_scoring; then
