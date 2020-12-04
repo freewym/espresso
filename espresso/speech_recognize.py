@@ -194,12 +194,11 @@ def _main(cfg, output_file):
         "eos_factor": cfg.generation.eos_factor,
     }
     cfg.generation.score_reference = False  # not applicable for ASR
-    temp_val = cfg.generation.print_alignment
-    cfg.generation.print_alignment = False  # not applicable for ASR
+    save_attention_plot = cfg.generation.print_alignment is not None
+    cfg.generation.print_alignment = None  # not applicable for ASR
     generator = task.build_generator(
         models, cfg.generation, extra_gen_cls_kwargs=extra_gen_cls_kwargs
     )
-    cfg.generation.print_alignment = temp_val
 
     # Handle tokenization and BPE
     tokenizer = task.build_tokenizer(cfg.tokenizer)
@@ -242,7 +241,7 @@ def _main(cfg, output_file):
         gen_timer.stop(num_generated_tokens)
 
         # obtain nonpad mask of encoder output to plot attentions
-        if cfg.generation.print_alignment:
+        if save_attention_plot:
             net_input = sample["net_input"]
             src_tokens = net_input["src_tokens"]
             output_lengths = models[0].encoder.output_lengths(net_input["src_lengths"])
@@ -275,8 +274,8 @@ def _main(cfg, output_file):
                 if j == 0:
                     # src_len x tgt_len
                     attention = hypo["attention"][nonpad_idxs[i]].float().cpu() \
-                        if cfg.generation.print_alignment and hypo["attention"] is not None else None
-                    if cfg.generation.print_alignment and attention is not None:
+                        if save_attention_plot and hypo["attention"] is not None else None
+                    if save_attention_plot and attention is not None:
                         save_dir = os.path.join(cfg.common_eval.results_path, "attn_plots")
                         os.makedirs(save_dir, exist_ok=True)
                         plot_attention(attention, detok_hypo_str, utt_id, save_dir)
@@ -291,7 +290,7 @@ def _main(cfg, output_file):
     logger.info("NOTE: hypothesis and token scores are output in base 2")
     logger.info("Recognized {} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)".format(
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
-    if cfg.generation.print_alignment:
+    if save_attention_plot:
         logger.info("Saved attention plots in " + save_dir)
 
     if has_target:
