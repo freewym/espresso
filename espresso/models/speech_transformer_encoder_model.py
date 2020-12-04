@@ -265,7 +265,7 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
                 intermediate hidden states (default: False).
 
         Returns:
-            namedtuple:
+            dict:
                 - **encoder_out** (Tensor): the last encoder layer's output of
                   shape `(src_len, batch, embed_dim)`
                 - **encoder_padding_mask** (ByteTensor): the positions of
