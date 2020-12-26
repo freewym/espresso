@@ -57,11 +57,19 @@ def main(args):
             net_output = torch.from_numpy(kaldi_io.read_mat(rxfile)).unsqueeze(0)  # 1 x T x V
             supervision_segments = net_output.new_tensor([0, 0, net_output.size(0)], dtype=torch.int).unsqueeze(0)  # 1 x 3
             dense_fsa_vec = k2.DenseFsaVec(net_output, supervision_segments)
+            graph = graph.to(dense_fsa_vec.device)
             graph_unrolled = k2.intersect_dense_pruned(
                 graph, dense_fsa_vec, search_beam=args.beam, output_beam=15.0, min_active_states=0, max_active_states=10000
             )
-            best_path = k2.shortest_path(graph_unrolled, use_float_scores=True)
-            hyp = [symbol_table._id2sym[x.item()] for x in best_path[0].aux_labels if x > 0]
+            best_path = k2.shortest_path(graph_unrolled, use_double_scores=False)
+            if isinstance(best_path[0].aux_labels, torch.Tensor):
+                aux_labels = best_paths[0].aux_labels
+            else:
+                # it's a ragged tensor
+                aux_labels = best_path[0].aux_labels.values()
+            aux_labels = aux_labels[aux_labels > 0]
+            aux_labels = aux_labels.tolist()
+            hyp = [symbol_table.get(x) for x in aux_labels]
             print(utt_id, hyp, file=f_out)
             num_processed += 1
 

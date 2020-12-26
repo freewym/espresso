@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 import logging
 import math
 from omegaconf import II
@@ -31,11 +32,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class K2LatticeFreeMMICriterionConfig(FairseqDataclass):
     sentence_avg: bool = II("optimization.sentence_avg")
-    denominator_fst_path: str = field(
-        default="???", metadata={"help": "path to the denominator fst file (torch saved)"}
+    denominator_graph_path: str = field(
+        default="???", metadata={"help": "path to the denominator graph file (torch saved)"}
     )
-    HCL_fst_path: str = field(
-        default="???", metadata={"help": "path to the HCL fst file (torch saved)"}
+    HCL_inv_path: str = field(
+        default="???", metadata={"help": "path to the HCL_inv fst file (torch saved)"}
     )
     word_symbol_table_path: str = field(
         default="???", metadata={"help": "path to the word symbol table file"}
@@ -46,22 +47,34 @@ class K2LatticeFreeMMICriterionConfig(FairseqDataclass):
     )
 
 
-def create_numerator_graphs(texts: List[str], HCL_fst_inv: k2.Fsa, symbols: k2.SymbolTable, den_graph=None):
-    word_ids_list = []
-    for text in texts:
-        filtered_text = [
-            word if word in symbols._sym2id else "<UNK>" for word in text.split(" ")
-        ]
-        word_ids = [symbols.get(word) for word in filtered_text]
-        word_ids_list.append(word_ids)
+def compile_numerator_graphs(
+    texts: List[str], symbols: k2.SymbolTable, HCL_inv: k2.Fsa,
+    unk_str: Optional[str] = "UNK", den_graph: Optional[k2.Fsa] = None
+):
+    assert len(den_graph.shape) == 2
 
-    fsa = k2.linear_fsa(word_ids_list)  # create an FsaVec from a list of list of word ids
-    num_graphs = k2.intersect(fsa, HCL_fst_inv).invert_()
-    # TODO: normalize numerator
-    if False: #den_graph is not None:
-        num_graphs = k2.arc_sort(num_graphs)
-        num_graphs.scores = num_graphs.scores.new_zeros(num_graphs.scores.size()) # zero the score before intersect to avoid double counting
-        num_graphs = k2.intersect(num_graphs, den_graph)
+    @lru_cache(maxsize=100000)
+    def compile_one_and_cache(text: str) -> k2.Fsa:
+        filtered_text = [token if token in symbols._sym2id else unk_str for token in text.split(" ")]
+        word_ids = [symbols.get(word) for word in filtered_text]
+        fsa = k2.linear_fsa(word_ids)
+        #if H_inv is not None and L_inv is not None:
+        #    LG = k2.connect(k2.intersect(fsa, L_inv)).invert_()
+        #    del LG.aux_labels
+        #    num_graph = k2.arc_sort(k2.invert(k2.connect(k2.intersect(H_inv, LG))))
+        #else:
+        #    assert HCL_inv is not None
+        num_graph = k2.invert(k2.connect(k2.intersect(fsa, HCL_inv)))
+        if den_graph is not None:
+            num_graph = k2.arc_sort(num_graph)
+            # zero the score before intersect to avoid double counting
+            num_graph.scores = num_graph.scores.new_zeros(num_graph.scores.size())
+            # treat epsilon as normal labels, i.e., blanks
+            num_graph = k2.connect(k2.intersect(num_graph, den_graph, treat_epsilons_specially=False))
+        del num_graph.aux_labels
+        return num_graph
+
+    num_graphs = k2.create_fsa_vec([compile_one_and_cache(text) for text in texts])
     return num_graphs
 
 
@@ -70,17 +83,19 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
     def __init__(self, cfg: K2LatticeFreeMMICriterionConfig, task: FairseqTask):
         super().__init__(task)
 
+        self.unk_str = task.target_dictionary.unk_string() if task.target_dictionary is not None else "UNK"
         self.sentence_avg = cfg.sentence_avg
         self.den_graph = k2.create_fsa_vec(
-            [k2.Fsa.from_dict(torch.load(cfg.denominator_fst_path))]
+            [k2.Fsa.from_dict(torch.load(cfg.denominator_graph_path))]
         )  # has to be an FsaVec to be able to intersect with a batch of dense fsas
         if hasattr(self.den_graph, "aux_labels"):
             del self.den_graph.aux_labels
-            if hasattr(self.den_graph, "aux_symbols"):
-                del self.den_graph.aux_symbols
         self.den_graph.scores.requires_grad_(False)
-        self.den_graph_cpu = self.den_graph.clone()
-        self.HCL_fst_inv = k2.arc_sort(k2.Fsa.from_dict(torch.load(cfg.HCL_fst_path)).invert_())
+        self.den_graph_cpu = self.den_graph[0].clone()  # to be intersect with a individual numerator fsa
+        self.HCL_inv = k2.arc_sort(k2.Fsa.from_dict(torch.load(cfg.HCL_inv_path)))
+        #self.H_inv = k2.arc_sort(k2.Fsa.from_dict(torch.load(cfg.H_inv_path)))
+        #with open(cfg.L_path, "r", encoding="utf-8") as f:
+        #    self.L_inv = k2.arc_sort(k2.Fsa.from_openfst(f.read(), acceptor=False).invert_())
         self.symbol_table = k2.SymbolTable.from_file(cfg.word_symbol_table_path)
         self.xent_regularize = cfg.xent_regularization_coefficient
         self.subsampling_factor = None
@@ -97,7 +112,7 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
         """
         if self.subsampling_factor is None:
             assert hasattr(model, "output_lengths"), "model should implement the method `output_lengths()`"
-            self.subsampling_factor = int(round(100.0 / model.output_lengths(100)))
+            self.subsampling_factor = int(round(120.0 / model.output_lengths(120)))
 
         net_output = model(**sample["net_input"])
         loss, nll_loss = self.compute_loss(net_output, sample, reduce=reduce)
@@ -131,25 +146,25 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
                 out_lengths
             ),
             dim=1
-        ).int().cpu()
+        ).int().cpu()  # assume batched in descending order of lengths
         dense_fsa_vec = k2.DenseFsaVec(encoder_out, supervision_segments)
 
         # numerator computation
-        num_graphs = create_numerator_graphs(
-            sample["target"]["text"], self.HCL_fst_inv, self.symbol_table, den_graph=self.den_graph_cpu
+        num_graphs = compile_numerator_graphs(
+            sample["target"]["text"], self.symbol_table, HCL_inv=self.HCL_inv, unk_str=self.unk_str, den_graph=self.den_graph_cpu
         ).to(encoder_out.device)
         num_graphs.scores.requires_grad_(False)
         num_graphs_unrolled = k2.intersect_dense_pruned(
             num_graphs, dense_fsa_vec, search_beam=100000, output_beam=100000, min_active_states=0, max_active_states=10000
         )
-        num_scores = k2.get_tot_scores(num_graphs_unrolled, log_semiring=True, use_float_scores=True)
+        num_scores = k2.get_tot_scores(num_graphs_unrolled, log_semiring=True, use_double_scores=False)
 
         # denominator computation
         self.den_graph = self.den_graph.to(encoder_out.device)
         den_graph_unrolled = k2.intersect_dense_pruned(
             self.den_graph, dense_fsa_vec, search_beam=100000, output_beam=100000, min_active_states=0, max_active_states=10000
         )
-        den_scores = k2.get_tot_scores(den_graph_unrolled, log_semiring=True, use_float_scores=True)
+        den_scores = k2.get_tot_scores(den_graph_unrolled, log_semiring=True, use_double_scores=False)
 
         # obtain the loss
         if reduce:

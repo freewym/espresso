@@ -23,11 +23,10 @@ from fairseq.data.data_utils import numpy_seed
 
 try:
     from lhotse import (
-        CutSet, Mfcc, MfccConfig, LilcomFilesWriter, RecordingSet, SupervisionSet
+        CutSet, Mfcc, MfccConfig, LilcomFilesWriter, RecordingSet, SupervisionSet, combine
     )
     from lhotse.augmentation import SoxEffectTransform, RandomValue
-    from lhotse.manipulation import combine
-    from lhotse.recipes.mobvoihotwords import download_and_untar, prepare_mobvoihotwords
+    from lhotse.recipes.mobvoihotwords import download_mobvoihotwords, prepare_mobvoihotwords
 except ImportError:
     raise ImportError("Please install Lhotse by `pip install lhotse`")
 
@@ -79,22 +78,10 @@ def main(args):
     output_dir = root_dir
 
     logger.info(f"Download and extract the corpus")
-    download_and_untar(root_dir)
+    download_mobvoihotwords(root_dir)
 
     logger.info(f"Prepare the manifests")
-    data_parts = ["train", "dev", "test"]
-    try:
-        mobvoihotwords_manifests = defaultdict(dict)
-        for part in data_parts:
-            mobvoihotwords_manifests[part]["recordings"] = RecordingSet.from_json(
-                output_dir / f"recordings_{part}.json"
-            )
-            mobvoihotwords_manifests[part]["supervisions"] = SupervisionSet.from_json(
-                output_dir / f"supervisions_{part}.json"
-            )
-    except Exception as e:
-        logger.warning("Mobvoihotwords manifests not found on disk, preparing them from scratch: " + str(e))
-        mobvoihotwords_manifests = prepare_mobvoihotwords(corpus_dir, output_dir)
+    mobvoihotwords_manifests = prepare_mobvoihotwords(corpus_dir, output_dir)
     logger.info(
         "train/dev/test size: {}/{}/{}".format(
             len(mobvoihotwords_manifests["train"]["recordings"]),
@@ -134,21 +121,20 @@ def main(args):
                         overlap_duration=args.overlap_duration,
                     )
 
-                # "clean" set
-                logger.info(f"Extract features for '{part}' set")
-                json_path = output_dir / f"cuts_{part}_clean.json.gz"
+                # "clean + speed-perturbed" set
+                logger.info(f"Extract features for '{part}' set with speed perturbation")
+                json_path = output_dir / f"cuts_{part}_sp.json.gz"
                 if json_path.is_file():
                     logger.info(f"{json_path} exists, skip the extraction (remove it if you want to re-generate it)")
-                    cut_set_clean = CutSet.from_json(json_path)
+                    cut_set_sp = CutSet.from_json(json_path)
                 else:
-                    with LilcomFilesWriter(f"{output_dir}/feats_{part}_clean") as storage:
-                        cut_set_clean = cut_set.compute_and_store_features(
-                            extractor=mfcc,
-                            storage=storage,
-                            augment_fn=None,
-                            executor=ex,
-                        )
-                    cut_set_clean.to_json(json_path)
+                    cut_set_sp = cut_set + cut_set.perturb_speed(0.9) + cut_set.perturb_speed(1.1)
+                    cut_set_sp = cut_set_sp.compute_and_store_features(
+                        extractor=mfcc,
+                        storage=LilcomFilesWriter(f"{output_dir}/feats_{part}_sp"),
+                        executor=ex,
+                    )
+                    cut_set_sp.to_json(json_path)
 
                 # augmented with reverberation
                 logger.info(f"Extract features for '{part}' set with reverberation")
@@ -158,68 +144,27 @@ def main(args):
                     cut_set_rev = CutSet.from_json(json_path)
                 else:
                     augment_fn = SoxEffectTransform(effects=reverb(sampling_rate=sampling_rate))
-                    with LilcomFilesWriter(f"{output_dir}/feats_{part}_rev") as storage:
-                        with numpy_seed(args.seed):
-                            cut_set_rev = cut_set.compute_and_store_features(
-                                extractor=mfcc,
-                                storage=storage,
-                                augment_fn=augment_fn,
-                                executor=ex,
-                            )
-                    cut_set_rev = CutSet.from_cuts(
-                        cut.with_id("rev-" + cut.id) for cut in cut_set_rev
-                    )
+                    with numpy_seed(args.seed):
+                        cut_set_rev = cut_set.modify_ids(
+                            lambda cut_id: f"rev-{cut_id}"
+                        ).compute_and_store_features(
+                            extractor=mfcc,
+                            storage=LilcomFilesWriter(f"{output_dir}/feats_{part}_rev"),
+                            augment_fn=augment_fn,
+                            executor=ex,
+                        )
                     cut_set_rev.to_json(json_path)
 
-                # augmented with speed perturbation
-                logger.info(f"Extract features for '{part}' set with speed perturbation")
-                json_path = output_dir / f"cuts_{part}_sp1.1.json.gz"
-                if json_path.is_file():
-                    logger.info(f"{json_path} exists, skip the extraction (remove it if you want to re-generate it)")
-                    cut_set_sp1p1 = CutSet.from_json(json_path)
-                else:
-                    augment_fn = SoxEffectTransform(effects=speed(sampling_rate=sampling_rate, factor=1.1))
-                    with LilcomFilesWriter(f"{output_dir}/feats_{part}_sp1.1") as storage:
-                        cut_set_sp1p1 = cut_set.compute_and_store_features(
-                            extractor=mfcc,
-                            storage=storage,
-                            augment_fn=augment_fn,
-                            executor=ex,
-                        )
-                    cut_set_sp1p1 = CutSet.from_cuts(
-                        cut.with_id("sp1.1-" + cut.id) for cut in cut_set_sp1p1
-                    )
-                    cut_set_sp1p1.to_json(json_path)
-                json_path = output_dir / f"cuts_{part}_sp0.9.json.gz"
-                if json_path.is_file():
-                    logger.info(f"{json_path} exists, skip the extraction")
-                    cut_set_sp1p1 = CutSet.from_json(json_path)
-                else:
-                    augment_fn = SoxEffectTransform(effects=speed(sampling_rate=sampling_rate, factor=0.9))
-                    with LilcomFilesWriter(f"{output_dir}/feats_{part}_sp0.9") as storage:
-                        cut_set_sp0p9 = cut_set.compute_and_store_features(
-                            extractor=mfcc,
-                            storage=storage,
-                            augment_fn=augment_fn,
-                            executor=ex,
-                        )
-                    cut_set_sp0p9 = CutSet.from_cuts(
-                        cut.with_id("sp0.9-" + cut.id) for cut in cut_set_sp0p9
-                    )
-                    cut_set_sp0p9.to_json(json_path)
-
-                # combine the clean and augmented sets together
+                # combine all the augmented sets together
                 logger.info(f"Combine all the features above")
-                cut_set = combine(cut_set_clean, cut_set_rev, cut_set_sp1p1, cut_set_sp0p9)
+                cut_set = combine(cut_set_sp, cut_set_rev)
             else:  # no augmentations for dev and test sets
                 logger.info(f"extract features for '{part}' set")
-                with LilcomFilesWriter(f"{output_dir}/feats_{part}") as storage:
-                    cut_set = cut_set.compute_and_store_features(
-                        extractor=mfcc,
-                        storage=storage,
-                        augment_fn=None,
-                        executor=ex,
-                    )
+                cut_set = cut_set.compute_and_store_features(
+                    extractor=mfcc,
+                    storage=LilcomFilesWriter(f"{output_dir}/feats_{part}"),
+                    executor=ex,
+                )
 
         mobvoihotwords_manifests[part]["cuts"] = cut_set
         cut_set.to_json(output_dir / f"cuts_{part}.json.gz")
@@ -303,14 +248,6 @@ def reverb(sampling_rate: int) -> List[List[str]]:
     return [
         ["reverb", 50, 50, RandomValue(1, 30)],
         ["remix", "-"],  # Merge all channels (reverb changes mono to stereo)
-    ]
-
-
-def speed(sampling_rate: int, factor: float) -> List[List[str]]:
-    return [
-        # speed perturbation with a factor
-        ["speed", factor],
-        ["rate", sampling_rate],  # Resample back to the original sampling rate (speed changes it)
     ]
 
 

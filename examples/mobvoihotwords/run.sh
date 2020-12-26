@@ -37,9 +37,9 @@ if [ ${stage} -le 1 ]; then
   echo "Prepare the lexicon"
   mkdir -p data/lang
   cat > data/lang/lexiconp.txt <<EOF
+FREETEXT 1.0 freetext
 HiXiaowen 1.0 hixiaowen
 NihaoWenwen 1.0 nihaowenwen
-FREETEXT 1.0 freetext
 <sil> 1.0 SIL
 EOF
 
@@ -50,9 +50,9 @@ EOF
   cat > data/lang/phones.txt <<EOF
 <eps> 0
 SIL 1
-hixiaowen 2
-nihaowenwen 3
-freetext 4
+freetext 2
+hixiaowen 3
+nihaowenwen 4
 EOF
 
   echo "Prepare words symbol table"
@@ -72,7 +72,6 @@ EOF
   id_freetext=`cat data/lang/phones.txt | grep "freetext" | awk '{print $2}'`
   id_word0=`cat data/lang/phones.txt | grep "hixiaowen" | awk '{print $2}'`
   id_word1=`cat data/lang/phones.txt | grep "nihaowenwen" | awk '{print $2}'`
-  id_freetext=`cat data/lang/phones.txt | grep "freetext" | awk '{print $2}'`
 
    cat > data/lang/hmm_sil.fst.txt <<EOF
 0 0 0 0 0.693147181
@@ -117,7 +116,7 @@ EOF
 EOF
 
   echo "Prepare an unnormalized phone language model for the denominator graph"
-  cat <<EOF > data/lang/phone_lm.fsa.txt
+  cat > data/lang/phone_lm.fsa.txt <<EOF
 0 1 $id_sil
 0 7 $id_sil
 1 2 $id_word0
@@ -134,7 +133,7 @@ EOF
   echo "Generate graphs for training"
   log_file=data/log/generate_graphs.log
   $train_cmd $log_file local/generate_graphs.py --hmm-paths data/lang/hmm_{sil,freetext,hixiaowen,nihaowenwen}.fst.txt \
-    --lexicon-fst-path data/lang/L.fst.txt --phone-lm-fsa-path data/lang/phone_lm.fsa.txt \
+    --L-path data/lang/L.fst.txt --phone-lm-fsa-path data/lang/phone_lm.fsa.txt \
     --out-dir data
 fi
 
@@ -149,12 +148,12 @@ num_targets=26 # hard-coded for now. It's equal to the number of different label
 if [ ${stage} -le 2 ]; then
   echo "Stage 2: Model Training"
   opts=""
-  valid_subset=dev
+  valid_subset=valid
   mkdir -p $dir/log
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   update_freq=1
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_hybrid --seed 1 \
+  $cuda_cmd $log_file speech_train.py data --task speech_recognition_hybrid --seed 1 \
     --log-interval $((1500/ngpus/update_freq)) --log-format simple --use-k2-dataset \
     --num-workers 0 --data-buffer-size 0 --max-tokens 25600 --batch-size 128 --empty-cache-freq 50 \
     --valid-subset $valid_subset --batch-size-valid 128 --ddp-backend no_c10d --update-freq $update_freq \
@@ -164,8 +163,8 @@ if [ ${stage} -le 2 ]; then
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((1500/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --criterion k2_lattice_free_mmi --num-targets $num_targets --word-symbol-table-path data/lang/words.txt \
-    --denominator-fst-path data/denominator.pt --HCL-fst-path data/HL.pt \
-    --max-source-positions 9999 --max-target-positions 9999 $opts 2>&1 | tee $log_file
+    --denominator-graph-path data/denominator.pt --HCL-inv-path data/HLinv.pt \
+    --max-source-positions 9999 --max-target-positions 9999 $opts || exit 1;
 fi
 
 if [ ${stage} -le 3 ]; then
@@ -218,7 +217,7 @@ if [ ${stage} -le 4 ]; then
 3 0 $sil_id
 0
 EOF
-        local/create_decoding_graph.py --HCL-fst-path data/HL.pt --lm-fsa-path $lang_test/lm/fsa.txt $lang_test/graph || exit 1;
+        local/create_decoding_graph.py --HCL-inv-path data/HLinv.pt --G-path $lang_test/lm/fsa.txt $lang_test/graph || exit 1;
 
         rm $dir/.error 2>/dev/null || true
         for dataset in $test_set; do

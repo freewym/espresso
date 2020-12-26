@@ -26,8 +26,8 @@ def get_parser():
         description="Create the decoding graph for decoding"
     )
     # fmt: off
-    parser.add_argument("--HCL-fst-path", type=str, help="path to the HCL fst file (torch_saved)", required=True)
-    parser.add_argument("--lm-fsa-path", type=str, help="path to the LM fsa (openfst text format or torch saved)", required=True)
+    parser.add_argument("--HCL-inv-path", type=str, help="path to the HCL_inv fst file (torch_saved)", required=True)
+    parser.add_argument("--G-path", type=str, help="path to the LM fsa (openfst text format or torch saved)", required=True)
     parser.add_argument("--out-dir", type=str, default="data", help="directory to save the decoding graph")
     # fmt: on
 
@@ -40,20 +40,21 @@ def main(args):
     except ImportError:
         raise ImportError("Please install k2 by `pip install k2`")
 
-    HCL_inv = k2.Fsa.from_dict(torch.load(args.HCL_fst_path)).invert_()
-    HCL_inv = k2.arc_sort(HCL_inv)
+    HCL_inv = k2.arc_sort(k2.Fsa.from_dict(torch.load(args.HCL_inv_path)))
 
     if args.lm_fsa_path[-3:] == ".pt":
-        G = k2.Fsa.from_dict(torch.load(args.lm_fsa_path))
+        G = k2.Fsa.from_dict(torch.load(args.G_path))
     else:
         with open(args.lm_fsa_path, "r", encoding="utf-8") as f:
             G = k2.Fsa.from_openfst(f.read(), acceptor=True)
     assert not hasattr(G, "aux_labels")
     G = k2.arc_sort(G)
 
-    decoding_graph = k2.intersect(HCL_inv, G).invert_()
+    HCLG = k2.invert(k2.connect(k2.intersect(G, HCL_inv)))
+    HCLG = k2.determinize(HCLG)
+    HCLG = k2.connect(HCLG)
     save_path = os.path.join(args.out_dir, "HCLG.pt")
-    torch.save(decoding_graph.as_dict(), save_path)
+    torch.save(HCLG.as_dict(), save_path)
     logger.info(f"saved the decoding graph as {save_path}")
 
 
