@@ -43,8 +43,12 @@ NihaoWenwen 1.0 nihaowenwen
 <sil> 1.0 SIL
 EOF
 
-  utils/lang/make_lexicon_fst.py --sil-prob 0.5 --sil-phone SIL \
-    data/lang/lexiconp.txt > data/lang/L.fst.sym
+  utils/lang/make_lexicon_fst.py --sil-prob 0.5 --sil-phone SIL --sil-disambig '#1' \
+    data/lang/lexiconp.txt > data/lang/L_disambig.fst.sym
+  cat <(head -n -1 data/lang/L_disambig.fst.sym) <(echo -e "1\t1\t#0\t#0") <(tail -n 1 data/lang/L_disambig.fst.sym) \
+    > data/lang/L_disambig.fst.sym.temp
+  cat data/lang/L_disambig.fst.sym.temp > data/lang/L_disambig.fst.sym
+  rm -f data/lang/L_disambig.fst.sym.temp
 
   echo "Prepare phones symbol table"
   cat > data/lang/phones.txt <<EOF
@@ -53,6 +57,8 @@ SIL 1
 freetext 2
 hixiaowen 3
 nihaowenwen 4
+#0 5
+#1 6
 EOF
 
   echo "Prepare words symbol table"
@@ -62,10 +68,11 @@ EOF
 FREETEXT 2
 HiXiaowen 3
 NihaoWenwen 4
+#0 5
 EOF
 
-  utils/sym2int.pl -f 3 data/lang/phones.txt <data/lang/L.fst.sym - | \
-    utils/sym2int.pl -f 4 data/lang/words.txt - > data/lang/L.fst.txt
+  utils/sym2int.pl -f 3 data/lang/phones.txt <data/lang/L_disambig.fst.sym - | \
+    utils/sym2int.pl -f 4 data/lang/words.txt - > data/lang/L_disambig.fst.txt
 
   echo "Prepare HMMs for phones"
   id_sil=`cat data/lang/phones.txt | grep "SIL" | awk '{print $2}'`
@@ -132,9 +139,8 @@ EOF
 
   echo "Generate graphs for training"
   log_file=data/log/generate_graphs.log
-  $train_cmd $log_file local/generate_graphs.py --hmm-paths data/lang/hmm_{sil,freetext,hixiaowen,nihaowenwen}.fst.txt \
-    --L-path data/lang/L.fst.txt --phone-lm-fsa-path data/lang/phone_lm.fsa.txt \
-    --out-dir data
+  $train_cmd $log_file local/create_H_and_denominator.py --hmm-paths data/lang/hmm_{sil,freetext,hixiaowen,nihaowenwen}.fst.txt \
+    --phone-lm-fsa-path data/lang/phone_lm.fsa.txt --out-dir data
 fi
 
 [ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
@@ -163,7 +169,8 @@ if [ ${stage} -le 2 ]; then
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((1500/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --criterion k2_lattice_free_mmi --num-targets $num_targets --word-symbol-table-path data/lang/words.txt \
-    --denominator-graph-path data/denominator.pt --HCL-inv-path data/HLinv.pt \
+    --phone-symbol-table-path data/lang/phones.txt --denominator-graph-path data/denominator.pt \
+    --H-path data/H.pt --L-path data/lang/L_disambig.fst.txt \
     --max-source-positions 9999 --max-target-positions 9999 $opts || exit 1;
 fi
 
@@ -176,20 +183,26 @@ if [ ${stage} -le 3 ]; then
     $cuda_cmd $log_file dump_posteriors.py data --use-k2-dataset \
       --task speech_recognition_hybrid --max-tokens 25600 --max-sentences 128 \
       --num-shards 1 --shard-id 0 --num-targets $num_targets --gen-subset $dataset \
-      --max-source-positions 9999 --path $path \
+      --max-source-positions 9999 --max-target-positions 9999 --path $path \
     \| copy-matrix ark:- ark,scp:$dir/decode_$dataset/posteriors.ark,$dir/decode_$dataset/posteriors.scp || exit 1;
     echo "log saved in $log_file"
   done
 fi
 
 if [ ${stage} -le 4 ]; then
-  echo "Stage 7: Decoding"
+  echo "Stage 4: Decoding"
   lang_test=data/lang_test
   rm -rf $lang_test
   cp -r data/lang $lang_test
-  utils/lang/make_lexicon_fst.py --sil-prob 0.0 --sil-phone SIL $lang_test/lexiconp.txt > $lang_test/L.fst.sym
-  utils/sym2int.pl -f 3 $lang_test/phones.txt <$lang_test/L.fst.sym - | \
-    utils/sym2int.pl -f 4 $lang_test/words.txt - > $lang_test/L.fst.txt
+  utils/lang/make_lexicon_fst.py --sil-prob 0.0 --sil-phone SIL --sil-disambig '#1' \
+    $lang_test/lexiconp.txt > $lang_test/L_disambig.fst.sym
+  cat <(head -n -1 $lang_test/L_disambig.fst.sym) <(echo -e "0\t0\t#0\t#0") <(tail -n 1 $lang_test/L_disambig.fst.sym) \
+    > $lang_test/L_disambig.fst.sym.temp
+  cat $lang_test/L_disambig.fst.sym.temp > $lang_test/L_disambig.fst.sym
+  rm -f $lang_test/L_disambig.fst.sym.temp
+
+  utils/sym2int.pl -f 3 $lang_test/phones.txt <$lang_test/L_disambig.fst.sym - | \
+    utils/sym2int.pl -f 4 $lang_test/words.txt - > $lang_test/L_disambig.fst.txt
 
   for wake_word in $wake_word0 $wake_word1; do
     if [[ "$wake_word" == "$wake_word0" ]]; then
@@ -210,26 +223,26 @@ if [ ${stage} -le 4 ]; then
 0 1 $sil_id
 0 4 $sil_id 7.0
 1 4 $freetext_id 0.0
-4 0 $sil_id 0.0
+4 0 $sil_id
 1 2 $id0 $wake_word0_cost
 1 3 $id1 $wake_word1_cost
 2 0 $sil_id
 3 0 $sil_id
 0
 EOF
-        local/create_decoding_graph.py --HCL-inv-path data/HLinv.pt --G-path $lang_test/lm/fsa.txt $lang_test/graph || exit 1;
+        local/create_decoding_graph.py --H-path data/H.pt --L-path $lang_test/L_disambig.fst.txt --G-path $lang_test/lm/fsa.txt \
+          --first-phone-disambig-id 5 --first-word-disambig-id 5 $lang_test/graph || exit 1;
 
         rm $dir/.error 2>/dev/null || true
         for dataset in $test_set; do
           (
-            nj=30
             score_dir=$dir/decode_$dataset/score_${wake_word}_${wake_word0_cost}_${wake_word1_cost}
             mkdir -p $score_dir
             $decode_cmd $dir/decode_$dataset/log/decode_${wake_word}.log \
               local/decode_best_path.py --beam=10 --word-symbol-table $lang_test/words.txt \
-                $lang_test/graph/HCLG.pt $dir/decode_$dataset/posteriors.scp $score_dir/hyp.txt
+                $lang_test/graph/HCLG.pt $dir/decode_$dataset/posteriors.scp $score_dir/hyp.txt || exit 1;
             local/evaluate.py --wake-word $wake_word \
-              data/supervisions_${dataset}.json $score_dir/hyp.txt $score_dir/metrics
+              data/supervisions_${dataset}.json $score_dir/hyp.txt $score_dir/metrics || exit 1;
           ) || touch $dir/.error &
         done
         wait

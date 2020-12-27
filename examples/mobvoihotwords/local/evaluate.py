@@ -41,7 +41,7 @@ def main(args):
     except ImportError:
         raise ImportError("Please install Lhotse by `pip install lhotse`")
 
-    supervisions = SupervisionSet.from_json(args.recording_file)  # one and only one supervision segment per recording
+    supervisions = SupervisionSet.from_json(args.supervsion_file)  # one and only one supervision segment per recording
     neg_dur = sum(sup.duration for sup in supervisions if sup.text != args.wake_word)
     ref = [(sup.recording_id, sup.text) for sup in supervisions]
 
@@ -78,7 +78,7 @@ def main(args):
     with open(args.result_file, "w", encoding="utf-8") as f:
         print(
             "precision: {:.5f}  recall: {:.5f}  FPR: {:.5f}  FNR: {:.5f}  FP per hour: {:.5f}  total: {:d}".format(
-                precision, recall, false_positive_rate, false_negative_rate, false_alarms_per_hour, TP + TN + FP + FN
+                precision, recall, false_positive_rate, false_negative_rate, false_alarms_per_hour, int(TP + TN + FP + FN)
             ),
             file=f
         )

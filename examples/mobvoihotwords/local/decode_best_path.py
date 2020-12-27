@@ -9,6 +9,8 @@ import logging
 import os
 import sys
 
+import numpy as np
+
 import torch
 
 
@@ -47,15 +49,15 @@ def main(args):
         raise ImportError("Please install kaldi_io by `pip install kaldi_io`")
 
     symbol_table = k2.SymbolTable.from_file(args.word_symbol_table)
-    graph = k2.Fsa.from_dict(torch.load(args.args.decoding_graph))
+    graph = k2.Fsa.from_dict(torch.load(args.decoding_graph))
     graph.scores.requires_grad_(False)
 
     num_processed = 0
-    with open(args.net_output, "r", encoding="utf-8") as f_in, open(args.hyp_file, "r", encoding="utf-8") as f_out:
+    with open(args.net_output, "r", encoding="utf-8") as f_in, open(args.hyp_file, "w", encoding="utf-8") as f_out:
         for line in f_in:
             utt_id, rxfile = line.strip().split(maxsplit=1)
-            net_output = torch.from_numpy(kaldi_io.read_mat(rxfile)).unsqueeze(0)  # 1 x T x V
-            supervision_segments = net_output.new_tensor([0, 0, net_output.size(0)], dtype=torch.int).unsqueeze(0)  # 1 x 3
+            net_output = torch.from_numpy(np.array(kaldi_io.read_mat(rxfile))).float().unsqueeze(0)  # 1 x T x V
+            supervision_segments = net_output.new_tensor([0, 0, net_output.size(1)], dtype=torch.int).unsqueeze(0)  # 1 x 3
             dense_fsa_vec = k2.DenseFsaVec(net_output, supervision_segments)
             graph = graph.to(dense_fsa_vec.device)
             graph_unrolled = k2.intersect_dense_pruned(
@@ -70,7 +72,7 @@ def main(args):
             aux_labels = aux_labels[aux_labels > 0]
             aux_labels = aux_labels.tolist()
             hyp = [symbol_table.get(x) for x in aux_labels]
-            print(utt_id, hyp, file=f_out)
+            print(utt_id, " ".join(hyp), file=f_out)
             num_processed += 1
 
     logger.info(f"Processed {num_processed} utterances")

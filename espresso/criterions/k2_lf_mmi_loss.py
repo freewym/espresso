@@ -35,11 +35,17 @@ class K2LatticeFreeMMICriterionConfig(FairseqDataclass):
     denominator_graph_path: str = field(
         default="???", metadata={"help": "path to the denominator graph file (torch saved)"}
     )
-    HCL_inv_path: str = field(
-        default="???", metadata={"help": "path to the HCL_inv fst file (torch saved)"}
+    H_path: str = field(
+        default="???", metadata={"help": "path to the H fst file (torch saved). Note: pdf-ids are offset by +1"}
+    )
+    L_path: str = field(
+        default="???", metadata={"help": "path to the L fst file (openfst text format or torch saved)"}
     )
     word_symbol_table_path: str = field(
         default="???", metadata={"help": "path to the word symbol table file"}
+    )
+    phone_symbol_table_path: str = field(
+        default="???", metadata={"help": "path to the phone symbol table file"}
     )
     xent_regularization_coefficient: float = field(
         default=0.0,
@@ -48,7 +54,7 @@ class K2LatticeFreeMMICriterionConfig(FairseqDataclass):
 
 
 def compile_numerator_graphs(
-    texts: List[str], symbols: k2.SymbolTable, HCL_inv: k2.Fsa,
+    texts: List[str], symbols: k2.SymbolTable, H_inv: k2.Fsa, L_inv: k2.Fsa, first_phone_disambig_id: int,
     unk_str: Optional[str] = "UNK", den_graph: Optional[k2.Fsa] = None
 ):
     assert len(den_graph.shape) == 2
@@ -58,20 +64,22 @@ def compile_numerator_graphs(
         filtered_text = [token if token in symbols._sym2id else unk_str for token in text.split(" ")]
         word_ids = [symbols.get(word) for word in filtered_text]
         fsa = k2.linear_fsa(word_ids)
-        #if H_inv is not None and L_inv is not None:
-        #    LG = k2.connect(k2.intersect(fsa, L_inv)).invert_()
-        #    del LG.aux_labels
-        #    num_graph = k2.arc_sort(k2.invert(k2.connect(k2.intersect(H_inv, LG))))
-        #else:
-        #    assert HCL_inv is not None
-        num_graph = k2.invert(k2.connect(k2.intersect(fsa, HCL_inv)))
+        LG = k2.connect(k2.intersect(fsa, L_inv)).invert_()
+        LG = k2.connect(k2.determinize(LG))
+        LG.labels[LG.labels >= first_phone_disambig_id] = 0
+        LG = k2.arc_sort(k2.connect(k2.remove_epsilons_iterative_tropical(LG)))
+        del LG.aux_labels
+        num_graph = k2.arc_sort(k2.invert(k2.connect(k2.intersect(H_inv, LG))))
+        num_graph = k2.connect(k2.remove_epsilons_iterative_tropical(num_graph))
+        num_graph = k2.connect(k2.determinize(num_graph))
+        del num_graph.aux_labels
+        num_graph.labels = torch.where(num_graph.labels > 0, num_graph.labels - 1, num_graph.labels)
         if den_graph is not None:
             num_graph = k2.arc_sort(num_graph)
             # zero the score before intersect to avoid double counting
             num_graph.scores = num_graph.scores.new_zeros(num_graph.scores.size())
             # treat epsilon as normal labels, i.e., blanks
             num_graph = k2.connect(k2.intersect(num_graph, den_graph, treat_epsilons_specially=False))
-        del num_graph.aux_labels
         return num_graph
 
     num_graphs = k2.create_fsa_vec([compile_one_and_cache(text) for text in texts])
@@ -92,11 +100,15 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
             del self.den_graph.aux_labels
         self.den_graph.scores.requires_grad_(False)
         self.den_graph_cpu = self.den_graph[0].clone()  # to be intersect with a individual numerator fsa
-        self.HCL_inv = k2.arc_sort(k2.Fsa.from_dict(torch.load(cfg.HCL_inv_path)))
-        #self.H_inv = k2.arc_sort(k2.Fsa.from_dict(torch.load(cfg.H_inv_path)))
-        #with open(cfg.L_path, "r", encoding="utf-8") as f:
-        #    self.L_inv = k2.arc_sort(k2.Fsa.from_openfst(f.read(), acceptor=False).invert_())
+        self.H_inv = k2.arc_sort(k2.invert(k2.Fsa.from_dict(torch.load(cfg.H_path))))
+        if cfg.L_path[-3:] == ".pt":
+             self.L_inv = k2.arc_sort(k2.Fsa.from_dict(torch.load(args.L_path)).invert_())
+        else:
+            with open(cfg.L_path, "r", encoding="utf-8") as f:
+                self.L_inv = k2.arc_sort(k2.Fsa.from_openfst(f.read(), acceptor=False).invert_())
         self.symbol_table = k2.SymbolTable.from_file(cfg.word_symbol_table_path)
+        phone_symbol_table = k2.SymbolTable.from_file(cfg.phone_symbol_table_path)
+        self.first_phone_disambig_id = min(v for k, v in phone_symbol_table._sym2id.items() if k.startswith("#"))
         self.xent_regularize = cfg.xent_regularization_coefficient
         self.subsampling_factor = None
 
@@ -134,8 +146,6 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
     ):
         # create the dense fsts from the network's output
         encoder_out = net_output["encoder_out"][0].transpose(0, 1)  # T x B x V -> B x T x V
-        if torch.isnan(encoder_out).int().sum().item() > 0 or torch.isinf(encoder_out).int().sum().item() > 0:
-            print("nan",torch.isnan(encoder_out).int().sum().item(), "inf", torch.isinf(encoder_out).int().sum().item())
         encoder_out = encoder_out.clamp(-30, 30)  # clamp to avoid numerical overflows
         out_lengths = net_output["src_lengths"][0]  # B
         supervision_segments = torch.stack(
@@ -151,7 +161,8 @@ class K2LatticeFreeMMICriterion(FairseqCriterion):
 
         # numerator computation
         num_graphs = compile_numerator_graphs(
-            sample["target"]["text"], self.symbol_table, HCL_inv=self.HCL_inv, unk_str=self.unk_str, den_graph=self.den_graph_cpu
+            sample["target"]["text"], self.symbol_table, H_inv=self.H_inv, L_inv=self.L_inv, first_phone_disambig_id=self.first_phone_disambig_id,
+            unk_str=self.unk_str, den_graph=self.den_graph_cpu
         ).to(encoder_out.device)
         num_graphs.scores.requires_grad_(False)
         num_graphs_unrolled = k2.intersect_dense_pruned(

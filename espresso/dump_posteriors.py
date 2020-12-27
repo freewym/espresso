@@ -165,10 +165,10 @@ def _main(cfg, output_file):
                 if out_lengths is not None:
                     for i in range(sample["nsentences"]):
                         length = out_lengths[i]
-                        kaldi_io.write_mat(f, lprobs[i, : length, :].cpu().numpy(), key=sample["utt_id"][i])
+                        kaldi_io.write_mat(f, lprobs[i, : length, :].cpu().numpy(), key=sample["reco_id"][i] if "reco_id" in sample else sample["utt_id"][i])
                 else:
                     for i in range(sample["nsentences"]):
-                        kaldi_io.write_mat(f, lprobs[i, :, :].cpu().numpy(), key=sample["utt_id"][i])
+                        kaldi_io.write_mat(f, lprobs[i, :, :].cpu().numpy(), key=sample["reco_id"][i] if "reco_id" in sample else sample["utt_id"][i])
         else:  # dumping chunks within the same utterance from left to right
             for sample in progress:  # sample is actually a list of batches
                 sample = utils.move_to_cuda(sample) if use_cuda else sample
