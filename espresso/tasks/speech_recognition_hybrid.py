@@ -398,7 +398,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
             src_dataset = get_asr_dataset_from_json(data_path, split, dictionary, combine=False).src
         except FileNotFoundError:
             logger.warning(f"'{split}' set not found. Try to obtain feat_dim from '{cfg.gen_subset}'")
-            src_dataset = get_asr_dataset_from_json(data_path, cfg.gen_subset, dictionary, combined=False).src
+            src_dataset = get_asr_dataset_from_json(data_path, cfg.gen_subset, dictionary, combine=False).src
         if isinstance(src_dataset, ConcatDataset):
             feat_dim = src_dataset.datasets[0].feat_dim
         elif isinstance(src_dataset, BaseWrapperDataset):

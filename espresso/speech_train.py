@@ -30,7 +30,7 @@ from fairseq.dataclass.utils import convert_namespace_to_omegaconf
 from fairseq.logging import meters, metrics, progress_bar
 from fairseq.model_parallel.megatron_trainer import MegatronTrainer
 from fairseq.trainer import Trainer
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
 
 logging.basicConfig(
@@ -81,7 +81,7 @@ def main(cfg: DictConfig) -> None:
     logger.info("model: {}".format(model.__class__.__name__))
     logger.info("criterion: {}".format(criterion.__class__.__name__))
     logger.info(
-        "num. model params: {} (num. trained: {})".format(
+            "num. model params: {:,} (num. trained: {:,})".format(
             sum(p.numel() for p in model.parameters()),
             sum(p.numel() for p in model.parameters() if p.requires_grad),
         )
@@ -227,6 +227,7 @@ def train(
             else False
         ),
     )
+    progress.update_config(_flatten_config(cfg))
 
     trainer.begin_epoch(epoch_itr.epoch)
 
@@ -273,6 +274,19 @@ def train(
     # reset epoch-level meters
     metrics.reset_meters("train")
     return valid_losses, should_stop
+
+
+def _flatten_config(cfg: DictConfig):
+    config = OmegaConf.to_container(cfg)
+    # remove any legacy Namespaces and replace with a single "args"
+    namespace = None
+    for k, v in list(config.items()):
+        if isinstance(v, argparse.Namespace):
+            namespace = v
+            del config[k]
+    if namespace is not None:
+        config["args"] = vars(namespace)
+    return config
 
 
 def validate_and_save(
