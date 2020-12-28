@@ -29,7 +29,7 @@ def get_parser():
     )
     # fmt: off
     parser.add_argument("--beam", type=float, default=10.0, help="decoding beam")
-    parser.add_argument("--word-symbol-table", type=str, help="path to the HCL fst file (torch_saved)", required=True)
+    parser.add_argument("--word-symbol-table", type=str, help="path to the word symbol table file", required=True)
     parser.add_argument("decoding_graph", type=str, default="data", help="path to the decoding graph")
     parser.add_argument("net_output", type=str, help="path to the network output file for acoustic scores")
     parser.add_argument("hyp_file", type=str, help="path to the resulting hypotheses file")
