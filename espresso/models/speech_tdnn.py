@@ -339,3 +339,17 @@ def base_architecture(args):
 @register_model_architecture("speech_tdnn", "speech_tdnn_wsj")
 def tdnn_wsj(args):
     base_architecture(args)
+
+
+@register_model_architecture("speech_tdnn", "speech_tdnn_mobvoi")
+def tdnn_mobvoi(args):
+    args.dropout = getattr(args, "dropout", 0.0)
+    args.hidden_sizes = getattr(args, "hidden_sizes", "64")
+    args.kernel_sizes = getattr(args, "kernel_sizes", "[3] * 5")
+    args.strides = getattr(args, "strides", "1")
+    args.dilations = getattr(args, "dilations", "3")
+    args.num_layers = getattr(args, "num_layers", 5)
+    args.residual = getattr(args, "residual", False)
+    args.dropout_in = getattr(args, "dropout_in", args.dropout)
+    args.dropout_out = getattr(args, "dropout_out", args.dropout)
+    base_architecture(args)

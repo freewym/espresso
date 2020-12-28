@@ -1,5 +1,5 @@
 KALDI =
-PYTHON_DIR = ~/anaconda3/bin
+PYTHON_DIR = /export/b03/ywang/anaconda3/bin
 
 CXX ?= g++
 
