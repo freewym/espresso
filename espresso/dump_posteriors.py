@@ -201,7 +201,7 @@ def _main(cfg, output_file):
                             mat = whole_lprobs[j, : truncated_length, :]
                             kaldi_io.write_mat(f, mat.numpy(), key=utt_id[j])
 
-    logger.info("Dumped {} utterances ({} frames) in {:.1f}s ({:.2f} sentences/s, {:.2f} frames/s)".format(
+    logger.info("Dumped {:,} utterances ({} frames) in {:.1f}s ({:.2f} sentences/s, {:.2f} frames/s)".format(
         num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
 
     return
