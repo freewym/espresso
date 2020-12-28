@@ -11,11 +11,12 @@ import torch
 
 from fairseq import utils
 from fairseq.criterions import register_criterion
-from fairseq.criterions.label_smoothed_cross_entropy import LabelSmoothedCrossEntropyCriterion
+from fairseq.criterions.label_smoothed_cross_entropy import (
+    LabelSmoothedCrossEntropyCriterion,
+    LabelSmoothedCrossEntropyCriterionConfig,
+)
 from fairseq.data import data_utils
-from fairseq.dataclass import ChoiceEnum, FairseqDataclass
-from fairseq.dataclass.utils import gen_parser_from_dataclass
-from omegaconf import II
+from fairseq.dataclass import ChoiceEnum
 
 
 logger = logging.getLogger(__name__)
@@ -25,26 +26,7 @@ LABEL_SMOOTHING_CHOICES = ChoiceEnum(["uniform", "unigram", "temporal"])
 
 
 @dataclass
-class LabelSmoothedCrossEntropyV2CriterionConfig(FairseqDataclass):
-    sentence_avg: bool = II("optimization.sentence_avg")
-    label_smoothing: float = field(
-        default=0.0,
-        metadata={
-            "help": "epsilon for label smoothing, 0 means no label smoothing"
-        },
-    )
-    report_accuracy: bool = field(
-        default=False,
-        metadata={
-            "help": "report accuracy metric"
-        },
-    )
-    ignore_prefix_size: bool = field(
-        default=False,
-        metadata={
-            "help": "ignore first N tokens"
-        },
-    )
+class LabelSmoothedCrossEntropyV2CriterionConfig(LabelSmoothedCrossEntropyCriterionConfig):
     print_training_sample_interval: int = field(
         default=500,
         metadata={
@@ -151,13 +133,6 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
             self.unigram_tensor += unigram_pseudo_count  # for further backoff
             self.unigram_tensor.div_(self.unigram_tensor.sum())
         self.prev_num_updates = -1
-
-    @classmethod
-    def add_args(cls, parser):
-        """Add criterion-specific arguments to the parser."""
-        dc = getattr(cls, "__dataclass", None)
-        if dc is not None:
-            gen_parser_from_dataclass(parser, dc())
 
     def forward(self, model, sample, reduce=True):
         """Compute the loss for the given sample; periodically print out

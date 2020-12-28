@@ -595,6 +595,12 @@ class AsrXentDataset(FairseqDataset):
             return self.src_sizes[index]
         return self.chunk_width + self.chunk_left_context + self.chunk_right_context
 
+    def num_tokens_vec(self, indices):
+        """Return the number of tokens for a set of positions defined by indices.
+        This value is used to enforce ``--max-tokens`` during batching."""
+        sizes = self.src_sizes[indices]
+        return sizes
+
     def size(self, index):
         """Return an example's size as a float or tuple. This value is used when
         filtering a dataset with ``--max-positions``."""
