@@ -76,6 +76,8 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
         parser.add_argument("--checkpoint-activations", action="store_true",
                             help="checkpoint activations at each layer, which saves GPU "
                                  "memory usage at the cost of some additional compute")
+        parser.add_argument("--offload-activations", action="store_true",
+                             help="checkpoint activations at each layer, then save to gpu. Sets --checkpoint-activations.")
         # args for "Reducing Transformer Depth on Demand with Structured Dropout" (Fan et al., 2019)
         parser.add_argument("--encoder-layerdrop", type=float, metavar="D", default=0,
                             help="LayerDrop probability for encoder")
@@ -102,6 +104,9 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
 
         if getattr(args, "max_source_positions", None) is None:
             args.max_source_positions = DEFAULT_MAX_SOURCE_POSITIONS
+
+        if getattr(args, "offload_activations", False):
+            args.checkpoint_activations = True  # offloading implies checkpointing
 
         out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
         kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
@@ -385,7 +390,9 @@ def base_architecture(args):
     args.adaptive_input = getattr(args, "adaptive_input", False)
     args.layernorm_embedding = getattr(args, "layernorm_embedding", False)
     args.checkpoint_activations = getattr(args, "checkpoint_activations", False)
-
+    args.offload_activations = getattr(args, "offload_activations", False)
+    if args.offload_activations:
+        args.checkpoint_activations = True
     args.encoder_layers_to_keep = getattr(args, "encoder_layers_to_keep", None)
     args.encoder_layerdrop = getattr(args, "encoder_layerdrop", 0)
     args.quant_noise_pq = getattr(args, "quant_noise_pq", 0)
