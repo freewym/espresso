@@ -120,6 +120,8 @@ class SpeechTransformerModel(TransformerModel):
         decoder_embed_tokens = cls.build_embedding(
             args, tgt_dict, args.decoder_input_dim, args.decoder_embed_path
         )
+        if getattr(args, "offload_activations", False):
+            args.checkpoint_activations = True  # offloading implies checkpointing
 
         out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
         kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
@@ -587,7 +589,9 @@ def base_architecture(args):
     args.layernorm_embedding = getattr(args, "layernorm_embedding", False)
     args.tie_adaptive_weights = getattr(args, "tie_adaptive_weights", False)
     args.checkpoint_activations = getattr(args, "checkpoint_activations", False)
-
+    args.offload_activations = getattr(args, "offload_activations", False)
+    if args.offload_activations:
+        args.checkpoint_activations = True
     args.encoder_layers_to_keep = getattr(args, "encoder_layers_to_keep", None)
     args.decoder_layers_to_keep = getattr(args, "decoder_layers_to_keep", None)
     args.encoder_layerdrop = getattr(args, "encoder_layerdrop", 0)
