@@ -188,7 +188,7 @@ if [ ${stage} -le 6 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/chain_e2e --task speech_recognition_hybrid --seed 1 \
     --log-interval $((200/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --data-buffer-size 0 --max-tokens 120000 --batch-size 128 --curriculum 1 --empty-cache-freq 50 \
-    --valid-subset $valid_subset --batch-size-valid 128 --ddp-backend no_c10d --update-freq $update_freq \
+    --valid-subset $valid_subset --batch-size-valid 128 --ddp-backend legacy_ddp --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --max-epoch 30 --optimizer adam --lr 0.001 --weight-decay 0.0 --start-reduce-lr-epoch 11 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \

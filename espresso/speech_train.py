@@ -26,6 +26,7 @@ from fairseq import (
     utils,
 )
 from fairseq.data import iterators
+from fairseq.dataclass.configs import FairseqConfig
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
 from fairseq.logging import meters, metrics, progress_bar
 from fairseq.model_parallel.megatron_trainer import MegatronTrainer
@@ -42,11 +43,15 @@ logging.basicConfig(
 logger = logging.getLogger("espresso.speech_train")
 
 
-def main(cfg: DictConfig) -> None:
+def main(cfg: FairseqConfig) -> None:
     if isinstance(cfg, argparse.Namespace):
         cfg = convert_namespace_to_omegaconf(cfg)
 
     utils.import_user_module(cfg.common)
+
+    if distributed_utils.is_master(cfg.distributed_training) and "job_logging_cfg" in cfg:
+        # make hydra logging work with ddp (see # see https://github.com/facebookresearch/hydra/issues/1126)
+        logging.config.dictConfig(OmegaConf.to_container(cfg.job_logging_cfg))
 
     assert (
         cfg.dataset.max_tokens is not None or cfg.dataset.batch_size is not None
@@ -383,7 +388,9 @@ def validate(
         logger.info('begin validation on "{}" subset'.format(subset))
 
         # Initialize data iterator
-        itr = trainer.get_valid_iterator(subset).next_epoch_itr(shuffle=False)
+        itr = trainer.get_valid_iterator(subset).next_epoch_itr(
+            shuffle=False, set_dataset_epoch=False  # use a fixed valid set
+        )
         if cfg.common.tpu:
             itr = utils.tpu_data_loader(itr)
         progress = progress_bar.progress_bar(

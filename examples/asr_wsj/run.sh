@@ -286,7 +286,7 @@ if [ ${stage} -le 9 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 \
     --log-interval $((800/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((2000/ngpus/update_freq)) \
     --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --batch-size 32 --curriculum 2 --empty-cache-freq 50 \
-    --valid-subset $valid_subset --batch-size-valid 64 --ddp-backend no_c10d --update-freq $update_freq \
+    --valid-subset $valid_subset --batch-size-valid 64 --ddp-backend legacy_ddp --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus/update_freq)) \

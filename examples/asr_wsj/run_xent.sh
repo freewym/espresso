@@ -168,7 +168,7 @@ if [ ${stage} -le 5 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/xent --task speech_recognition_hybrid --seed 1 \
     --log-interval $((100/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --data-buffer-size 0 --max-tokens 160000 --batch-size 256 --empty-cache-freq 50 \
-    --valid-subset $valid_subset --batch-size-valid 256 --ddp-backend no_c10d --update-freq $update_freq \
+    --valid-subset $valid_subset --batch-size-valid 256 --ddp-backend legacy_ddp --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --max-epoch 40 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \
