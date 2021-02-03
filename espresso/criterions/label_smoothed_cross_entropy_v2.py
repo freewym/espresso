@@ -99,8 +99,11 @@ def label_smoothed_nll_loss(
     if reduce:
         nll_loss = nll_loss.sum()
         smooth_loss = smooth_loss.sum()
-    eps_i = epsilon / lprobs.size(-1) if smoothing_type == "uniform" else epsilon
-    loss = (1.0 - epsilon) * nll_loss + eps_i * smooth_loss
+    if smoothing_type == "uniform":
+        eps_i = epsilon / (lprobs.size(-1) - 1)
+        loss = (1.0 - epsilon - eps_i) * nll_loss + eps_i * smooth_loss
+    else:
+        loss = (1.0 - epsilon) * nll_loss + epsilon * smooth_loss
     return loss, nll_loss
 
 
