@@ -79,10 +79,7 @@ def collate(samples, pad_to_length=None, pad_to_multiple=1, src_bucketed=False):
         "utt_id": utt_id,
         "nsentences": len(samples),
         "ntokens": ntokens,
-        "net_input": {
-            "src_tokens": src_frames,
-            "src_lengths": src_lengths,
-        },
+        "net_input": {"src_tokens": src_frames, "src_lengths": src_lengths},
         "target": target,
         "text": text,
     }
@@ -226,7 +223,7 @@ class AsrChainDataset(FairseqDataset):
 
             # determine bucket sizes using self.num_tokens, which will return
             # the padded lengths (thanks to FeatBucketPadLengthDataset)
-            num_tokens = np.vectorize(self.num_tokens, otypes=[np.long])
+            num_tokens = np.vectorize(self.num_tokens, otypes=[np.compat.long])
             self.bucketed_num_tokens = num_tokens(np.arange(len(self.src)))
             self.buckets = [
                 (None, num_tokens) for num_tokens in np.unique(self.bucketed_num_tokens)
@@ -391,10 +388,7 @@ class AsrChainDataset(FairseqDataset):
             list: list of removed indices
         """
         return data_utils.filter_paired_dataset_indices_by_size(
-            self.src_sizes,
-            self.tgt_sizes,
-            indices,
-            max_sizes,
+            self.src_sizes, self.tgt_sizes, indices, max_sizes,
         )
 
     @property

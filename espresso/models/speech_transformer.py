@@ -244,6 +244,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
     """
 
     def __init__(self, args, conv_layers_before=None, input_size=83, transformer_context=None):
+        self.args = args
         super(TransformerEncoder, self).__init__(None)  # no src dictionary
         self.register_buffer("version", torch.Tensor([3]))
 
@@ -362,6 +363,41 @@ class SpeechTransformerEncoder(TransformerEncoder):
                   hidden states of shape `(src_len, batch, embed_dim)`.
                   Only populated if *return_all_hiddens* is True.
         """
+        return self.forward_scriptable(src_tokens,
+                                       src_lengths,
+                                       return_all_hiddens)
+
+    # TorchScript doesn't support super() method so that the scriptable Subclass
+    # can't access the base class model in Torchscript.
+    # Current workaround is to add a helper function with different name and
+    # call the helper function from scriptable Subclass.
+    def forward_scriptable(
+        self,
+        src_tokens,
+        src_lengths,
+        return_all_hiddens: bool = False,
+    ):
+        """
+        Args:
+            src_tokens (LongTensor): tokens in the source language of shape
+                `(batch, src_len)`
+            src_lengths (torch.LongTensor): lengths of each source sentence of
+                shape `(batch)`
+            return_all_hiddens (bool, optional): also return all of the
+                intermediate hidden states (default: False).
+
+        Returns:
+            dict:
+                - **encoder_out** (Tensor): the last encoder layer's output of
+                  shape `(src_len, batch, embed_dim)`
+                - **encoder_padding_mask** (ByteTensor): the positions of
+                  padding elements of shape `(batch, src_len)`
+                - **encoder_embedding** (Tensor): the (scaled) embedding lookup
+                  of shape `(batch, src_len, embed_dim)`
+                - **encoder_states** (List[Tensor]): all intermediate
+                  hidden states of shape `(src_len, batch, embed_dim)`.
+                  Only populated if *return_all_hiddens* is True.
+        """
         if self.conv_layers_before is not None:
             x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens, src_lengths)
         else:
@@ -369,6 +405,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
                 src_tokens,
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
             )
+        has_pads = (src_tokens.device.type == "xla" or encoder_padding_mask.any())
 
         x = self.dropout_module(x)
         if self.fc0 is not None:
@@ -385,16 +422,23 @@ class SpeechTransformerEncoder(TransformerEncoder):
             if self.layernorm_embedding is not None:
                 x = self.layernorm_embedding(x)
 
+        # account for padding while computing the representation
+        if encoder_padding_mask is not None:
+            x = x * (1 - encoder_padding_mask.unsqueeze(-1).type_as(x))
+
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
-        attn_mask = self.get_attn_mask(src_lengths)
-
         encoder_states = []
+
+        if return_all_hiddens:
+            encoder_states.append(x)
+
+        attn_mask = self.get_attn_mask(src_lengths)
 
         # encoder layers
         for layer in self.layers:
-            x = layer(x, encoder_padding_mask, attn_mask=attn_mask)
+            x = layer(x, encoder_padding_mask=encoder_padding_mask if has_pads else None, attn_mask=attn_mask)
             if return_all_hiddens:
                 assert encoder_states is not None
                 encoder_states.append(x)
@@ -403,7 +447,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
             x = self.layer_norm(x)
 
         # The Pytorch Mobile lite interpreter does not supports returning NamedTuple in
-        # `foward` so we use a dictionary instead.
+        # `forward` so we use a dictionary instead.
         # TorchScript does not support mixed values so the values are all lists.
         # The empty list is equivalent to None.
         return {
