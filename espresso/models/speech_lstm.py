@@ -721,7 +721,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 else None
             )
 
-        attn_scores = x.new_zeros(srclen, seqlen, bsz) if encoder_out is not None else None
+        attn_scores: Optional[Tensor] = x.new_zeros(srclen, seqlen, bsz) if encoder_out is not None else None
         outs = []
         for j in range(seqlen):
             # input feeding: concatenate context vector from previous time step
