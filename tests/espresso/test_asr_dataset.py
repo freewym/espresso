@@ -60,13 +60,13 @@ class TestAsrDataset(unittest.TestCase):
     def generate_text(test_dir, num=10, seed=0):
         """generate token text, where utterances are in a (random) different
         order from those in feats.scp."""
-        expected_text = {}
+        expected_texts = {}
         alphabet = string.ascii_lowercase
         space = "<space>"
         vocab = list(alphabet)
         vocab.append(space)
         np.random.seed(seed)
-        utt_ids, token_text = [], []
+        utt_ids, texts = [], []
         for i in np.random.permutation(range(num)):
             utt_id = "utt_id_" + str(i)
             length = np.random.randint(10, 100)
@@ -77,10 +77,10 @@ class TestAsrDataset(unittest.TestCase):
                 tokens[0] = vocab[np.random.randint(0, len(vocab) - 1)]
             if tokens[-1] == space:
                 tokens[-1] = vocab[np.random.randint(0, len(vocab) - 1)]
-            expected_text[utt_id] = tokens
+            expected_texts[utt_id] = tokens
             utt_ids.append(utt_id)
-            token_text.append(" ".join(tokens))
-        return expected_text, utt_ids, token_text
+            texts.append(" ".join(tokens))
+        return expected_texts, utt_ids, texts
 
     def setUp(self):
         self.test_dir = "./temp"
@@ -94,7 +94,7 @@ class TestAsrDataset(unittest.TestCase):
             self.expected_feats, self.feats_utt_ids, self.rxfiles, self.utt2num_frames
         ) = self.generate_feats(self.test_dir, num=self.num_audios, seed=0)
         (
-            self.expected_text, self.text_utt_ids, self.token_text
+            self.expected_texts, self.text_utt_ids, self.texts
         ) = self.generate_text(self.test_dir, num=self.num_transripts, seed=1)
 
         self.cuda = torch.cuda.is_available()
@@ -118,7 +118,7 @@ class TestAsrDataset(unittest.TestCase):
             )
         tgt_dataset = AsrTextDataset(
             utt_ids=self.text_utt_ids,
-            token_text=self.token_text,
+            texts=self.texts,
             dictionary=self.dictionary,
         )
 
@@ -166,7 +166,7 @@ class TestAsrDataset(unittest.TestCase):
                     src_frames[j, :src_lengths[j], :]
                 )
                 self.assertEqual(
-                    self.expected_text[utt_id],
+                    self.expected_texts[utt_id],
                     tgt_tokens[j],
                 )
 
