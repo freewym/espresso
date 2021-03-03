@@ -253,7 +253,7 @@ def _main(cfg, output_file):
 
             # Retrieve the original sentences
             if has_target:
-                target_str = sample["target_raw_text"][i]
+                target_str = sample["token_text"][i]
                 if not cfg.common_eval.quiet:
                     detok_target_str = decode_fn(target_str)
                     print("T-{}\t{}".format(utt_id, detok_target_str), file=output_file)
