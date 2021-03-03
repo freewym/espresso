@@ -204,18 +204,18 @@ fi
 if [ ${stage} -le 7 ]; then
   echo "Stage 7: Dump Json Files"
   train_feat=$train_feat_dir/feats.scp
-  train_token_text=data/$train_set/token_text
+  train_text=data/$train_set/text
   train_utt2num_frames=data/$train_set/utt2num_frames
   valid_feat=$valid_feat_dir/feats.scp
-  valid_token_text=data/$valid_set/token_text
+  valid_text=data/$valid_set/text
   valid_utt2num_frames=data/$valid_set/utt2num_frames
-  asr_prep_json.py --feat-files $train_feat --token-text-files $train_token_text --utt2num-frames-files $train_utt2num_frames --output data/train.json
-  asr_prep_json.py --feat-files $valid_feat --token-text-files $valid_token_text --utt2num-frames-files $valid_utt2num_frames --output data/valid.json
+  asr_prep_json.py --feat-files $train_feat --text-files $train_text --utt2num-frames-files $train_utt2num_frames --output data/train.json
+  asr_prep_json.py --feat-files $valid_feat --text-files $valid_text --utt2num-frames-files $valid_utt2num_frames --output data/valid.json
   for dataset in $test_set; do
     feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
-    token_text=data/$dataset/token_text
+    text=data/$dataset/text
     utt2num_frames=data/$dataset/utt2num_frames
-    asr_prep_json.py --feat-files $feat --token-text-files $token_text --utt2num-frames-files $utt2num_frames --output data/$dataset.json
+    asr_prep_json.py --feat-files $feat --text-files $text --utt2num-frames-files $utt2num_frames --output data/$dataset.json
   done
 fi
 
