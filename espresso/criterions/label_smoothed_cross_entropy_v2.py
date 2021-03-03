@@ -177,9 +177,8 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
             assert pred.size() == target.size()
             with data_utils.numpy_seed(model.num_updates):
                 i = np.random.randint(0, len(sample["id"]))
-            ref_tokens = sample["target_raw_text"][i]
             length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
-            ref_one = self.dictionary.wordpiece_decode(ref_tokens)
+            ref_one = sample["text"][i]
             pred_one = self.dictionary.wordpiece_decode(self.dictionary.string(pred.data[i][:length]))
             logger.info("sample REF: " + ref_one)
             logger.info("sample PRD: " + pred_one)

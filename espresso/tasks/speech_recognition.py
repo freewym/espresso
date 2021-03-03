@@ -109,7 +109,7 @@ def get_asr_dataset_from_json(
     {
         "011c0202": {
             "feat": "fbank/raw_fbank_pitch_train_si284.1.ark:54819",
-            "token_text": "T H E <space> H O T E L",
+            "text": "THE HOTEL",
             "utt2num_frames": "693",
         },
         "011c0203": {
@@ -133,12 +133,12 @@ def get_asr_dataset_from_json(
         with open(data_json_path, "rb") as f:
             loaded_json = json.load(f, object_pairs_hook=OrderedDict)
 
-        utt_ids, feats, token_text, utt2num_frames = [], [], [], []
+        utt_ids, feats, texts, utt2num_frames = [], [], [], []
         for utt_id, val in loaded_json.items():
             utt_ids.append(utt_id)
             feats.append(val["feat"])
-            if "token_text" in val:
-                token_text.append(val["token_text"])
+            if "text" in val:
+                texts.append(val["text"])
             if "utt2num_frames" in val:
                 utt2num_frames.append(int(val["utt2num_frames"]))
 
@@ -148,10 +148,10 @@ def get_asr_dataset_from_json(
             specaugment_config=specaugment_config if split == "train" else None,
             ordered_prefetch=True,
         ))
-        if len(token_text) > 0:
-            assert len(utt_ids) == len(token_text)
+        if len(texts) > 0:
+            assert len(utt_ids) == len(texts)
             assert tgt_dict is not None
-            tgt_datasets.append(AsrTextDataset(utt_ids, token_text, tgt_dict))
+            tgt_datasets.append(AsrTextDataset(utt_ids, texts, tgt_dict))
 
         logger.info("{} {} examples".format(data_json_path, len(src_datasets[-1])))
 
@@ -196,7 +196,7 @@ def get_asr_dataset_from_json(
 @register_task("speech_recognition_espresso", dataclass=SpeechRecognitionEspressoConfig)
 class SpeechRecognitionEspressoTask(FairseqTask):
     """
-    Transcribe from speech (source) to token text (target).
+    Transcribe from speech (source) to text (target).
 
     Args:
         tgt_dict (~fairseq.data.AsrDictionary): dictionary for the output tokens
@@ -406,7 +406,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         scorer.reset()
         for i in range(target.size(0)):
             utt_id = sample["utt_id"][i]
-            ref_tokens = sample["target_raw_text"][i]
+            ref_tokens = sample["token_text"][i]
             pred_tokens = self.target_dictionary.string(pred.data[i])
             scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
         return (

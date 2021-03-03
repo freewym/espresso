@@ -524,7 +524,7 @@ class AsrXentDataset(FairseqDataset):
 
     def __getitem__(self, index):
         tgt_item = self.tgt[index] if self.tgt is not None else None
-        text_item = self.text[index][1] if self.text is not None else None
+        text_item = self.text[index][2] if self.text is not None else None
         src_item = self.src[index]
         example = {
             "id": index,
