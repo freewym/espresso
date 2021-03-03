@@ -83,6 +83,8 @@ def _main(cfg, output_file):
     use_cuda = torch.cuda.is_available() and not cfg.common.cpu
 
     task = tasks.setup_task(cfg.task)
+    task.build_tokenizer(cfg.tokenizer)
+    task.build_bpe(cfg.bpe)
 
     # Set dictionary
     dictionary = task.target_dictionary
@@ -253,7 +255,7 @@ def _main(cfg, output_file):
 
             # Retrieve the original sentences
             if has_target:
-                target_str = sample["target_raw_text"][i]
+                target_str = sample["token_text"][i]
                 if not cfg.common_eval.quiet:
                     detok_target_str = decode_fn(target_str)
                     print("T-{}\t{}".format(utt_id, detok_target_str), file=output_file)
