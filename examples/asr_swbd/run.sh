@@ -242,18 +242,18 @@ fi
 if [ $stage -le 6 ]; then
   echo "Stage 6: Dump Json Files"
   train_feat=$train_feat_dir/feats.scp
-  train_token_text=data/$train_set/token_text
+  train_text=data/$train_set/text
   train_utt2num_frames=data/$train_set/utt2num_frames
   valid_feat=$valid_feat_dir/feats.scp
-  valid_token_text=data/$valid_set/token_text
+  valid_text=data/$valid_set/text
   valid_utt2num_frames=data/$valid_set/utt2num_frames
-  asr_prep_json.py --feat-files $train_feat --token-text-files $train_token_text --utt2num-frames-files $train_utt2num_frames --output data/train.json
-  asr_prep_json.py --feat-files $valid_feat --token-text-files $valid_token_text --utt2num-frames-files $valid_utt2num_frames --output data/valid.json
+  asr_prep_json.py --feat-files $train_feat --text-files $train_text --utt2num-frames-files $train_utt2num_frames --output data/train.json
+  asr_prep_json.py --feat-files $valid_feat --text-files $valid_text --utt2num-frames-files $valid_utt2num_frames --output data/valid.json
   for dataset in $test_set; do
     feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
     utt2num_frames=data/$dataset/utt2num_frames
     # only score train_dev with built-in scorer
-    text_opt= && [ "$dataset" == "train_dev" ] && text_opt="--token-text-files data/$dataset/token_text"
+    text_opt= && [ "$dataset" == "train_dev" ] && text_opt="--text-files data/$dataset/text"
     asr_prep_json.py --feat-files $feat $text_opt --utt2num-frames-files $utt2num_frames --output data/$dataset.json
   done
 fi
