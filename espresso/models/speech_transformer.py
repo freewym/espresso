@@ -11,6 +11,7 @@ from torch import Tensor
 import torch.nn as nn
 
 from fairseq import utils
+from fairseq.distributed import fsdp_wrap
 from fairseq.models import (
     register_model,
     register_model_architecture,
@@ -37,6 +38,10 @@ import espresso.tools.utils as speech_utils
 
 DEFAULT_MAX_SOURCE_POSITIONS = 10240
 DEFAULT_MAX_TARGET_POSITIONS = 1024
+
+
+DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
+
 
 
 logger = logging.getLogger(__name__)
@@ -172,6 +177,12 @@ class SpeechTransformerModel(TransformerModel):
             args, tgt_dict, decoder_embed_tokens,
             scheduled_sampling_rate_scheduler=scheduled_sampling_rate_scheduler,
         )
+        min_params_to_wrap = getattr(
+            args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP
+        )
+        # fsdp_wrap is a no-op when --ddp-backend != fully_sharded
+        encoder = fsdp_wrap(encoder, min_num_params=min_params_to_wrap)
+        decoder = fsdp_wrap(decoder, min_num_params=min_params_to_wrap)
         return cls(args, encoder, decoder)
 
     def set_num_updates(self, num_updates):
