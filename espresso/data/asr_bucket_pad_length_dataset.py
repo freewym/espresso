@@ -87,5 +87,6 @@ class TextBucketPadLengthDataset(BucketPadLengthDataset):
                 (num_pad if self.left_pad else 0, 0 if self.left_pad else num_pad),
                 value=self.pad_idx,
             ),
-            self.dataset[index][1]
+            self.dataset[index][1],
+            self.dataset[index][2]
         )
