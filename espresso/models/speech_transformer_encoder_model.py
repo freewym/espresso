@@ -12,6 +12,7 @@ from torch import Tensor
 import torch.nn.functional as F
 
 from fairseq import utils
+from fairseq.distributed import fsdp_wrap
 from fairseq.models import (
     FairseqEncoderModel,
     register_model,
@@ -26,6 +27,9 @@ import espresso.tools.utils as speech_utils
 
 
 DEFAULT_MAX_SOURCE_POSITIONS = 10240
+
+
+DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
 
 
 logger = logging.getLogger(__name__)
@@ -90,6 +94,18 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
                             help="block size of quantization noise at training time")
         parser.add_argument("--quant-noise-scalar", type=float, metavar="D", default=0,
                             help="scalar quantization noise and scalar quantization at training time")
+        # args for Fully Sharded Data Parallel (FSDP) training
+        parser.add_argument(
+            "--min-params-to-wrap", type=int, metavar="D", default=DEFAULT_MIN_PARAMS_TO_WRAP,
+            help=(
+                "minimum number of params for a layer to be wrapped with FSDP() when "
+                "training with --ddp-backend=fully_sharded. Smaller values will "
+                "improve memory efficiency, but may make torch.distributed "
+                "communication less efficient due to smaller input sizes. This option "
+                "is set to 0 (i.e., always wrap) when --checkpoint-activations or "
+                "--offload-activations are passed."
+            )
+        )
         # fmt: on
 
     @classmethod
@@ -155,6 +171,8 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
             chunk_left_context=getattr(task, "chunk_left_context", 0),
             training_stage=getattr(task, "training_stage", True),
         )
+        # fsdp_wrap is a no-op when --ddp-backend != fully_sharded
+        encoder = fsdp_wrap(encoder, min_num_params=1e8)
         return cls(args, encoder, state_prior=getattr(task, "initial_state_prior", None))
 
     def set_num_updates(self, num_updates):
