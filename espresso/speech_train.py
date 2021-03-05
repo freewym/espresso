@@ -26,8 +26,10 @@ from fairseq import (
     utils,
 )
 from fairseq.data import iterators
+from fairseq.data.plasma_utils import PlasmaStore
 from fairseq.dataclass.configs import FairseqConfig
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
+from fairseq.distributed import fsdp_enable_wrap, fsdp_wrap, utils as distributed_utils
 from fairseq.file_io import PathManager
 from fairseq.logging import meters, metrics, progress_bar
 from fairseq.model_parallel.megatron_trainer import MegatronTrainer
@@ -90,16 +92,20 @@ def main(cfg: FairseqConfig) -> None:
     assert cfg.criterion, "Please specify criterion to train a model"
 
     # Build model and criterion
-    model = task.build_model(cfg.model)
+    if cfg.distributed_training.ddp_backend == "fully_sharded":
+        with fsdp_enable_wrap(cfg.distributed_training):
+            model = fsdp_wrap(task.build_model(cfg.model))
+    else:
+        model = task.build_model(cfg.model)
     criterion = task.build_criterion(cfg.criterion)
     logger.info(model)
     logger.info("task: {}".format(task.__class__.__name__))
     logger.info("model: {}".format(model.__class__.__name__))
     logger.info("criterion: {}".format(criterion.__class__.__name__))
     logger.info(
-            "num. model params: {:,} (num. trained: {:,})".format(
-            sum(p.numel() for p in model.parameters()),
-            sum(p.numel() for p in model.parameters() if p.requires_grad),
+        "num. model params: {:,} (num. trained: {:,})".format(
+            sum(getattr(p, "_orig_size", p).numel() for p in model.parameters()),
+            sum(getattr(p, "_orig_size", p).numel() for p in model.parameters() if p.requires_grad),
         )
     )
 
@@ -118,7 +124,6 @@ def main(cfg: FairseqConfig) -> None:
         trainer = Trainer(cfg, task, model, criterion, quantizer)
     else:
         trainer = MegatronTrainer(cfg, task, model, criterion)
-
     logger.info(
         "training on {} devices (GPUs/TPUs)".format(
             cfg.distributed_training.distributed_world_size
@@ -480,12 +485,19 @@ def cli_main(
 
     cfg = convert_namespace_to_omegaconf(args)
 
+    if cfg.common.use_plasma_view:
+        server = PlasmaStore(path=cfg.common.plasma_path)
+        logger.info(f"Started plasma server pid {server.server.pid} {cfg.common.plasma_path}")
+
     if args.profile:
         with torch.cuda.profiler.profile():
             with torch.autograd.profiler.emit_nvtx():
                 distributed_utils.call_main(cfg, main)
     else:
         distributed_utils.call_main(cfg, main)
+
+    # if cfg.common.use_plasma_view:
+    # server.server.kill()
 
 
 if __name__ == "__main__":
