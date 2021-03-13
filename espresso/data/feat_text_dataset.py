@@ -144,7 +144,7 @@ class FeatScpCachedDataset(FeatScpDataset):
         assert self.size >= len(indices)
         self.ordered_indices = indices.copy()
         self.start_pos_for_next_cache = 0
-        self.prefetched_called = True
+        self.prefetch_called = True
 
     def __getitem__(self, i):
         self.check_index(i)
