@@ -434,7 +434,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
                 x = self.layernorm_embedding(x)
 
         # account for padding while computing the representation
-        if encoder_padding_mask is not None:
+        if has_pads:
             x = x * (1 - encoder_padding_mask.unsqueeze(-1).type_as(x))
 
         # B x T x C -> T x B x C
