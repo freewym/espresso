@@ -4,9 +4,11 @@
 # LICENSE file in the root directory of this source tree.
 
 from .speech_attention import BahdanauAttention, LuongAttention
+from .speech_convolutions import ConvBNReLU
 
 
 __all__ = [
     "BahdanauAttention",
+    "ConvBNReLU",
     "LuongAttention",
 ]

@@ -20,7 +20,8 @@ from fairseq.models import (
 from fairseq.models.lstm import Linear
 from omegaconf import DictConfig
 
-from espresso.models.speech_lstm import ConvBNReLU, SpeechLSTMEncoder
+from espresso.models.speech_lstm import SpeechLSTMEncoder
+from espresso.modules.speech_convolutions import ConvBNReLU
 import espresso.tools.utils as speech_utils
 
 
