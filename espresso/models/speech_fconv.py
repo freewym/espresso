@@ -25,7 +25,7 @@ from fairseq.models.fconv import (
 )
 from fairseq.modules import GradMultiply
 
-from espresso.models.speech_lstm import ConvBNReLU
+from espresso.modules.speech_convolutions import ConvBNReLU
 import espresso.tools.utils as speech_utils
 
 

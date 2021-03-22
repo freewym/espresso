@@ -31,7 +31,7 @@ from fairseq.modules import (
 )
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 
-from espresso.models.speech_lstm import ConvBNReLU
+from espresso.modules.speech_convolutions import ConvBNReLU
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
 import espresso.tools.utils as speech_utils
 
