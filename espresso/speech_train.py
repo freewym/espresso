@@ -19,7 +19,6 @@ import numpy as np
 import torch
 from fairseq import (
     checkpoint_utils,
-    distributed_utils,
     options,
     quantization_utils,
     tasks,
@@ -130,7 +129,7 @@ def main(cfg: FairseqConfig) -> None:
         )
     )
     logger.info(
-        "max tokens per GPU = {} and batch size per GPU = {}".format(
+        "max tokens per device = {} and max sentences per device = {}".format(
             cfg.dataset.max_tokens,
             cfg.dataset.batch_size,
         )
@@ -144,6 +143,9 @@ def main(cfg: FairseqConfig) -> None:
         # don't cache epoch iterators for sharded datasets
         disable_iterator_cache=task.has_sharded_data("train"),
     )
+    if cfg.common.tpu:
+        import torch_xla.core.xla_model as xm
+        xm.rendezvous("load_checkpoint")  # wait for all workers
 
     max_epoch = cfg.optimization.max_epoch or math.inf
     lr = trainer.get_lr()
@@ -444,7 +446,9 @@ def validate(
         # create a new root metrics aggregator so validation metrics
         # don't pollute other aggregators (e.g., train meters)
         with metrics.aggregate(new_root=True) as agg:
-            for sample in progress:
+            for i, sample in enumerate(progress):
+                if cfg.dataset.max_valid_steps is not None and i > cfg.dataset.max_valid_steps:
+                    break
                 trainer.valid_step(sample)
 
         # log validation stats
@@ -497,7 +501,7 @@ def cli_main(
         distributed_utils.call_main(cfg, main)
 
     # if cfg.common.use_plasma_view:
-    # server.server.kill()
+    #     server.server.kill()
 
 
 if __name__ == "__main__":
