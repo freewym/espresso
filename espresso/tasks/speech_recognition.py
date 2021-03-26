@@ -406,7 +406,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         scorer.reset()
         for i in range(target.size(0)):
             utt_id = sample["utt_id"][i]
-            ref_tokens = sample["token_text"][i]
+            ref_tokens = self.target_dictionary.wordpiece_encode(sample["text"][i])
             pred_tokens = self.target_dictionary.string(pred.data[i])
             scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
         return (

@@ -92,10 +92,6 @@ def collate(
     else:
         ntokens = src_lengths.sum().item()
 
-    token_text = None
-    if samples[0].get("token_text", None) is not None:
-        token_text = [samples[i]["token_text"] for i in sort_order.numpy()]
-
     text = None
     if samples[0].get("text", None) is not None:
         text = [samples[i]["text"] for i in sort_order.numpy()]
@@ -107,7 +103,6 @@ def collate(
         "ntokens": ntokens,
         "net_input": {"src_tokens": src_frames, "src_lengths": src_lengths},
         "target": target,
-        "token_text": token_text,
         "text": text,
     }
     if prev_output_tokens is not None:
@@ -258,15 +253,13 @@ class AsrDataset(FairseqDataset):
 
     def __getitem__(self, index):
         tgt_item = self.tgt[index][0] if self.tgt is not None else None
-        token_text_item = self.tgt[index][1] if self.tgt is not None else None
-        text_item = self.tgt[index][2] if self.tgt is not None else None
+        text_item = self.tgt[index][1] if self.tgt is not None else None
         src_item = self.src[index]
         example = {
             "id": index,
             "utt_id": self.src.utt_ids[index],
             "source": src_item,
             "target": tgt_item,
-            "token_text": token_text_item,
             "text": text_item,
         }
         if self.constraints is not None:
@@ -311,7 +304,6 @@ class AsrDataset(FairseqDataset):
                 - `target` (LongTensor): a padded 2D Tensor of tokens in the
                   target sentence of shape `(bsz, tgt_len)`. Padding will appear
                   on the left if *left_pad_target* is ``True``.
-                - `token_text` (List[str]): list of token text
                 - `text` (List[str]): list of original text
                 - `tgt_lang_id` (LongTensor): a long Tensor which contains target language
                   IDs of each sample in the batch

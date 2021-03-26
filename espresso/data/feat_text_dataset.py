@@ -239,6 +239,7 @@ class AsrTextDataset(torch.utils.data.Dataset):
     def __init__(self, utt_ids: List[str], texts: List[str], dictionary=None, append_eos=True):
         super().__init__()
         self.dtype = np.float
+        self.dictionary = dictionary
         self.append_eos = append_eos
         self.read_text(utt_ids, texts, dictionary)
 
@@ -247,27 +248,19 @@ class AsrTextDataset(torch.utils.data.Dataset):
         self.utt_ids = utt_ids
         self.texts = texts
         self.size = len(self.utt_ids)  # number of utterances
-        self.token_texts = None
-        self.tensor_list = None
         if dictionary is not None:
-            self.token_texts = [dictionary.wordpiece_encode(x) for x in texts]
-            self.tensor_list = [
-                dictionary.encode_line(tokens, add_if_not_exist=False, append_eos=self.append_eos).long()
-                for tokens in self.token_texts
+            from fairseq.tokenizer import tokenize_line
+
+            self.sizes = [
+                len(tokenize_line(dictionary.wordpiece_encode(text))) + (1 if self.append_eos else 0)
+                for text in texts
             ]
-            self.sizes = [len(tensor) for tensor in self.tensor_list]
         else:
             self.sizes = [len(tokenize_line(text)) for text in texts]
 
         self.sizes = np.array(self.sizes, dtype=np.int32)
 
-        assert (
-            (
-                dictionary is None
-                or (len(self.utt_ids) == len(self.tensor_list) and len(self.utt_ids) == len(self.token_texts))
-            )
-            and len(self.utt_ids) == len(self.sizes)
-        )
+        assert len(self.utt_ids) == len(self.sizes)
 
     def check_index(self, i):
         if i < 0 or i >= self.size:
@@ -282,20 +275,17 @@ class AsrTextDataset(torch.utils.data.Dataset):
         ), "Duplicate elements in indices."
         self.utt_ids = [self.utt_ids[i] for i in indices]
         self.texts = [self.texts[i] for i in indices]
-        if self.token_texts is not None:
-            self.token_texts = [self.token_texts[i] for i in indices]
-        if self.tensor_list is not None:
-            self.tensor_list = [self.tensor_list[i] for i in indices]
         self.sizes = self.sizes[indices]
         self.size = len(self.utt_ids)
 
     def __getitem__(self, i):
         self.check_index(i)
-        return (
-            self.tensor_list[i] if self.tensor_list is not None else None,
-            self.token_texts[i] if self.token_texts is not None else None,
-            self.texts[i]
-        )
+        if self.dictionary is not None:
+            token_text = self.dictionary.wordpiece_encode(self.texts[i])
+            tensor_item = self.dictionary.encode_line(token_text, add_if_not_exist=False, append_eos=self.append_eos).long()
+        else:
+            tensor_item = None
+        return (tensor_item, self.texts[i])
 
     def __len__(self):
         return self.size
