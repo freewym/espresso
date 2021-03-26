@@ -255,10 +255,9 @@ def _main(cfg, output_file):
 
             # Retrieve the original sentences
             if has_target:
-                target_str = sample["token_text"][i]
+                target_str = dictionary.wordpiece_encode(sample["text"][i])
                 if not cfg.common_eval.quiet:
-                    detok_target_str = decode_fn(target_str)
-                    print("T-{}\t{}".format(utt_id, detok_target_str), file=output_file)
+                    print("T-{}\t{}".format(utt_id, sample["text"][i]), file=output_file)
 
             # Process top predictions
             for j, hypo in enumerate(hypos[i][: cfg.generation.nbest]):
