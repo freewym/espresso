@@ -14,7 +14,7 @@ from torch import Tensor
 
 class SimpleGreedyDecoder(nn.Module):
     def __init__(
-        self, models, dictionary, max_len_a=0, max_len_b=200,
+        self, models, dictionary, max_len_a=0, max_len_b=200, max_len=0,
         temperature=1.0, eos=None, symbols_to_strip_from_output=None,
         for_validation=True,
     ):
@@ -26,6 +26,8 @@ class SimpleGreedyDecoder(nn.Module):
             dictionary (~fairseq.data.Dictionary): dictionary
             max_len_a/b (int, optional): generate sequences of maximum length
                 ax + b, where x is the source length
+            max_len (int, optional): the maximum length of the generated output
+                (not including end-of-sentence)
             temperature (float, optional): temperature, where values
                 >1.0 produce more uniform samples and values <1.0 produce
                 sharper samples (default: 1.0)
@@ -50,6 +52,7 @@ class SimpleGreedyDecoder(nn.Module):
         self.vocab_size = len(dictionary)
         self.max_len_a = max_len_a
         self.max_len_b = max_len_b
+        self.max_len = max_len or self.model.max_decoder_positions()
         self.temperature = temperature
         assert temperature > 0, "--temperature must be greater than 0"
 
@@ -98,8 +101,7 @@ class SimpleGreedyDecoder(nn.Module):
             if self.for_validation else \
             min(
                 int(self.max_len_a * src_len + self.max_len_b),
-                # exclude the EOS marker
-                self.model.max_decoder_positions() - 1,
+                self.max_len - 1,
             )
 
         tokens = src_tokens.new(bsz, max_len + 2).long().fill_(self.pad)

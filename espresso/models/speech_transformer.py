@@ -478,10 +478,15 @@ class SpeechTransformerEncoder(TransformerEncoder):
 
 class SpeechTransformerDecoder(TransformerDecoder):
     def __init__(
-        self, args, dictionary, embed_tokens, no_encoder_attn=False,
+        self,
+        args,
+        dictionary,
+        embed_tokens,
+        no_encoder_attn=False,
+        output_projection=None,
         scheduled_sampling_rate_scheduler=None,
     ):
-        super().__init__(args, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn)
+        super().__init__(args, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn, output_projection=output_projection)
 
         self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
         for layer in self.layers:
@@ -519,6 +524,7 @@ class SpeechTransformerDecoder(TransformerDecoder):
                 - the decoder's output of shape `(batch, tgt_len, vocab)`
                 - a dictionary with any model-specific outputs
         """
+
         if self.training and alignment_layer is None:  # no attention tensors during training to save memory
             alignment_layer = self.num_layers  # can be any value no less than this
         if self.training and self.scheduled_sampling_rate_scheduler is not None:
