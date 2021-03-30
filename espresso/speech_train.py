@@ -84,9 +84,6 @@ def main(cfg: FairseqConfig) -> None:
     # Handle tokenization and BPE
     task.build_tokenizer(cfg.tokenizer)
     task.build_bpe(cfg.bpe)
-    # Load valid dataset (we load training data below, based on the latest checkpoint)
-    for valid_sub_split in cfg.dataset.valid_subset.split(","):
-        task.load_dataset(valid_sub_split, combine=False, epoch=1)
 
     assert cfg.criterion, "Please specify criterion to train a model"
 
@@ -102,11 +99,23 @@ def main(cfg: FairseqConfig) -> None:
     logger.info("model: {}".format(model.__class__.__name__))
     logger.info("criterion: {}".format(criterion.__class__.__name__))
     logger.info(
-        "num. model params: {:,} (num. trained: {:,})".format(
-            sum(getattr(p, "_orig_size", p).numel() for p in model.parameters()),
-            sum(getattr(p, "_orig_size", p).numel() for p in model.parameters() if p.requires_grad),
+        "num. shared model params: {:,} (num. trained: {:,})".format(
+            sum(p.numel() for p in model.parameters() if not getattr(p, "expert", False)),
+            sum(p.numel() for p in model.parameters() if not getattr(p, "expert", False) and p.requires_grad)
         )
     )
+
+    logger.info(
+        "num. expert model params: {} (num. trained: {})".format(
+            sum(p.numel() for p in model.parameters() if getattr(p, "expert", False)),
+            sum(p.numel() for p in model.parameters() if getattr(p, "expert", False) and p.requires_grad),
+        )
+    )
+
+    # Load valid dataset (we load training data below, based on the latest checkpoint)
+    # We load the valid dataset AFTER building the model
+    for valid_sub_split in cfg.dataset.valid_subset.split(","):
+        task.load_dataset(valid_sub_split, combine=False, epoch=1)
 
     # (optionally) Configure quantization
     if cfg.common.quantization_config_path is not None:
