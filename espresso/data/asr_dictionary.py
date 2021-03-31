@@ -25,6 +25,7 @@ class AsrDictionary(Dictionary):
         eos="</s>",
         unk="<unk>",
         space="<space>",
+        enable_bos=False,
         extra_special_symbols=None,
     ):
         self.bos_word, self.unk_word, self.pad_word, self.eos_word, self.space_word = (
@@ -33,7 +34,9 @@ class AsrDictionary(Dictionary):
         self.symbols = []
         self.count = []
         self.indices = {}
-        # no bos added to the dictionary
+        # no bos added to the dictionary by default
+        if enable_bos:
+            self.bos_index = self.add_symbol(self.bos_word)
         self.pad_index = self.add_symbol(pad, n=0)
         self.eos_index = self.add_symbol(eos, n=0)
         self.unk_index = self.add_symbol(unk, n=0)
@@ -46,7 +49,9 @@ class AsrDictionary(Dictionary):
         self.bpe = None
 
     def bos(self):
-        """Disallow beginning-of-sentence symbol"""
+        """Disallow beginning-of-sentence symbol if not exists"""
+        if hasattr(self, "bos_index"):
+            return self.bos_index
         raise NotImplementedError
 
     def space(self):
@@ -54,7 +59,7 @@ class AsrDictionary(Dictionary):
         return self.space_index
 
     @classmethod
-    def load(cls, f, f_non_lang_syms=None):
+    def load(cls, f, enable_bos=False, f_non_lang_syms=None):
         """Loads the dictionary from a text file with the format:
 
         ```
@@ -63,13 +68,17 @@ class AsrDictionary(Dictionary):
         ...
         ```
 
+        Optionally add bos symbol to the dictionary
+
         Identifies the space symbol if it exists, by obtaining its index
         (space_index=-1 if no space symbol)
 
         Loads non_lang_syms from another text file, if it exists, with one
         symbol per line
         """
-        d = super().load(f)
+        d = cls(enable_bos=enable_bos)
+        d.add_from_file(f)
+
         d.space_index = d.indices.get(d.space_word, -1)
 
         if f_non_lang_syms is not None:

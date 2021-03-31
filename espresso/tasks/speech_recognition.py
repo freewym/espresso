@@ -218,13 +218,14 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     """
 
     @classmethod
-    def load_dictionary(cls, filename, non_lang_syms=None):
+    def load_dictionary(cls, filename, enable_bos=False, non_lang_syms=None):
         """Load the dictionary from the filename
         Args:
             filename (str): the filename
-            non_lang_syms (str): non_lang_syms filename
+            enable_bos (bool, optional): optionally enable bos symbol
+            non_lang_syms (str, optional): non_lang_syms filename
         """
-        return AsrDictionary.load(filename, f_non_lang_syms=non_lang_syms)
+        return AsrDictionary.load(filename, enable_bos=enable_bos, f_non_lang_syms=non_lang_syms)
 
     @classmethod
     def build_dictionary(
@@ -256,7 +257,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         # load dictionaries
         dict_path = os.path.join(cfg.data, "dict.txt") if cfg.dict is None else cfg.dict
-        tgt_dict = cls.load_dictionary(dict_path, non_lang_syms=cfg.non_lang_syms)
+        tgt_dict = cls.load_dictionary(dict_path, enable_bos=False, non_lang_syms=cfg.non_lang_syms)
         logger.info("dictionary: {} types".format(len(tgt_dict)))
 
         # minimum code for loading data in order to obtain feat_dim
@@ -277,7 +278,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             feat_dim = src_dataset.feat_dim
 
         if cfg.word_dict is not None:
-            word_dict = cls.load_dictionary(cfg.word_dict)
+            word_dict = cls.load_dictionary(cfg.word_dict, enable_bos=False)
             logger.info("word dictionary: {} types".format(len(word_dict)))
             return cls(cfg, tgt_dict, feat_dim, word_dict=word_dict)
 
