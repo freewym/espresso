@@ -102,7 +102,7 @@ class SpeechTdnnEncoderModel(FairseqEncoderModel):
 
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""
-        encoder_out = net_output.encoder_out
+        encoder_out = net_output["encoder_out"][0]
         if torch.is_tensor(encoder_out):
             logits = encoder_out.float()
             if log_probs:
@@ -112,7 +112,7 @@ class SpeechTdnnEncoderModel(FairseqEncoderModel):
         raise NotImplementedError
 
     def get_logits(self, net_output):
-        logits = net_output.encoder_out.transpose(0, 1).squeeze(2)  # T x B x 1 -> B x T
+        logits = net_output["encoder_out"][0].transpose(0, 1).squeeze(2)  # T x B x 1 -> B x T
         return logits
 
     def update_state_prior(self, new_state_prior, factor=0.1):

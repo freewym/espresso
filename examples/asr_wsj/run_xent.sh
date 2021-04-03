@@ -195,7 +195,7 @@ if [ ${stage} -le 6 ]; then
           dump_posteriors.py data/xent --cpu --task speech_recognition_hybrid \
             --max-tokens 256000 --batch-size 256 --num-shards 1 --shard-id 0 --num-targets $num_targets \
             --gen-subset $dataset.JOB --chunk-width 150 --chunk-left-context 10 --chunk-right-context 10 --label-delay -3 \
-            --max-source-positions 9999 --path $path --apply-log-softmax True \| \
+            --max-source-positions 9999 --path $path --apply-log-softmax \| \
           latgen-faster-mapped --max-active=7000 --min-active=20 --beam=15 --lattice-beam=8 --acoustic-scale=0.1 \
             --allow-partial=true --word-symbol-table="$graph_dir/words.txt" \
             exp/$gmm/final.mdl $graph_dir/HCLG.fst ark:- "ark:|gzip -c >$dir/decode_${lmtype}_${data_affix}/lat.JOB.gz" || exit 1
