@@ -8,7 +8,7 @@ set -e -o pipefail
 
 stage=0
 ngpus=1 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
-free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned if on CLSP grid
+free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; will be automatically assigned if not specified
 
 # E2E model related
 affix=
@@ -177,8 +177,11 @@ if [ ${stage} -le 3 ]; then
   fi
 fi
 
-[ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
-  echo "Unable to get $ngpus GPUs"
+if  [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
+  [ -z "$free_gpu" ] && free_gpu=$(free-gpu -n $ngpus) || echo "Unable to get $ngpus GPUs"
+else
+  [ -z "$free_gpu" ] && free_gpu=$(echo $(seq 0 $(($ngpus-1))) | sed 's/ /,/g')
+fi
 [ -z "$free_gpu" ] && echo "$0: please specify --free-gpu" && exit 1;
 [ $(echo $free_gpu | sed 's/,/ /g' | awk '{print NF}') -ne "$ngpus" ] && \
   echo "number of GPU ids in --free-gpu=$free_gpu does not match --ngpus=$ngpus" && exit 1;
@@ -189,15 +192,16 @@ if [ ${stage} -le 4 ] && ! $use_wordlm; then
   mkdir -p $lmdir/log
   log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
+  update_freq=$(((2+ngpus-1)/ngpus))
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
-    --log-interval $((4000/ngpus)) --log-format simple \
+    --log-interval $((4000/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --max-tokens 25600 --batch-size 128 \
-    --valid-subset $valid_subset --batch-size-valid 256 \
+    --valid-subset $valid_subset --batch-size-valid 256 --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 5e-06 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((4000/ngpus)) \
+    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((4000/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_lm_wsj --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
 fi
@@ -219,15 +223,16 @@ if [ ${stage} -le 6 ] && $use_wordlm; then
   mkdir -p $wordlmdir/log
   log_file=$wordlmdir/log/train.log
   [ -f $wordlmdir/checkpoint_last.pt ] && log_file="-a $log_file"
+  update_freq=$(((2+ngpus-1)/ngpus))
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $wordlmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $wordlmdict \
-    --log-interval $((4000/ngpus)) --log-format simple \
+    --log-interval $((4000/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --max-tokens 6400 --batch-size 256 \
-    --valid-subset $valid_subset --batch-size-valid 512 \
+    --valid-subset $valid_subset --batch-size-valid 512 --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $wordlmdir --restore-file checkpoint_last.pt --save-interval-updates $((4000/ngpus)) \
+    --save-dir $wordlmdir --restore-file checkpoint_last.pt --save-interval-updates $((4000/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_wordlm_wsj --criterion cross_entropy \
     --sample-break-mode eos 2>&1 | tee $log_file
