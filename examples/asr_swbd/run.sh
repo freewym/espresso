@@ -8,7 +8,7 @@ set -e -o pipefail
 
 stage=0
 ngpus=1 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
-free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned if on CLSP grid
+free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; will be automatically assigned if not specified
 
 # E2E model related
 affix=
@@ -199,8 +199,11 @@ if [ $stage -le 3 ]; then
       --destdir $lmdatadir
 fi
 
-[ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
-  echo "Unable to get $ngpus GPUs"
+if  [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
+  [ -z "$free_gpu" ] && free_gpu=$(free-gpu -n $ngpus) || echo "Unable to get $ngpus GPUs"
+else
+  [ -z "$free_gpu" ] && free_gpu=$(echo $(seq 0 $(($ngpus-1))) | sed 's/ /,/g')
+fi
 [ -z "$free_gpu" ] && echo "$0: please specify --free-gpu" && exit 1;
 [ $(echo $free_gpu | sed 's/,/ /g' | awk '{print NF}') -ne "$ngpus" ] && \
   echo "number of GPU ids in --free-gpu=$free_gpu does not match --ngpus=$ngpus" && exit 1;
@@ -211,15 +214,16 @@ if [ $stage -le 4 ]; then
   mkdir -p $lmdir/log
   log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
+  update_freq=$(((2+ngpus-1)/ngpus))
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
-    --log-interval $((1000/ngpus)) --log-format simple \
+    --log-interval $((1000/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --max-tokens 25600 --batch-size 1024 \
-    --valid-subset $valid_subset --batch-size-valid 1536 \
+    --valid-subset $valid_subset --batch-size-valid 1536 --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --max-epoch 25 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((1000/ngpus)) \
+    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((1000/ngpus/update_freq)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_lm_swbd --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
 fi

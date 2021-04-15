@@ -17,7 +17,7 @@ logging.basicConfig(
     level=logging.INFO,
     stream=sys.stderr,
 )
-logger = logging.getLogger("espresso.tools.text2vocabulary")
+logger = logging.getLogger(__file__)
 
 
 def get_parser():
