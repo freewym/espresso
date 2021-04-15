@@ -8,7 +8,7 @@ set -e -o pipefail
 
 stage=-10
 ngpus=1 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
-free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned if on CLSP grid
+free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; will be automatically assigned if not specified
 
 # model and data related
 affix=
@@ -170,8 +170,11 @@ if [ ${stage} -le 5 ]; then
   done
 fi
 
-[ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
-  echo "Unable to get $ngpus GPUs"
+if  [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
+  [ -z "$free_gpu" ] && free_gpu=$(free-gpu -n $ngpus) || echo "Unable to get $ngpus GPUs"
+else
+  [ -z "$free_gpu" ] && free_gpu=$(echo $(seq 0 $(($ngpus-1))) | sed 's/ /,/g')
+fi
 [ -z "$free_gpu" ] && echo "$0: please specify --free-gpu" && exit 1;
 [ $(echo $free_gpu | sed 's/,/ /g' | awk '{print NF}') -ne "$ngpus" ] && \
   echo "number of GPU ids in --free-gpu=$free_gpu does not match --ngpus=$ngpus" && exit 1;
