@@ -11,7 +11,6 @@ import numpy as np
 import torch
 
 from fairseq.data import data_utils
-from fairseq.tokenizer import tokenize_line
 
 from espresso.tools.specaug_interpolate import specaug
 

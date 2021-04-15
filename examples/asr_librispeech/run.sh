@@ -8,7 +8,7 @@ set -e -o pipefail
 
 stage=0
 ngpus=1 # num GPUs for multiple GPUs training within a single node; should match those in $free_gpu
-free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; automatically assigned if on CLSP grid
+free_gpu= # comma-separated available GPU ids, eg., "0" or "0,1"; will be automatically assigned if not specified
 
 # E2E model related
 affix=
@@ -29,7 +29,7 @@ sentencepiece_type=unigram
 dumpdir=data/dump   # directory to dump full features
 data= # path to where you want to put the downloaded data; need to be specified if not on CLSP grid
 if [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
-  data=/export/a15/vpanayotov/data
+  data=/export/corpora5
 fi
 data_url=www.openslr.org/resources/12
 kaldi_scoring=true
@@ -161,8 +161,11 @@ if [ ${stage} -le 4 ]; then
       --destdir $lmdatadir
 fi
 
-[ -z "$free_gpu" ] && [[ $(hostname -f) == *.clsp.jhu.edu ]] && free_gpu=$(free-gpu -n $ngpus) || \
-  echo "Unable to get $ngpus GPUs"
+if  [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
+  [ -z "$free_gpu" ] && free_gpu=$(free-gpu -n $ngpus) || echo "Unable to get $ngpus GPUs"
+else
+  [ -z "$free_gpu" ] && free_gpu=$(echo $(seq 0 $(($ngpus-1))) | sed 's/ /,/g')
+fi
 [ -z "$free_gpu" ] && echo "$0: please specify --free-gpu" && exit 1;
 [ $(echo $free_gpu | sed 's/,/ /g' | awk '{print NF}') -ne "$ngpus" ] && \
   echo "number of GPU ids in --free-gpu=$free_gpu does not match --ngpus=$ngpus" && exit 1;
@@ -173,15 +176,16 @@ if [ ${stage} -le 5 ]; then
   mkdir -p $lmdir/log
   log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
+  update_freq=$(((2+ngpus-1)/ngpus))
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
-    --log-interval $((16000/ngpus)) --log-format simple \
+    --log-interval $((16000/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --max-tokens 32000 --batch-size 1024 --curriculum 1 \
-    --valid-subset $valid_subset --batch-size-valid 1536 \
+    --valid-subset $valid_subset --batch-size-valid 1536 --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --max-epoch 30 --optimizer adam --lr 0.001 --clip-norm 1.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((16000/ngpus)) \
+    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((16000/ngpus/update_freq)) \
     --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
     --arch lstm_lm_librispeech --criterion cross_entropy --sample-break-mode eos 2>&1 | tee $log_file
 fi
@@ -203,19 +207,18 @@ fi
 
 if [ ${stage} -le 7 ]; then
   echo "Stage 7: Dump Json Files"
-  train_feat=$train_feat_dir/feats.scp
-  train_text=data/$train_set/text
-  train_utt2num_frames=data/$train_set/utt2num_frames
-  valid_feat=$valid_feat_dir/feats.scp
-  valid_text=data/$valid_set/text
-  valid_utt2num_frames=data/$valid_set/utt2num_frames
-  asr_prep_json.py --feat-files $train_feat --text-files $train_text --utt2num-frames-files $train_utt2num_frames --output data/train.json
-  asr_prep_json.py --feat-files $valid_feat --text-files $valid_text --utt2num-frames-files $valid_utt2num_frames --output data/valid.json
-  for dataset in $test_set; do
+  for dataset in $train_set $valid_set $test_set; do
     feat=${dumpdir}/$dataset/delta${do_delta}/feats.scp
     text=data/$dataset/text
     utt2num_frames=data/$dataset/utt2num_frames
-    asr_prep_json.py --feat-files $feat --text-files $text --utt2num-frames-files $utt2num_frames --output data/$dataset.json
+    if [[ $dataset == "$train_set" ]]; then
+      name=train
+    elif [[ $dataset == "$valid_set" ]]; then
+      name=valid
+    else
+      name=$dataset
+    fi
+    asr_prep_json.py --feat-files $feat --text-files $text --utt2num-frames-files $utt2num_frames --output data/$name.json
   done
 fi
 
