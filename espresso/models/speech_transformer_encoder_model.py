@@ -81,7 +81,7 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
                             help="checkpoint activations at each layer, which saves GPU "
                                  "memory usage at the cost of some additional compute")
         parser.add_argument("--offload-activations", action="store_true",
-                             help="checkpoint activations at each layer, then save to gpu. Sets --checkpoint-activations.")
+                            help="checkpoint activations at each layer, then save to gpu. Sets --checkpoint-activations.")
         # args for "Reducing Transformer Depth on Demand with Structured Dropout" (Fan et al., 2019)
         parser.add_argument("--encoder-layerdrop", type=float, metavar="D", default=0,
                             help="LayerDrop probability for encoder")
