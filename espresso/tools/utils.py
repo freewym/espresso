@@ -3,14 +3,29 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from io import BytesIO
 import os
 import re
 import numpy as np
 from collections import Counter
+from subprocess import PIPE, run
 
 import torch
 
+try:
+    import kaldi_io
+    has_kaldi_io = True
+except ImportError:
+    has_kaldi_io = False
+
+try:
+    import soundfile
+    has_soundfile = True
+except ImportError:
+    has_soundfile = False
+
 from fairseq import utils
+from fairseq.data.audio.audio_utils import get_waveform
 
 
 def tokenize(sent, space="<space>", non_lang_syms=None):
@@ -296,3 +311,74 @@ def aligned_print(ref, hyp, steps):
     out_str += "\n"
 
     return out_str
+
+
+def get_torchaudio_fbank_or_mfcc(
+    waveform: np.ndarray, sample_rate: float, n_bins: int = 80, feature_type: str = "fbank"
+) -> np.ndarray:
+    """Get mel-filter bank or mfcc features via TorchAudio."""
+    try:
+        import torchaudio.compliance.kaldi as ta_kaldi
+        waveform = torch.from_numpy(waveform)
+        if feature_type == "fbank":
+            features = ta_kaldi.fbank(
+                waveform, num_mel_bins=n_bins, sample_frequency=sample_rate
+            )
+        else:
+            features = ta_kaldi.mfcc(
+                waveform, num_mel_bins=n_bins, num_ceps=40, low_freq=20, high_freq=-400, sample_frequency=sample_rate
+            )
+        return features.numpy()
+    except ImportError:
+        raise ImportError("Please install torchaudio to enable online feature extraction: pip install torchaudio")
+
+
+def num_samples_to_num_frames(
+    num_samples: int, sample_rate: float = 16000.0, frame_length: float = 25.0, frame_shift: int = 10.0,
+    snip_edges: bool = True
+) -> int:
+    """
+    Convert number of samples to number of frames. frame_length and frame_shift are both in milliseconds.
+    See https://github.com/kaldi-asr/kaldi/blob/master/src/feat/feature-window.cc#L42.
+
+    Args:
+        num_samples (int): number of samples in the raw waveform.
+        sample_rate (float, optional): sampling rate in the raw waveform (default: 16000.0).
+        frame_length (float, optional): frame length in milliseconds (default: 25.0).
+        frame_shift (float, optional): frame shift in milliseconds (default: 10.0).
+        snip_edges (bool, optional): If True, end effects will be handled by outputting only frames that
+            completely fit in the file, and the number of frames depends on the frame_length. If False,
+            the number of frames depends only on the frame_shift, and we reflect the data at the ends
+            (default: True).
+    """
+    window_shift = round(sample_rate * 0.001 * frame_shift)
+    if snip_edges:
+        window_size = round(sample_rate * 0.001 * frame_length)
+        if num_samples < window_size:
+            return 0
+        num_frames = int(1 + (num_samples - window_size) // window_shift)
+    else:
+        num_frames = int((num_samples + window_shift // 2) // window_shift)
+    return num_frames
+
+
+def compute_num_frames_from_feat_or_waveform(rxfile: str) -> int:
+    if re.search(r"\.ark:\d+$", rxfile.strip()) is not None:  # from feats.scp
+        if not has_kaldi_io:
+            raise ImportError("Please install kaldi_io with: pip install kaldi_io")
+        try:
+            feat = kaldi_io.read_mat(rxfile)
+        except Exception:
+            raise Exception("failed to read feature matrix {}.".format(rxfile))
+        assert feat is not None and isinstance(feat, np.ndarray)
+        num_frames = feat.shape[0]
+    elif re.search(r"\|$", rxfile.strip()) is not None:  # from a command
+        source = BytesIO(run(rxfile[:-1], shell=True, stdout=PIPE).stdout)
+        waveform, sample_rate = get_waveform(source, always_2d=True)
+        num_frames = num_samples_to_num_frames(waveform.shape[1], sample_rate, frame_length=25.0, frame_shift=10.0)
+    else:  # from a raw waveform file
+        if not has_soundfile:
+            raise ImportError("Please install soundfile with: pip install soundfile")
+        info = soundfile.info(rxfile)
+        num_frames = num_samples_to_num_frames(info.frames, info.samplerate, frame_length=25.0, frame_shift=10.0)
+    return num_frames

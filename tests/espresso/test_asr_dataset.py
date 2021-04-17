@@ -14,8 +14,8 @@ from espresso.data import (
     AsrDataset,
     AsrDictionary,
     AsrTextDataset,
-    FeatScpCachedDataset,
-    FeatScpInMemoryDataset,
+    AudioFeatCachedDataset,
+    AudioFeatInMemoryDataset,
 )
 
 try:
@@ -103,7 +103,7 @@ class TestAsrDataset(unittest.TestCase):
         self, all_in_memory=False, ordered_prefetch=False, has_utt2num_frames=False,
     ):
         if not all_in_memory:
-            src_dataset = FeatScpCachedDataset(
+            src_dataset = AudioFeatCachedDataset(
                 utt_ids=self.feats_utt_ids,
                 rxfiles=self.rxfiles,
                 utt2num_frames=self.utt2num_frames if has_utt2num_frames else None,
@@ -111,7 +111,7 @@ class TestAsrDataset(unittest.TestCase):
                 cache_size=self.cache_size,
             )
         else:
-            src_dataset = FeatScpInMemoryDataset(
+            src_dataset = AudioFeatInMemoryDataset(
                 utt_ids=self.feats_utt_ids,
                 rxfiles=self.rxfiles,
                 utt2num_frames=self.utt2num_frames if has_utt2num_frames else None,
