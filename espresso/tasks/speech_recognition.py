@@ -3,13 +3,14 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from argparse import Namespace
 from collections import OrderedDict
 import itertools
 import json
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union
 
 import torch
 
@@ -18,7 +19,7 @@ from fairseq.data import BaseWrapperDataset, ConcatDataset
 from fairseq.dataclass import FairseqDataclass
 from fairseq.logging import metrics
 from fairseq.tasks import FairseqTask, register_task
-from omegaconf import II
+from omegaconf import DictConfig, II
 
 from espresso.data import (
     AsrDataset,
@@ -316,7 +317,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         split: str,
         epoch: int = 1,
         combine: bool = False,
-        task_cfg: FairseqDataclass = None,
+        task_cfg: DictConfig = None,
         **kwargs,
     ):
         """Load a given dataset split.
@@ -325,7 +326,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             split (str): name of the split (e.g., train, valid, test)
             epoch (int): epoch number determining which shard of training data to load
             combine (bool): combines a split segmented into pieces into one dataset
-            task_cfg (FairseqDataclass): optional task configuration stored in the checkpoint that can be used
+            task_cfg (DictConfig): optional task configuration stored in the checkpoint that can be used
                                          to load datasets
         """
         paths = utils.split_paths(self.cfg.data)
@@ -367,7 +368,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             constraints=constraints,
         )
 
-    def build_model(self, model_cfg: FairseqDataclass):
+    def build_model(self, model_cfg: DictConfig):
         model = super().build_model(model_cfg)
         # build the greedy decoder for validation with WER
         from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
@@ -377,6 +378,12 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         )
         return model
 
+    def build_criterion(self, cfg: DictConfig):
+        # keep a reference to the criterion instance in task for convenience
+        # (to be used inside self.begin_epoch())
+        self.criterion = super().build_criterion(cfg)
+        return self.criterion
+
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
         (
@@ -385,7 +392,14 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         ) = self._inference_with_wer(self.decoder_for_validation, sample, model)
         return loss, sample_size, logging_output
 
+    def begin_epoch(self, epoch, model):
+        """Hook function called before the start of each epoch."""
+        super().begin_epoch(epoch, model)
+        if hasattr(self.criterion, "set_epoch"):
+            self.criterion.set_epoch(epoch)
+
     def reduce_metrics(self, logging_outputs, criterion):
+        """Aggregate logging outputs from data parallel training."""
         super().reduce_metrics(logging_outputs, criterion)
         word_error = sum(log.get("word_error", 0) for log in logging_outputs)
         word_count = sum(log.get("word_count", 0) for log in logging_outputs)
@@ -405,17 +419,23 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """Return the target :class:`~fairseq.data.AsrDictionary`."""
         return self.tgt_dict
 
-    def build_tokenizer(self, cfg: FairseqDataclass):
+    def build_tokenizer(self, cfg: Union[DictConfig, Namespace]):
         """Build the pre-tokenizer for this task."""
-        self.tgt_dict.build_tokenizer(cfg)
-        # the instance is built within self.tgt_dict
-        return self.tgt_dict.tokenizer
+        if hasattr(self.tgt_dict, "build_tokenizer"):
+            # the instance is built within self.tgt_dict
+            self.tgt_dict.build_tokenizer(cfg)
+            return self.tgt_dict.tokenizer
+        else:
+            return super().build_tokenizer(cfg)
 
-    def build_bpe(self, cfg: FairseqDataclass):
+    def build_bpe(self, cfg: Union[DictConfig, Namespace]):
         """Build the tokenizer for this task."""
-        self.tgt_dict.build_bpe(cfg)
-        # the instance is built within self.tgt_dict
-        return self.tgt_dict.bpe
+        if hasattr(self.tgt_dict, "build_bpe"):
+            # the instance is built within self.tgt_dict
+            self.tgt_dict.build_bpe(cfg)
+            return self.tgt_dict.bpe
+        else:
+            return super().build_bpe(cfg)
 
     @property
     def word_dictionary(self):
