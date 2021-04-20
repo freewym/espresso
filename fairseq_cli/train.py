@@ -83,6 +83,9 @@ def main(cfg: FairseqConfig) -> None:
 
     # Setup task, e.g., translation, language modeling, etc.
     task = tasks.setup_task(cfg.task)
+    # Handle tokenization and BPE
+    task.build_tokenizer(cfg.tokenizer)
+    task.build_bpe(cfg.bpe)
 
     assert cfg.criterion, "Please specify criterion to train a model"
 

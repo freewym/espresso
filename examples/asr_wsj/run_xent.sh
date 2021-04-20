@@ -168,7 +168,7 @@ if [ ${stage} -le 5 ]; then
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   update_freq=1
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data/xent --task speech_recognition_hybrid --seed 1 \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py data/xent --task speech_recognition_hybrid --seed 1 \
     --log-interval $((100/ngpus/update_freq)) --log-format simple \
     --num-workers 0 --data-buffer-size 0 --max-tokens 160000 --batch-size 256 --empty-cache-freq 50 \
     --valid-subset $valid_subset --batch-size-valid 256 --ddp-backend legacy_ddp --update-freq $update_freq \
