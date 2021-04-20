@@ -18,7 +18,7 @@ from fairseq.data import BaseWrapperDataset, ConcatDataset
 from fairseq.dataclass import FairseqDataclass
 from fairseq.dataclass.configs import GenerationConfig
 from fairseq.tasks import FairseqTask, register_task
-from omegaconf import II
+from omegaconf import DictConfig, II
 
 from espresso.data import (
     AliScpCachedDataset,
@@ -439,7 +439,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
         split: str,
         epoch: int = 1,
         combine: bool = False,
-        task_cfg: FairseqDataclass = None,
+        task_cfg: DictConfig = None,
         **kwargs,
     ):
         """Load a given dataset split.
@@ -448,7 +448,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
             split (str): name of the split (e.g., train, valid, test)
             epoch (int): epoch number determining which shard of training data to load
             combine (bool): combines a split segmented into pieces into one dataset
-            task_cfg (FairseqDataclass): optional task configuration stored in the checkpoint that can be used
+            task_cfg (DictConfig): optional task configuration stored in the checkpoint that can be used
                                           to load datasets
         """
         paths = utils.split_paths(self.cfg.data)
@@ -480,6 +480,12 @@ class SpeechRecognitionHybridTask(FairseqTask):
             label_delay=self.label_delay,
         )
 
+    def build_criterion(self, cfg: DictConfig):
+        # keep a reference to the criterion instance in task for convenience
+        # (to be used inside self.begin_epoch())
+        self.criterion = super().build_criterion(cfg)
+        return self.criterion
+
     def build_generator(self, models, cfg: GenerationConfig):
         if cfg.score_reference:
             cfg.score_reference = False
@@ -491,12 +497,23 @@ class SpeechRecognitionHybridTask(FairseqTask):
         apply_log_softmax = getattr(cfg, "apply_log_softmax", False)
         return GenerateLogProbsForDecoding(models, apply_log_softmax=apply_log_softmax)
 
+    def optimizer_step(self, optimizer, model, update_num):
+        super().optimizer_step(optimizer, model, update_num)
+        # update the state prior stored in *model* for cross-entropy training of hybrid systems
+        self.update_state_prior(model)
+
     def build_dataset_for_inference(self, src_tokens, src_lengths):
         return AsrChainDataset(src_tokens, src_lengths)
 
     def inference_step(self, generator, models, sample):
         with torch.no_grad():
             return generator.generate(models, sample)
+
+    def begin_epoch(self, epoch, model):
+        """Hook function called before the start of each epoch."""
+        super().begin_epoch(epoch, model)
+        if hasattr(self.criterion, "set_epoch"):
+            self.criterion.set_epoch(epoch)
 
     def reduce_metrics(self, logging_outputs, criterion):
         super().reduce_metrics(logging_outputs, criterion)
@@ -517,6 +534,8 @@ class SpeechRecognitionHybridTask(FairseqTask):
 
     def update_state_prior(self, model):
         if self.averaged_state_post is not None:
+            # in case model is a wrapped model (e.g. of class DistributedDataParallel or LegacyDistributedDataParallel)
+            model = model.module if hasattr(model, "module") else model
             assert hasattr(model, "update_state_prior")
             model.update_state_prior(self.averaged_state_post, self.state_prior_update_smoothing)
 
