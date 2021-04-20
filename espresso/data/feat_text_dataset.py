@@ -3,16 +3,24 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from io import BytesIO
+import logging
 import os
-from typing import List, Optional
+import re
+from concurrent.futures.thread import ThreadPoolExecutor
+from subprocess import PIPE, run
+from typing import Any, Dict, List, Optional
 
 import numpy as np
-
 import torch
+from tqdm import tqdm
 
 from fairseq.data import data_utils
+from fairseq.data.audio.audio_utils import get_waveform
+from fairseq.data.audio.feature_transforms import CompositeAudioFeatureTransform
 
 from espresso.tools.specaug_interpolate import specaug
+from espresso.tools.utils import compute_num_frames_from_feat_or_waveform, get_torchaudio_fbank_or_mfcc
 
 try:
     import kaldi_io
@@ -20,11 +28,15 @@ except ImportError:
     raise ImportError("Please install kaldi_io with: pip install kaldi_io")
 
 
-class FeatScpDataset(torch.utils.data.Dataset):
+logger = logging.getLogger(__name__)
+
+
+class AudioFeatDataset(torch.utils.data.Dataset):
     """
-    A dataset for audio features prepared in Kaldi scp format (e.g., feats.scp).
+    A dataset for audio features, read features prepared in Kaldi scp format (e.g., feats.scp),
+    or raw waveforms (in the form of files or commands in wav.scp).
     See http://kaldi-asr.org/doc/tutorial_running.html#tutorial_running_feats
-    for the format descriptions. This class loads a feature matrix from the disk
+    for the format descriptions. This class loads a feature matrix/wave files from the disk
     every time each entry is inquired, thus incurs the most intensive I/O.
     """
 
@@ -33,7 +45,10 @@ class FeatScpDataset(torch.utils.data.Dataset):
         utt_ids: List[str],
         rxfiles: List[str],
         utt2num_frames: Optional[List[int]] = None,
+        feat_dim: Optional[int] = None,  # only relevant when reading from raw waveforms
+        feature_type: Optional[str] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
         seed=1,
+        feature_transforms_config: Optional[Dict[str, Any]] = None,
         specaugment_config: Optional[str] = None,
     ):
         super().__init__()
@@ -42,24 +57,39 @@ class FeatScpDataset(torch.utils.data.Dataset):
         self.utt_ids = utt_ids
         self.rxfiles = rxfiles
         self.size = len(utt_ids)  # number of utterances
-        self.sizes = []  # length of each utterance
+        self.sizes = []  # length of each utterance in terms of the number of frames
         if utt2num_frames is not None and len(utt2num_frames) > 0:
             assert len(utt2num_frames) == self.size
             self.sizes = utt2num_frames
 
-        for rxfile in self.rxfiles:
-            try:
-                feat = kaldi_io.read_mat(rxfile)
-            except Exception:
-                raise Exception("failed to read feature matrix {}.".format(rxfile))
-            assert feat is not None and isinstance(feat, np.ndarray)
-            if len(self.sizes) == self.size:
-                break
-            self.sizes.append(feat.shape[0])
+        first_rxfile = rxfiles[0]
+        if re.search(r"\.ark:\d+$", first_rxfile.strip()) is not None:  # from feats.scp
+            self.input_format = "feat"
+            self.feat_dim = kaldi_io.read_mat(first_rxfile).shape[1]  # feature dimension
+        else:
+            self.input_format = (
+                "command" if re.search(r"\|$", first_rxfile.strip()) is not None else
+                "wave"
+            )
+            self.feat_dim = feat_dim
+            self.feature_type = feature_type
+            assert self.feat_dim is not None
+            assert self.feature_type in ["fbank", "mfcc"]
+
+        if len(self.sizes) == 0:
+            logger.info("Computing number of frames from audios...")
+            with ThreadPoolExecutor(max_workers=32) as ex:
+                futures = []
+                for rxfile in self.rxfiles:
+                    futures.append(ex.submit(compute_num_frames_from_feat_or_waveform, rxfile))
+
+                for future in tqdm(futures, desc="Processing", leave=False):
+                    result = future.result()
+                    self.sizes.append(result)
 
         assert len(self.sizes) == self.size
         self.sizes = np.array(self.sizes, dtype=np.int32)
-        self.feat_dim = feat.shape[1]  # feature dimension
+        self.feature_transforms = CompositeAudioFeatureTransform.from_config_dict(config=feature_transforms_config)
         self.seed = seed
         self.specaugment_config = specaugment_config
         self.epoch = 1
@@ -82,12 +112,26 @@ class FeatScpDataset(torch.utils.data.Dataset):
     def set_epoch(self, epoch):
         self.epoch = epoch
 
-    def __getitem__(self, i):
-        self.check_index(i)
-        feat = kaldi_io.read_mat(self.rxfiles[i])
+    def _get_features(self, i):
+        if self.input_format == "feat":
+            feat = kaldi_io.read_mat(self.rxfiles[i])
+        else:
+            if self.input_format == "command":
+                source = BytesIO(run(self.rxfiles[i][:-1], shell=True, stdout=PIPE).stdout)
+            else:
+                source = self.rxfiles[i]
+            waveform, sample_rate = get_waveform(source, normalization=False, always_2d=True)
+            feat = get_torchaudio_fbank_or_mfcc(waveform, sample_rate, n_bins=self.feat_dim, feature_type=self.feature_type)
+            if self.feature_transforms is not None:
+                feat = self.feature_transforms(feat)
         if self.specaugment_config is not None and self.specaugment_config != "":
             with data_utils.numpy_seed(self.seed, self.epoch, i):
                 feat = specaug(feat, **eval(self.specaugment_config))
+        return feat
+
+    def __getitem__(self, i):
+        self.check_index(i)
+        feat = self._get_features(i)
         item = torch.from_numpy(feat).float()
         return item
 
@@ -99,20 +143,23 @@ class FeatScpDataset(torch.utils.data.Dataset):
         return os.path.exists(path)
 
 
-class FeatScpCachedDataset(FeatScpDataset):
+class AudioFeatCachedDataset(AudioFeatDataset):
     """
-    This class loads a batch of feature matrices (specified as *cache_size*)
+    This class loads a batch of feature/waveform matrices (specified as *cache_size*)
     every time an entry is inquired. The inquire order should be known in advance.
     It balances the I/O efficiency and memory usage.
     """
 
     def __init__(
         self, utt_ids: List[str], rxfiles: List[str], utt2num_frames: Optional[List[int]] = None,
-        seed=1, specaugment_config: Optional[str] = None, ordered_prefetch=False, cache_size=4096,
+        feat_dim: Optional[int] = None,  # only relevant when reading from raw waveforms
+        feature_type: Optional[str] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
+        seed=1, feature_transforms_config: Optional[Dict[str, Any]] = None, specaugment_config: Optional[str] = None,
+        ordered_prefetch=False, cache_size=4096,
     ):
         super().__init__(
-            utt_ids, rxfiles, utt2num_frames=utt2num_frames,
-            seed=seed, specaugment_config=specaugment_config,
+            utt_ids, rxfiles, utt2num_frames=utt2num_frames, feat_dim=feat_dim, feature_type=feature_type,
+            seed=seed, feature_transforms_config=feature_transforms_config, specaugment_config=specaugment_config,
         )
         self.cache = None
         self.cache_index = {}
@@ -148,7 +195,7 @@ class FeatScpCachedDataset(FeatScpDataset):
     def __getitem__(self, i):
         self.check_index(i)
         if not self.prefetch_called:  # no caching
-            feat = kaldi_io.read_mat(self.rxfiles[i])
+            feat = self._get_features(i)
             return torch.from_numpy(feat).float()
         if i not in self.cache_index:
             assert (
@@ -178,10 +225,7 @@ class FeatScpCachedDataset(FeatScpDataset):
                 self.cache_index[idx] = ptx
                 length = self.sizes[idx]
                 dst = self.cache[ptx: ptx + length]
-                feat = kaldi_io.read_mat(self.rxfiles[idx])
-                if self.specaugment_config is not None and self.specaugment_config != "":
-                    with data_utils.numpy_seed(self.seed, self.epoch, idx):
-                        feat = specaug(feat, **eval(self.specaugment_config))
+                feat = self._get_features(idx)
                 np.copyto(dst, feat)
                 ptx += length
 
@@ -190,19 +234,21 @@ class FeatScpCachedDataset(FeatScpDataset):
         return torch.from_numpy(a).float()
 
 
-class FeatScpInMemoryDataset(FeatScpDataset):
+class AudioFeatInMemoryDataset(AudioFeatDataset):
     """
-    This class loads all feature matrices into memory at once.
+    This class loads all feature/waveform matrices into memory at once.
     It has the maximum memory usage and least I/O.
     """
 
     def __init__(
         self, utt_ids: List[str], rxfiles: List[str], utt2num_frames: Optional[List[int]] = None,
-        seed=1, specaugment_config: Optional[str] = None,
+        feat_dim: Optional[int] = None,  # only relevant when reading from raw waveforms
+        feature_type: Optional[str] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
+        seed=1, feature_transforms_config: Optional[Dict[str, Any]] = None, specaugment_config: Optional[str] = None,
     ):
         super().__init__(
-            utt_ids, rxfiles, utt2num_frames=utt2num_frames,
-            seed=seed, specaugment_config=specaugment_config,
+            utt_ids, rxfiles, utt2num_frames=utt2num_frames, feat_dim=feat_dim, feature_type=feature_type,
+            seed=seed, feature_transforms_config=feature_transforms_config, specaugment_config=specaugment_config,
         )
         self.read_data()
 
@@ -215,7 +261,8 @@ class FeatScpInMemoryDataset(FeatScpDataset):
         for i in range(len(self.data_offsets)):
             ptx = self.data_offsets[i]
             dst = self.buffer[ptx: ptx + self.sizes[i]]
-            np.copyto(dst, kaldi_io.read_mat(self.rxfiles[i]))
+            feat = self._get_features(i)
+            np.copyto(dst, feat)
 
     def filter_and_reorder(self, indices):
         super().filter_and_reorder(indices)
@@ -225,9 +272,6 @@ class FeatScpInMemoryDataset(FeatScpDataset):
         self.check_index(i)
         ptx = self.data_offsets[i]
         a = self.buffer[ptx: ptx + self.sizes[i]].copy()
-        if self.specaugment_config is not None and self.specaugment_config != "":
-            with data_utils.numpy_seed(self.seed, self.epoch, i):
-                a = specaug(a, **eval(self.specaugment_config))
         return torch.from_numpy(a).float()
 
 

@@ -26,7 +26,7 @@ from espresso.data import (
     AsrXentDataset,
     AsrDictionary,
     AsrTextDataset,
-    FeatScpCachedDataset,
+    AudioFeatCachedDataset,
     NumeratorGraphDataset,
 )
 
@@ -74,6 +74,10 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
         },
     )
     feat_in_channels: int = field(default=1, metadata={"help": "feature input channels"})
+    global_cmvn_stats_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "If not None, apply global cmvn using this global cmvn stats file (.npz)."},
+    )
     specaugment_config: Optional[str] = field(
         default=None,
         metadata={
@@ -157,6 +161,7 @@ def get_asr_dataset_from_json(
     pad_to_multiple=1,
     lf_mmi=True,
     seed=1,
+    global_cmvn_stats_path=None,
     specaugment_config=None,
     chunk_width=None,
     chunk_left_context=None,
@@ -169,7 +174,9 @@ def get_asr_dataset_from_json(
     Json example:
     {
         "011c0202": {
-            "feat": "data/train_si284_spe2e_hires/data/raw_mfcc_train_si284_spe2e_hires.1.ark:24847",
+            "feat": "data/train_si284_spe2e_hires/data/raw_mfcc_train_si284_spe2e_hires.1.ark:24847" or
+            "wave": "/export/corpora5/LDC/LDC93S6B/11-1.1/wsj0/si_tr_s/011/011c0202.wv1" or
+            "command": "sph2pipe -f wav /export/corpora5/LDC/LDC93S6B/11-1.1/wsj0/si_tr_s/011/011c0202.wv1 |",
             "numerator_fst": "exp/chain/e2e_bichar_tree_tied1a/fst.1.ark:6704",
             "alignment": "exp/tri3/ali.ark:8769",
             "text": "THE HOTELi OPERATOR'S EMBASSY",
@@ -198,10 +205,20 @@ def get_asr_dataset_from_json(
         with open(data_json_path, "rb") as f:
             loaded_json = json.load(f, object_pairs_hook=OrderedDict)
 
-        utt_ids, feats, numerator_fsts, alignments, text, utt2num_frames = [], [], [], [], [], []
+        utt_ids, audios, numerator_fsts, alignments, text, utt2num_frames = [], [], [], [], [], []
         for utt_id, val in loaded_json.items():
             utt_ids.append(utt_id)
-            feats.append(val["feat"])
+            if "feat" in val:
+                audio = val["feat"]
+            elif "wave" in val:
+                audio = val["wave"]
+            elif "command" in val:
+                audio = val["command"]
+            else:
+                raise KeyError(
+                    f"'feat', 'wave' or 'command' should be present as a field for the entry {utt_id} in {data_json_path}"
+                )
+            audios.append(audio)
             if "numerator_fst" in val:
                 numerator_fsts.append(val["numerator_fst"])
             if "alignment" in val:
@@ -212,10 +229,20 @@ def get_asr_dataset_from_json(
                 utt2num_frames.append(int(val["utt2num_frames"]))
 
         assert len(utt2num_frames) == 0 or len(utt_ids) == len(utt2num_frames)
-        src_datasets.append(FeatScpCachedDataset(
-            utt_ids, feats, utt2num_frames=utt2num_frames, seed=seed,
+        if "feat" in next(loaded_json.items()):
+            extra_kwargs = {}
+        else:
+            extra_kwargs = {"feat_dim": 40, "feature_type": "mfcc"}
+            if global_cmvn_stats_path is not None:
+                feature_transforms_config = {
+                    "transforms": ["global_cmvn"],
+                    "global_cmvn": {"stats_npz_path": global_cmvn_stats_path}
+                }
+                extra_kwargs["feature_transforms_config"] = feature_transforms_config
+        src_datasets.append(AudioFeatCachedDataset(
+            utt_ids, audios, utt2num_frames=utt2num_frames, seed=seed,
             specaugment_config=specaugment_config if split == "train" else None,
-            ordered_prefetch=True,
+            ordered_prefetch=True, **extra_kwargs
         ))
         if lf_mmi:
             if len(numerator_fsts) > 0:
@@ -344,7 +371,6 @@ class SpeechRecognitionHybridTask(FairseqTask):
         self.dictionary = dictionary
         self.feat_dim = feat_dim
         self.feat_in_channels = cfg.feat_in_channels
-        self.specaugment_config = cfg.specaugment_config
         self.num_targets = cfg.num_targets
         self.training_stage = (cfg.max_epoch > 0)  # a hack
 
@@ -444,7 +470,8 @@ class SpeechRecognitionHybridTask(FairseqTask):
             pad_to_multiple=self.cfg.required_seq_len_multiple,
             lf_mmi=(self.cfg.criterion_name == "lattice_free_mmi"),
             seed=self.cfg.seed,
-            specaugment_config=self.specaugment_config,
+            global_cmvn_stats_path=self.cfg.global_cmvn_stats_path,
+            specaugment_config=self.cfg.specaugment_config,
             chunk_width=None if self.training_stage
             and split in self.cfg.valid_subset.split(",")
             else self.chunk_width,
