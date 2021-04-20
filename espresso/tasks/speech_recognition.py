@@ -24,7 +24,7 @@ from espresso.data import (
     AsrDataset,
     AsrDictionary,
     AsrTextDataset,
-    FeatScpCachedDataset,
+    AudioFeatDataset,
 )
 
 
@@ -80,6 +80,10 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
             "will take on their default values"
         },
     )
+    global_cmvn_stats_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "If not None, apply global cmvn using this global cmvn stats file (.npz)."},
+    )
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     data_buffer_size: int = II("dataset.data_buffer_size")
@@ -100,6 +104,7 @@ def get_asr_dataset_from_json(
     shuffle=True,
     pad_to_multiple=1,
     seed=1,
+    global_cmvn_stats_path=None,
     specaugment_config=None,
 ):
     """
@@ -108,7 +113,9 @@ def get_asr_dataset_from_json(
     Json example:
     {
         "011c0202": {
-            "feat": "fbank/raw_fbank_pitch_train_si284.1.ark:54819",
+            "feat": "fbank/raw_fbank_pitch_train_si284.1.ark:54819" or
+            "wave": "/export/corpora5/LDC/LDC93S6B/11-1.1/wsj0/si_tr_s/011/011c0202.wv1" or
+            "command": "sph2pipe -f wav /export/corpora5/LDC/LDC93S6B/11-1.1/wsj0/si_tr_s/011/011c0202.wv1 |",
             "text": "THE HOTEL",
             "utt2num_frames": "693",
         },
@@ -133,20 +140,40 @@ def get_asr_dataset_from_json(
         with open(data_json_path, "rb") as f:
             loaded_json = json.load(f, object_pairs_hook=OrderedDict)
 
-        utt_ids, feats, texts, utt2num_frames = [], [], [], []
+        utt_ids, audios, texts, utt2num_frames = [], [], [], []
         for utt_id, val in loaded_json.items():
             utt_ids.append(utt_id)
-            feats.append(val["feat"])
+            if "feat" in val:
+                audio = val["feat"]
+            elif "wave" in val:
+                audio = val["wave"]
+            elif "command" in val:
+                audio = val["command"]
+            else:
+                raise KeyError(
+                    f"'feat', 'wave' or 'command' should be present as a field for the entry {utt_id} in {data_json_path}"
+                )
+            audios.append(audio)
             if "text" in val:
                 texts.append(val["text"])
             if "utt2num_frames" in val:
                 utt2num_frames.append(int(val["utt2num_frames"]))
 
         assert len(utt2num_frames) == 0 or len(utt_ids) == len(utt2num_frames)
-        src_datasets.append(FeatScpCachedDataset(
-            utt_ids, feats, utt2num_frames=utt2num_frames, seed=seed,
+        if "feat" in next(iter(loaded_json.items())):
+            extra_kwargs = {}
+        else:
+            extra_kwargs = {"feat_dim": 80, "feature_type": "fbank"}
+            if global_cmvn_stats_path is not None:
+                feature_transforms_config = {
+                    "transforms": ["global_cmvn"],
+                    "global_cmvn": {"stats_npz_path": global_cmvn_stats_path}
+                }
+                extra_kwargs["feature_transforms_config"] = feature_transforms_config
+        src_datasets.append(AudioFeatDataset(
+            utt_ids, audios, utt2num_frames=utt2num_frames, seed=seed,
             specaugment_config=specaugment_config if split == "train" else None,
-            ordered_prefetch=True,
+            **extra_kwargs
         ))
         if len(texts) > 0:
             assert len(utt_ids) == len(texts)
@@ -241,7 +268,6 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         self.word_dict = word_dict
         self.feat_dim = feat_dim
         self.feat_in_channels = cfg.feat_in_channels
-        self.specaugment_config = cfg.specaugment_config
         torch.backends.cudnn.deterministic = True
         # Compansate for the removel of :func:`torch.rand()` from
         # :func:`fairseq.distributed_utils.distributed_init()` by fairseq,
@@ -320,7 +346,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             shuffle=(split != self.cfg.gen_subset),
             pad_to_multiple=self.cfg.required_seq_len_multiple,
             seed=self.cfg.seed,
-            specaugment_config=self.specaugment_config,
+            global_cmvn_stats_path=self.cfg.global_cmvn_stats_path,
+            specaugment_config=self.cfg.specaugment_config,
         )
 
         # update the counts of <eos> and <unk> in tgt_dict with training data

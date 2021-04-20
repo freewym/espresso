@@ -10,9 +10,9 @@ from .asr_dictionary import AsrDictionary
 from .asr_xent_dataset import AliScpCachedDataset, AsrXentDataset
 from .feat_text_dataset import (
     AsrTextDataset,
-    FeatScpCachedDataset,
-    FeatScpDataset,
-    FeatScpInMemoryDataset,
+    AudioFeatCachedDataset,
+    AudioFeatDataset,
+    AudioFeatInMemoryDataset,
 )
 
 __all__ = [
@@ -22,10 +22,10 @@ __all__ = [
     "AsrDictionary",
     "AsrTextDataset",
     "AsrXentDataset",
+    "AudioFeatCachedDataset",
+    "AudioFeatDataset",
+    "AudioFeatInMemoryDataset",
     "FeatBucketPadLengthDataset",
-    "FeatScpCachedDataset",
-    "FeatScpDataset",
-    "FeatScpInMemoryDataset",
     "NumeratorGraphDataset",
     "TextBucketPadLengthDataset",
 ]
