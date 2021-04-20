@@ -288,7 +288,7 @@ if [ ${stage} -le 9 ]; then
     opts="$opts --lr-shrink 0.5 --start-reduce-lr-epoch 11"
     opts="$opts --scheduled-sampling-probs 0.5 --start-scheduled-sampling-epoch 6"
   fi
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py data --task speech_recognition_espresso --seed 1 \
     --log-interval $((800/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((2000/ngpus/update_freq)) \
     --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --batch-size 32 --curriculum 2 --empty-cache-freq 50 \
     --valid-subset $valid_subset --batch-size-valid 64 --ddp-backend legacy_ddp --update-freq $update_freq \
