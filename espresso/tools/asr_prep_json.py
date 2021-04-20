@@ -39,8 +39,13 @@ def main():
         description="Wrap all related files of a dataset into a single json file"
     )
     # fmt: off
-    parser.add_argument("--feat-files", nargs="+", required=True,
-                        help="path(s) to scp feature file(s)")
+    audio_group = parser.add_mutually_exclusive_group(required=True)
+    audio_group.add_argument("--feat-files", nargs="+", default=None,
+                             help="path(s) to feats.scp feature file(s) from Kaldi")
+    audio_group.add_argument("--wave-files", nargs="+", default=None,
+                             help="path(s) to raw waveform file(s), where each entry has the format '<utt-id> <file-path>'")
+    audio_group.add_argument("--command-files", nargs="+", default=None,
+                             help="path(s) to wav.scp file(s) from Kaldi")
     parser.add_argument("--token-text-files", nargs="+", default=None,
                         help="path(s) to token_text file(s)")
     parser.add_argument("--text-files", nargs="+", default=None,
@@ -57,7 +62,13 @@ def main():
     # fmt: on
 
     obj = OrderedDict()
-    obj = read_file(obj, "feat", str, *(args.feat_files))
+    if args.feat_files is not None:
+        obj = read_file(obj, "feat", str, *(args.feat_files))
+    elif args.wave_files is not None:
+        obj = read_file(obj, "wave", str, *(args.wave_files))
+    else:
+        assert args.command_files is not None
+        obj = read_file(obj, "command", str, *(args.command_files))
     if args.token_text_files is not None:
         obj = read_file(obj, "token_text", str, *(args.token_text_files))
     if args.text_files is not None:
