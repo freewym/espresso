@@ -288,7 +288,7 @@ if [ $stage -le 7 ]; then
       opts="$opts --max-epoch 35 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 14"
     fi
   fi
-  CUDA_VISIBLE_DEVICES=$free_gpu speech_train.py data --task speech_recognition_espresso --seed 1 \
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py data --task speech_recognition_espresso --seed 1 \
     --log-interval $((3000/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((4000/ngpus/update_freq)) \
     --num-workers 0 --data-buffer-size 0 --max-tokens 26000 --batch-size 48 --curriculum 2 --empty-cache-freq 50 \
     --valid-subset $valid_subset --batch-size-valid 64 --ddp-backend legacy_ddp --update-freq $update_freq \
