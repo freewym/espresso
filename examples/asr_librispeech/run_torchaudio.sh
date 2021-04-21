@@ -31,7 +31,7 @@ if [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
   corpus_root=/export/corpora5
 fi
 folder_in_archive="LibriSpeech"
-download=false # whether to download the corpus
+download=false # whether to download the corpus if it does not exist in corpus_root
 data_dir=data
 exp_dir=exp
 tensorboard_logdir=
@@ -43,7 +43,6 @@ apply_specaug=false
 
 
 . ./path.sh
-. ./cmd.sh
 . ./utils/parse_options.sh
 
 lmdir=$exp_dir/lm_lstm${lm_affix:+_${lm_affix}}
@@ -55,6 +54,8 @@ fi
 
 if [ ${stage} -le 0 ]; then
   echo "Stage 0: Data Downloading and Preparation"
+  [ -z "$corpus_root" ] && echo "Specify '--corpus-root' as the path to which the corpus has been/will be downloaded. \
+    Add '--download true' as well if you want to download the corpus." && exit 1;
   opts="--folder-in-archive $folder_in_archive"
   if $download; then
     opts="$opts --download"
@@ -116,7 +117,7 @@ lmdatadir=$data_dir/lm_text
 if [ ${stage} -le 3 ]; then
   echo "Stage 3: Dictionary Preparation and Text Tokenization"
   mkdir -p $data_dir/lang
-  cut -f 2- -d" " $data_dir/${train_set}/text > $data_dir/lang/input
+  cut -f 2- -d" " $data_dir/${train_set}/text.txt > $data_dir/lang/input
   echo "$0: training sentencepiece model..."
   python3 ../../scripts/spm_train.py --bos_id=-1 --pad_id=0 --eos_id=1 --unk_id=2 --input=$data_dir/lang/input \
     --vocab_size=$((sentencepiece_vocabsize+3)) --character_coverage=1.0 \
@@ -157,13 +158,12 @@ if [ ${stage} -le 4 ]; then
   mkdir -p $lmdatadir/log
   for dataset in $test_set; do test_paths="$test_paths $lmdatadir/$dataset.tokens"; done
   test_paths=$(echo $test_paths | awk '{$1=$1;print}' | tr ' ' ',')
-  ${decode_cmd} $lmdatadir/log/preprocess.log \
-    python3 ../../fairseq_cli/preprocess.py --task language_modeling_for_asr \
-      --workers 50 --srcdict $lmdict --only-source \
-      --trainpref $lmdatadir/train.tokens \
-      --validpref $lmdatadir/$valid_set.tokens \
-      --testpref $test_paths \
-      --destdir $lmdatadir
+  python3 ../../fairseq_cli/preprocess.py --task language_modeling_for_asr \
+    --workers 50 --srcdict $lmdict --only-source \
+    --trainpref $lmdatadir/train.tokens \
+    --validpref $lmdatadir/$valid_set.tokens \
+    --testpref $test_paths \
+    --destdir $lmdatadir 2>&1 | tee $lmdatadir/log/preprocess.log
 fi
 
 if  [[ $(hostname -f) == *.clsp.jhu.edu ]]; then
