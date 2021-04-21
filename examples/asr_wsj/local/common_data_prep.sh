@@ -27,6 +27,7 @@ fi
 
 if [ $stage -le -4 ]; then
   # data preparation
+  [ -z $wsj0 ] || [ -z $wsj1 ] && echo "Specify '--wsj0' and '--wsj1' as the paths to the corpus" && exit 1;
   local/wsj_data_prep.sh $wsj0/??-{?,??}.? $wsj1/??-{?,??}.?
   local/wsj_prepare_dict.sh --dict-suffix "_nosp"
   utils/prepare_lang.sh data/local/dict_nosp \
