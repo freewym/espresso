@@ -57,6 +57,8 @@ fi
 
 if [ $stage -le 0 ]; then
   echo "Stage 0: Data Preparation"
+  [ -z "$swbd1_dir" ] || [ -z "$eval2000_dir" ] || [ -z "$rt03_dir" ] && \
+    echo "Specify '--swbd1-dir', '--eval2000-dir', and '--rt03-dir' as the paths to the corpus" || exit 1;
   local/swbd1_data_download.sh ${swbd1_dir}
   local/swbd1_prepare_dict.sh
   local/swbd1_data_prep.sh ${swbd1_dir}

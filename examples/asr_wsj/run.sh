@@ -54,6 +54,7 @@ fi
 
 if [ ${stage} -le 0 ]; then
   echo "Stage 0: Data Preparation"
+  [ -z $wsj0 ] || [ -z $wsj1 ] && echo "Specify '--wsj0' and '--wsj1' as the paths to the corpus" && exit 1;
   local/wsj_data_prep.sh ${wsj0}/??-{?,??}.? ${wsj1}/??-{?,??}.?
   echo "Preparing train and test data"
   srcdir=data/local/data
