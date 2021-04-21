@@ -35,6 +35,7 @@ download=false # whether to download the corpus if it does not exist in corpus_r
 data_dir=data
 exp_dir=exp
 tensorboard_logdir=
+lm_tensorboard_logdir=
 
 # feature configuration
 apply_global_cmvn=true
@@ -182,19 +183,16 @@ if [ ${stage} -le 5 ]; then
   log_file=$lmdir/log/train.log
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   opts=""
-  [ ! -z "$tensorboard_logdir" ] && opts="$opts --tensorboard-logdir $tensorboard_logdir"
+  [ ! -z "$lm_tensorboard_logdir" ] && opts="$opts --tensorboard-logdir $lm_tensorboard_logdir"
   update_freq=$(((2+ngpus-1)/ngpus))
-  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 \
-    --task language_modeling_for_asr --dict $lmdict \
-    --log-interval $((16000/ngpus/update_freq)) --log-format simple \
-    --num-workers 4 --max-tokens 32000 --batch-size 1024 --curriculum 1 \
-    --valid-subset $valid_subset --batch-size-valid 1536 --update-freq $update_freq \
-    --distributed-world-size $ngpus \
-    --max-epoch 30 --optimizer adam --lr 0.001 --clip-norm 1.0 \
-    --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
-    --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((16000/ngpus/update_freq)) \
-    --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 \
-    --arch lstm_lm_librispeech --criterion cross_entropy --sample-break-mode eos $opts 2>&1 | tee $log_file
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/hydra_train.py $opts \
+    task.data=$(realpath $lmdatadir) task.dict=$(realpath $lmdict) \
+    checkpoint.save_dir=$(realpath $lmdir) \
+    distributed_training.distributed_world_size=$ngpus \
+    common.log_interval=$((16000/ngpus/update_freq)) common.seed=1 \
+    checkpoint.save_interval_updates=$((16000/ngpus/update_freq)) \
+    optimization.update_freq="[$update_freq]" \
+    --config-dir ./config --config-name lstm_lm_librispeech 2>&1 | tee $log_file
 fi
 
 if [ ${stage} -le 6 ]; then
@@ -219,43 +217,41 @@ if [ ${stage} -le 7 ]; then
   log_file=$dir/log/train.log
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   opts=""
-  [ ! -z "$tensorboard_logdir" ] && opts="$opts --tensorboard-logdir $tensorboard_logdir"
+  [ ! -z "$tensorboard_logdir" ] && opts="$opts common.tensorboard_logdir=$tensorboard_logdir"
   if $apply_global_cmvn; then
     gcmvn_file=$data_dir/$train_set/gcmvn.npz
     [ ! -f "$gcmvn_file" ] && echo "$gcmvn_file not found. Please generate it first" && exit 1;
-    opts="$opts --global-cmvn-stats-path $gcmvn_file"
+    opts="$opts task.global_cmvn_stats_path=$(realpath $gcmvn_file)"
   fi
   if $use_transformer; then
     update_freq=$(((8+ngpus-1)/ngpus))
-    opts="$opts --arch speech_transformer_librispeech --max-tokens 22000 --max-epoch 100 --lr-scheduler tri_stage"
-    opts="$opts --warmup-steps $((25000/ngpus/update_freq)) --hold-steps $((900000/ngpus/update_freq)) --decay-steps $((1550000/ngpus/update_freq))"
-    if $apply_specaug; then
-      specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
-    fi
+    config_name=transformer_librispeech
+    opts="$opts lr_scheduler.warmup_steps=$((25000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.hold_steps=$((900000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.decay_steps=$((1550000/ngpus/update_freq))"
   else
     update_freq=$(((2+ngpus-1)/ngpus))
-    opts="$opts --arch speech_conv_lstm_librispeech"
-    if $apply_specaug; then
-      opts="$opts --max-epoch 95 --lr-scheduler tri_stage"
-      opts="$opts --warmup-steps $((2000/ngpus/update_freq)) --hold-steps $((600000/ngpus/update_freq)) --decay-steps $((1040000/ngpus/update_freq))"
-      opts="$opts --encoder-rnn-layers 5"
-      specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
-    else
-      opts="$opts --max-epoch 30 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10"
+    config_name=lstm_librispeech
+  fi
+  if $apply_specaug; then
+    config_name=${config_name}_specaug
+    if ! $use_transformer; then
+      opts="$opts lr_scheduler.warmup_steps=$((2000/ngpus/update_freq))"
+      opts="$opts lr_scheduler.hold_steps=$((600000/ngpus/update_freq))"
+      opts="$opts lr_scheduler.decay_steps=$((1040000/ngpus/update_freq))"
     fi
   fi
-  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $data_dir --task speech_recognition_espresso --seed 1 \
-    --log-interval $((8000/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((4000/ngpus/update_freq)) \
-    --num-workers 4 --data-buffer-size 0 --max-tokens 26000 --batch-size 24 --curriculum 1 --empty-cache-freq 50 \
-    --valid-subset $valid_subset --batch-size-valid 48 --ddp-backend legacy_ddp --update-freq $update_freq \
-    --distributed-world-size $ngpus \
-    --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \
-    --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((6000/ngpus/update_freq)) \
-    --keep-interval-updates 3 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
-    --criterion label_smoothed_cross_entropy_v2 --label-smoothing 0.1 --smoothing-type uniform \
-    --dict $dict --bpe sentencepiece --sentencepiece-model ${sentencepiece_model}.model \
-    --max-source-positions 9999 --max-target-positions 999 \
-    $opts --specaugment-config "$specaug_config" 2>&1 | tee $log_file
+
+  CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/hydra_train.py $opts \
+    task.data=$(realpath $data_dir) task.dict=$(realpath $dict) \
+    bpe.sentencepiece_model=$(realpath ${sentencepiece_model}.model) \
+    checkpoint.save_dir=$(realpath $dir) \
+    distributed_training.distributed_world_size=$ngpus \
+    common.log_interval=$((8000/ngpus/update_freq)) common.seed=1 \
+    checkpoint.save_interval_updates=$((6000/ngpus/update_freq)) \
+    criterion.print_training_sample_interval=$((4000/ngpus/update_freq)) \
+    optimization.update_freq="[$update_freq]" \
+    --config-dir ./config --config-name $config_name 2>&1 | tee $log_file
 fi
 
 if [ ${stage} -le 8 ]; then

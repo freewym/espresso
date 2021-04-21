@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from dataclasses import dataclass, field
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -11,6 +12,7 @@ from torch import Tensor
 import torch.nn as nn
 
 from fairseq import utils
+from fairseq.dataclass import ChoiceEnum, FairseqDataclass
 from fairseq.distributed import fsdp_wrap
 from fairseq.models import (
     register_model,
@@ -30,6 +32,7 @@ from fairseq.modules import (
     TransformerDecoderLayer,
 )
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
+from omegaconf import II
 
 from espresso.modules.speech_convolutions import ConvBNReLU
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
@@ -46,7 +49,214 @@ DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
 logger = logging.getLogger(__name__)
 
 
-@register_model("speech_transformer")
+@dataclass
+class SpeechTransformerModelConfig(FairseqDataclass):
+    activation_fn: ChoiceEnum(utils.get_available_activation_fns()) = field(
+        default="relu", metadata={"help": "activation function to use"}
+    )
+    dropout: float = field(default=0.2, metadata={"help": "dropout probability"})
+    attention_dropout: float = field(
+        default=0.2, metadata={"help": "dropout probability for attention weights"}
+    )
+    activation_dropout: float = field(
+        default=0.2, metadata={"help": "dropout probability after activation in FFN."}
+    )
+    encoder_embed_dim: int = field(
+        default=256, metadata={"help": "encoder embedding dimension"}
+    )
+    encoder_ffn_embed_dim: int = field(
+        default=1024, metadata={"help": "encoder embedding dimension for FFN"}
+    )
+    encoder_layers: int = field(
+        default=12, metadata={"help": "num encoder layers"}
+    )
+    encoder_attention_heads: int = field(
+        default=4, metadata={"help": "num encoder attention heads"}
+    )
+    encoder_normalize_before: bool = field(
+        default=True, metadata={"help": "apply layernorm before each encoder block"}
+    )
+    encoder_learned_pos: bool = field(
+        default=False, metadata={"help": "use learned positional embeddings in the encoder"}
+    )
+    decoder_embed_path: Optional[str] = field(
+        default=None, metadata={"help": "path to pre-trained decoder embedding"}
+    )
+    decoder_embed_dim: int = field(
+        default=256, metadata={"help": "decoder embedding dimension"}
+    )
+    decoder_ffn_embed_dim: int = field(
+        default=1024, metadata={"help": "decoder embedding dimension for FFN"}
+    )
+    decoder_layers: int = field(default=6, metadata={"help": "num decoder layers"})
+    decoder_attention_heads: int = field(
+        default=4, metadata={"help": "num decoder attention heads"}
+    )
+    decoder_learned_pos: bool = field(
+        default=False, metadata={"help": "use learned positional embeddings in the decoder"}
+    )
+    decoder_normalize_before: bool = field(
+        default=True, metadata={"help": "apply layernorm before each decoder block"}
+    )
+    decoder_output_dim: int = field(
+        default=256,
+        metadata={"help": "decoder output dimension (extra linear layer if different from decoder embed dim)"}
+    )
+    decoder_input_dim: int = field(
+        default=256,
+        metadata={"help": "decoder input dimension (extra linear layer if different from decoder embed dim)"}
+    )
+    share_decoder_input_output_embed: bool = field(
+        default=False, metadata={"help": "share decoder input and output embeddings"}
+    )
+    adaptive_input: bool = field(
+        default=False, metadata={"help": "if set, uses adaptive input"}
+    )
+    tie_adaptive_weights: bool = field(
+        default=False,
+        metadata={
+            "help": "if set, ties the weights of adaptive softmax and adaptive input"
+        },
+    )
+    tie_adaptive_proj: bool = field(
+        default=False,
+        metadata={
+            "help": "if set, ties the projection weights of adaptive softmax and adaptive input"
+        },
+    )
+    no_token_positional_embeddings: bool = field(
+        default=False,
+        metadata={"help": "if set, disables positional embeddings (outside self attention)"}
+    )
+    adaptive_softmax_cutoff: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "comma separated list of adaptive softmax cutoff points. "
+            "Must be used with adaptive_loss criterion"
+        },
+    )
+    adaptive_softmax_dropout: float = field(
+        default=0,
+        metadata={"help": "sets adaptive softmax dropout for the tail projections"},
+    )
+    layernorm_embedding: bool = field(
+        default=False, metadata={"help": "add layernorm to embedding"}
+    )
+    no_scale_embedding: bool = field(
+        default=False, metadata={"help": "if True, dont scale embeddings"}
+    )
+    checkpoint_activations: bool = field(
+        default=False,
+        metadata={
+            "help": "checkpoint activations at each layer, which saves GPU "
+            "memory usage at the cost of some additional compute"
+        },
+    )
+    offload_activations: bool = field(
+        default=False,
+        metadata={"help": "move checkpointed activations to CPU after they are used."},
+    )
+    # config for "Cross+Self-Attention for Transformer Models" (Peitz et al., 2019)
+    no_cross_attention: bool = field(
+        default=False, metadata={"help": "do not perform cross-attention"}
+    )
+    cross_self_attention: bool = field(
+        default=False, metadata={"help": "perform cross+self-attention"}
+    )
+    # config for "Reducing Transformer Depth on Demand with Structured Dropout" (Fan et al., 2019)
+    encoder_layerdrop: float = field(
+        default=0.0, metadata={"help": "LayerDrop probability for encoder"}
+    )
+    decoder_layerdrop: float = field(
+        default=0.0, metadata={"help": "LayerDrop probability for decoder"}
+    )
+    encoder_layers_to_keep: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "which encoder layers to *keep* when pruning as a comma-separated list"
+        },
+    )
+    decoder_layers_to_keep: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "which decoder layers to *keep* when pruning as a comma-separated list"
+        },
+    )
+    # config for Training with Quantization Noise for Extreme Model Compression ({Fan*, Stock*} et al., 2020)
+    quant_noise_pq: float = field(
+        default=0.0,
+        metadata={"help": "iterative PQ quantization noise at training time"},
+    )
+    quant_noise_pq_block_size: int = field(
+        default=8,
+        metadata={"help": "block size of quantization noise at training time"},
+    )
+    quant_noise_scalar: float = field(
+        default=0.0,
+        metadata={
+            "help": "scalar quantization noise and scalar quantization at training time"
+        },
+    )
+    # config for Fully Sharded Data Parallel (FSDP) training
+    min_params_to_wrap: int = field(
+        default=DEFAULT_MIN_PARAMS_TO_WRAP,
+        metadata={
+            "help": (
+                "minimum number of params for a layer to be wrapped with FSDP() when "
+                "training with --ddp-backend=fully_sharded. Smaller values will "
+                "improve memory efficiency, but may make torch.distributed "
+                "communication less efficient due to smaller input sizes. This option "
+                "is set to 0 (i.e., always wrap) when --checkpoint-activations or "
+                "--offload-activations are passed."
+            )
+        }
+    )
+    # config for "BASE Layers: Simplifying Training of Large, Sparse Models"
+    base_layers: Optional[int] = field(
+        default=0, metadata={"help": "number of BASE layers in total"}
+    )
+    base_sublayers: Optional[int] = field(
+        default=1, metadata={"help": "number of sublayers in each BASE layer"}
+    )
+    base_shuffle: Optional[bool] = field(
+        default=False, metadata={"help": "shuffle tokens between workers before computing assignment"}
+    )
+    # config specific for SpeechTransformerModel
+    encoder_conv_channels: str = field(
+        default="[64, 64, 128, 128]", metadata={"help": "list of encoder convolution\'s out channels"}
+    )
+    encoder_conv_kernel_sizes: str = field(
+        default="[(3, 3), (3, 3), (3, 3), (3, 3)]", metadata={"help": "list of encoder convolution\'s kernel sizes"}
+    )
+    encoder_conv_strides: str = field(
+        default="[(1, 1), (2, 2), (1, 1), (2, 2)]", metadata={"help": "list of encoder convolution\'s out strides"}
+    )
+    encoder_transformer_context: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "left/right context for time-restricted self-attention; "
+            "can be None or a tuple of two non-negative integers/None"
+        }
+    )
+    # config for scheduled sampling
+    scheduled_sampling_probs: List[float] = field(
+        default_factory=lambda: [1.0],
+        metadata={
+            "help": "scheduled sampling probabilities of sampling the truth "
+            "labels for N epochs starting from --start-schedule-sampling-epoch; "
+            "all later epochs using the last value in the list"
+        }
+    )
+    start_scheduled_sampling_epoch: int = field(
+        default=1, metadata={"help": "start scheduled sampling from the specified epoch"}
+    )
+    # options from other parts of the config
+    max_source_positions: Optional[int] = II("task.max_source_positions")
+    max_target_positions: Optional[int] = II("task.max_target_positions")
+    tpu: bool = II("common.tpu")
+
+
+@register_model("speech_transformer", dataclass=SpeechTransformerModelConfig)
 class SpeechTransformerModel(TransformerModel):
     """
     Transformer model from `"Attention Is All You Need" (Vaswani, et al, 2017)
@@ -73,41 +283,9 @@ class SpeechTransformerModel(TransformerModel):
         super().__init__(args, encoder, decoder)
         self.num_updates = 0
 
-    @staticmethod
-    def add_args(parser):
-        """Add model-specific arguments to the parser."""
-        # fmt: off
-        TransformerModel.add_args(parser)
-        parser.add_argument("--encoder-conv-channels", type=str, metavar="EXPR",
-                            help="list of encoder convolution\'s out channels")
-        parser.add_argument("--encoder-conv-kernel-sizes", type=str, metavar="EXPR",
-                            help="list of encoder convolution\'s kernel sizes")
-        parser.add_argument("--encoder-conv-strides", type=str, metavar="EXPR",
-                            help="list of encoder convolution\'s strides")
-        parser.add_argument("--encoder-transformer-context", type=str, metavar="EXPR",
-                            help="left/right context for time-restricted self-attention; "
-                            "can be None or a tuple of two non-negative integers/None")
-        parser.add_argument("--decoder-input-dim", type=int, metavar="N",
-                            help="decoder input dimension (extra linear layer "
-                                 "if different from decoder embed dim)")
-
-        # Scheduled sampling options
-        parser.add_argument("--scheduled-sampling-probs", type=lambda p: utils.eval_str_list(p),
-                            metavar="P_1,P_2,...,P_N", default=[1.0],
-                            help="scheduled sampling probabilities of sampling the truth "
-                            "labels for N epochs starting from --start-schedule-sampling-epoch; "
-                            "all later epochs using P_N")
-        parser.add_argument("--start-scheduled-sampling-epoch", type=int,
-                            metavar="N", default=1,
-                            help="start scheduled sampling from the specified epoch")
-        # fmt: on
-
     @classmethod
     def build_model(cls, args, task):
         """Build a new model instance."""
-
-        # make sure all arguments are present in older models
-        base_architecture(args)
 
         if args.encoder_layers_to_keep:
             args.encoder_layers = len(args.encoder_layers_to_keep.split(","))
@@ -597,7 +775,6 @@ class SpeechTransformerDecoder(TransformerDecoder):
         raise NotImplementedError
 
 
-@register_model_architecture("speech_transformer", "speech_transformer")
 def base_architecture(args):
     args.encoder_conv_channels = getattr(
         args, "encoder_conv_channels", "[64, 64, 128, 128]",

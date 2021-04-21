@@ -1,0 +1,67 @@
+# @package _group_
+
+common:
+  fp16: false
+  log_format: simple
+  log_interval: 8000
+  seed: 1
+  empty_cache_freq: 50
+
+checkpoint:
+  save_dir: checkpoints
+  save_interval_updates: 8000
+  keep_interval_updates: 3
+  keep_last_epochs: 5
+
+task:
+  _name: language_modeling_for_asr
+  data: ???
+  dict: ???
+  sample_break_mode: eos
+  tokens_per_sample: 1024
+
+dataset:
+  num_workers: 8
+  max_tokens: 32000
+  batch_size: 1024
+  data_buffer_size: 100
+  train_subset: train
+  valid_subset: valid
+  batch_size_valid: 1536
+  curriculum: 1
+
+distributed_training:
+  distributed_world_size: 8
+  ddp_backend: pytorch_ddp
+
+criterion:
+  _name: cross_entropy
+
+optimization:
+  max_epoch: 30
+  clip_norm: 1.0
+  update_freq: [1]
+  lr: [0.001]
+
+optimizer:
+  _name: adam
+  adam_betas: (0.9,0.999)
+  adam_eps: 1e-08
+  weight_decay: 0.0
+
+lr_scheduler:
+  _name: reduce_lr_on_plateau
+  lr_shrink: 0.5
+
+model:
+  _name: lstm_lm_espresso
+  dropout: 0.0
+  decoder_embed_dim: 800
+  decoder_hidden_size: 800
+  decoder_layers: 4
+  decoder_out_embed_dim: 800
+  decoder_rnn_residual: False
+  decoder_dropout_in: 0.0
+  decoder_dropout_out: 0.0
+  share_embed: True
+  is_wordlm: False
