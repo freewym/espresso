@@ -52,6 +52,7 @@ fi
 
 if [ ${stage} -le 0 ]; then
   echo "Stage 0: Data Downloading"
+  [ -z "$data" ] && echo "Specify '--data' as the path to which the corpus has been/will be downloaded." && exit 1;
   for part in dev-clean test-clean dev-other test-other train-clean-100 train-clean-360 train-other-500; do
     local/download_and_untar.sh $data $data_url $part
   done
