@@ -70,21 +70,23 @@ class LSTMLanguageModelEspressoConfig(FairseqDataclass):
             "dictionary from the task instance when calling cls.build_model()"
         },
     )
-    decoder_dropout_in: float = field(
-        default=0.1,
+    # Granular dropout settings (if not specified these default to --dropout)
+    decoder_dropout_in: Optional[float] = field(
+        default=II("model.dropout"),
         metadata={"help": "dropout probability for decoder input embedding"}
     )
-    decoder_dropout_out: float = field(
-        default=0.1,
+    decoder_dropout_out: Optional[float] = field(
+        default=II("model.dropout"),
         metadata={"help": "dropout probability for decoder output"}
     )
-    # TODO common var add to parent
+    # options from other parts of the config
     tokens_per_sample: int = II("task.tokens_per_sample")
     max_target_positions: Optional[int] = II("task.max_target_positions")
     tpu: bool = II("common.tpu")
+    criterion_name: str = II("criterion._name")
 
 
-@register_model("lstm_lm_espresso")
+@register_model("lstm_lm_espresso", dataclass=LSTMLanguageModelEspressoConfig)
 class LSTMLanguageModelEspresso(FairseqLanguageModel):
     def __init__(self, decoder, args):
         super().__init__(decoder)
@@ -135,8 +137,6 @@ class LSTMLanguageModelEspresso(FairseqLanguageModel):
     @classmethod
     def build_model(cls, args, task):
         """Build a new model instance."""
-        # make sure all arguments are present in older models
-        base_lm_architecture(args)
 
         if getattr(args, "max_target_positions", None) is not None:
             max_target_positions = args.max_target_positions
@@ -191,7 +191,7 @@ class LSTMLanguageModelEspresso(FairseqLanguageModel):
             share_input_output_embed=args.share_embed,
             adaptive_softmax_cutoff=(
                 utils.eval_str_list(args.adaptive_softmax_cutoff, type=int)
-                if args.criterion == "adaptive_loss"
+                if args.criterion_name == "adaptive_loss"
                 else None
             ),
             max_target_positions=max_target_positions,
@@ -199,7 +199,6 @@ class LSTMLanguageModelEspresso(FairseqLanguageModel):
         return cls(decoder, args)
 
 
-@register_model_architecture("lstm_lm_espresso", "lstm_lm_espresso")
 def base_lm_architecture(args):
     args.dropout = getattr(args, "dropout", 0.1)
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 48)
