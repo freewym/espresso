@@ -1,0 +1,88 @@
+# @package _group_
+
+common:
+  fp16: false
+  log_format: simple
+  log_interval: 500
+  seed: 1
+  empty_cache_freq: 50
+
+checkpoint:
+  save_dir: checkpoints
+  save_interval_updates: 750
+  keep_interval_updates: 3
+  keep_last_epochs: 5
+  best_checkpoint_metric: wer
+
+task:
+  _name: speech_recognition_espresso
+  data: ???
+  dict: ???
+  max_source_positions: 9999
+  max_target_positions: 999
+  global_cmvn_stats_path:
+  specaugment_config: "{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
+
+dataset:
+  num_workers: 8
+  max_tokens: 22000
+  batch_size: 24
+  data_buffer_size: 100
+  train_subset: train
+  valid_subset: valid
+  batch_size_valid: 48
+  curriculum: 1
+
+distributed_training:
+  distributed_world_size: 8
+  ddp_backend: legacy_ddp
+
+criterion:
+  _name: label_smoothed_cross_entropy_v2
+  print_training_sample_interval: 500
+  label_smoothing: 0.1
+  smoothing_type: uniform
+
+optimization:
+  max_epoch: 100
+  clip_norm: 2.0
+  update_freq: [1]
+  lr: [0.001]
+
+optimizer:
+  _name: adam
+  adam_betas: (0.9,0.999)
+  adam_eps: 1e-08
+  weight_decay: 0.0
+
+lr_scheduler:
+  _name: tri_stage
+  warmup_steps: 3125
+  hold_steps: 112500
+  decay_steps: 193750
+
+model:
+  _name: speech_transformer
+  encoder_conv_channels: "[64, 64, 128, 128]"
+  encoder_conv_kernel_sizes: "[(3, 3), (3, 3), (3, 3), (3, 3)]"
+  encoder_conv_strides: "[(1, 1), (2, 2), (1, 1), (2, 2)]"
+  encoder_embed_dim: 512
+  encoder_ffn_embed_dim: 2048
+  encoder_layers: 12
+  encoder_attention_heads: 8
+  encoder_normalize_before: true
+  decoder_embed_dim: 512
+  decoder_ffn_embed_dim: 2048
+  decoder_layers: 6
+  decoder_attention_heads: 8
+  decoder_normalize_before: true
+  attention_dropout: 0.1
+  activation_dropout: 0.1
+  dropout: 0.1
+  activation_fn: relu
+  decoder_output_dim: 512
+  decoder_input_dim: 512
+
+bpe:
+  _name: sentencepiece
+  sentencepiece_model: ???
