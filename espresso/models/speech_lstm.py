@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from dataclasses import dataclass, field
 import logging
 from typing import Dict, List, Optional, Tuple
 
@@ -12,6 +13,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from fairseq import utils, checkpoint_utils
+from fairseq.dataclass import ChoiceEnum, FairseqDataclass
 from fairseq.models import (
     FairseqDecoder,
     FairseqEncoder,
@@ -27,6 +29,7 @@ from fairseq.models.lstm import (
     Linear,
 )
 from fairseq.modules import AdaptiveSoftmax, FairseqDropout
+from omegaconf import II
 
 from espresso.modules import speech_attention
 from espresso.modules.speech_convolutions import ConvBNReLU
@@ -36,12 +39,104 @@ import espresso.tools.utils as speech_utils
 
 DEFAULT_MAX_SOURCE_POSITIONS = 1e5
 DEFAULT_MAX_TARGET_POSITIONS = 1e5
+ATTENTION_TYPE_CHOICES = ChoiceEnum(["bahdanau", "luong", "none"])
 
 
 logger = logging.getLogger(__name__)
 
 
-@register_model("speech_lstm")
+@dataclass
+class SpeechLSTMModelConfig(FairseqDataclass):
+    dropout: float = field(default=0.4, metadata={"help": "dropout probability"})
+    encoder_conv_channels: str = field(
+        default="[64, 64, 128, 128]", metadata={"help": "list of encoder convolution\'s out channels"}
+    )
+    encoder_conv_kernel_sizes: str = field(
+        default="[(3, 3), (3, 3), (3, 3), (3, 3)]", metadata={"help": "list of encoder convolution\'s kernel sizes"}
+    )
+    encoder_conv_strides: str = field(
+        default="[(1, 1), (2, 2), (1, 1), (2, 2)]", metadata={"help": "list of encoder convolution\'s out strides"}
+    )
+    encoder_rnn_hidden_size: int = field(default=320, metadata={"help": "encoder rnn\'s hidden size"})
+    encoder_rnn_layers: int = field(default=3, metadata={"help": "number of rnn encoder layers"})
+    encoder_rnn_bidirectional: bool = field(default=True, metadata={"help": "make all rnn layers of encoder bidirectional"})
+    encoder_rnn_residual: bool = field(
+        default=False,
+        metadata={
+            "help": "create residual connections for rnn encoder "
+            "layers (starting from the 2nd layer), i.e., the actual "
+            "output of such layer is the sum of its input and output"
+        },
+    )
+    decoder_embed_path: Optional[str] = field(default=None, metadata={"help": "path to pre-trained decoder embedding"})
+    decoder_embed_dim: int = field(default=48, metadata={"help": "decoder embedding dimension"})
+    decoder_freeze_embed: bool = field(default=False, metadata={"help": "freeze decoder embeddings"})
+    decoder_hidden_size: int = field(default=320, metadata={"help": "decoder hidden size"})
+    decoder_layers: int = field(default=3, metadata={"help": "num decoder layers"})
+    decoder_out_embed_dim: int = field(default=960, metadata={"help": "decoder output embedding dimension"})
+    decoder_rnn_residual: bool = field(
+        default=True,
+        metadata={
+            "help": "create residual connections for rnn decoder "
+            "layers (starting from the 2nd layer), i.e., the actual "
+            "output of such layer is the sum of its input and output"
+        },
+    )
+    attention_type: ATTENTION_TYPE_CHOICES = field(
+        default="bahdanau", metadata={"help": "attention type ('bahdanau' or 'luong' or 'none')"}
+    )
+    attention_dim: int = field(default=320, metadata={"help": "attention dimension"})
+    need_attention: bool = field(default=False, metadata={"help": "need to return attention tensor for the caller"})
+    adaptive_softmax_cutoff: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "comma separated list of adaptive softmax cutoff points. "
+            "Must be used with adaptive_loss criterion"
+        },
+    )
+    share_decoder_input_output_embed: bool = field(
+        default=False, metadata={"help": "share decoder input and output embeddings"}
+    )
+    pretrained_lm_checkpoint: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "path to load checkpoint from pretrained language model(LM), "
+            "which will be present and kept fixed during training."
+        }
+    )
+    # Granular dropout settings (if not specified these default to --dropout)
+    encoder_rnn_dropout_in: Optional[float] = field(
+        default=II("model.dropout"), metadata={"help": "dropout probability for encoder rnn\'s input"}
+    )
+    encoder_rnn_dropout_out: Optional[float] = field(
+        default=II("model.dropout"), metadata={"help": "dropout probability for encoder rnn\'s output"}
+    )
+    decoder_dropout_in: Optional[float] = field(
+        default=II("model.dropout"), metadata={"help": "dropout probability for decoder input embedding"}
+    )
+    decoder_dropout_out: Optional[float] = field(
+        default=II("model.dropout"), metadata={"help": "dropout probability for decoder output"}
+    )
+    # config for scheduled sampling
+    scheduled_sampling_probs: List[float] = field(
+        default_factory=lambda: [1.0],
+        metadata={
+            "help": "scheduled sampling probabilities of sampling the truth "
+            "labels for N epochs starting from --start-schedule-sampling-epoch; "
+            "all later epochs using the last value in the list"
+        }
+    )
+    start_scheduled_sampling_epoch: int = field(
+        default=1, metadata={"help": "start scheduled sampling from the specified epoch"}
+    )
+    # options from other parts of the config
+    max_source_positions: Optional[int] = II("task.max_source_positions")
+    max_target_positions: Optional[int] = II("task.max_target_positions")
+    tpu: bool = II("common.tpu")
+    criterion_name: str = II("criterion._name")
+
+
+@register_model("speech_lstm", dataclass=SpeechLSTMModelConfig)
 class SpeechLSTMModel(FairseqEncoderDecoderModel):
     def __init__(self, encoder, decoder, pretrained_lm=None):
         super().__init__(encoder, decoder)
@@ -50,90 +145,9 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         if pretrained_lm is not None:
             assert isinstance(self.pretrained_lm, FairseqDecoder)
 
-    @staticmethod
-    def add_args(parser):
-        """Add model-specific arguments to the parser."""
-        # fmt: off
-        parser.add_argument("--dropout", type=float, metavar="D",
-                            help="dropout probability")
-        parser.add_argument("--encoder-conv-channels", type=str, metavar="EXPR",
-                            help="list of encoder convolution\'s out channels")
-        parser.add_argument("--encoder-conv-kernel-sizes", type=str, metavar="EXPR",
-                            help="list of encoder convolution\'s kernel sizes")
-        parser.add_argument("--encoder-conv-strides", type=str, metavar="EXPR",
-                            help="list of encoder convolution\'s strides")
-        parser.add_argument("--encoder-rnn-hidden-size", type=int, metavar="N",
-                            help="encoder rnn\'s hidden size")
-        parser.add_argument("--encoder-rnn-layers", type=int, metavar="N",
-                            help="number of rnn encoder layers")
-        parser.add_argument("--encoder-rnn-bidirectional",
-                            type=lambda x: utils.eval_bool(x),
-                            help="make all rnn layers of encoder bidirectional")
-        parser.add_argument("--encoder-rnn-residual",
-                            type=lambda x: utils.eval_bool(x),
-                            help="create residual connections for rnn encoder "
-                            "layers (starting from the 2nd layer), i.e., the actual "
-                            "output of such layer is the sum of its input and output")
-        parser.add_argument("--decoder-embed-dim", type=int, metavar="N",
-                            help="decoder embedding dimension")
-        parser.add_argument("--decoder-embed-path", type=str, metavar="STR",
-                            help="path to pre-trained decoder embedding")
-        parser.add_argument("--decoder-freeze-embed", action="store_true",
-                            help="freeze decoder embeddings")
-        parser.add_argument("--decoder-hidden-size", type=int, metavar="N",
-                            help="decoder hidden size")
-        parser.add_argument("--decoder-layers", type=int, metavar="N",
-                            help="number of decoder layers")
-        parser.add_argument("--decoder-out-embed-dim", type=int, metavar="N",
-                            help="decoder output embedding dimension")
-        parser.add_argument("--decoder-rnn-residual",
-                            type=lambda x: utils.eval_bool(x),
-                            help="create residual connections for rnn decoder "
-                            "layers (starting from the 2nd layer), i.e., the actual "
-                            "output of such layer is the sum of its input and output")
-        parser.add_argument("--attention-type", type=str, metavar="STR",
-                            choices=["bahdanau", "luong"],
-                            help="attention type")
-        parser.add_argument("--attention-dim", type=int, metavar="N",
-                            help="attention dimension")
-        parser.add_argument("--need-attention", action="store_true",
-                            help="need to return attention tensor for the caller")
-        parser.add_argument("--adaptive-softmax-cutoff", metavar="EXPR",
-                            help="comma separated list of adaptive softmax cutoff points. "
-                                 "Must be used with adaptive_loss criterion")
-        parser.add_argument("--share-decoder-input-output-embed",
-                            type=lambda x: utils.eval_bool(x),
-                            help="share decoder input and output embeddings")
-        parser.add_argument("--pretrained-lm-checkpoint", type=str, metavar="STR",
-                            help="path to load checkpoint from pretrained language model(LM), "
-                            "which will be present and kept fixed during training.")
-
-        # Granular dropout settings (if not specified these default to --dropout)
-        parser.add_argument("--encoder-rnn-dropout-in", type=float, metavar="D",
-                            help="dropout probability for encoder rnn\'s input")
-        parser.add_argument("--encoder-rnn-dropout-out", type=float, metavar="D",
-                            help="dropout probability for encoder rnn\'s output")
-        parser.add_argument("--decoder-dropout-in", type=float, metavar="D",
-                            help="dropout probability for decoder input embedding")
-        parser.add_argument("--decoder-dropout-out", type=float, metavar="D",
-                            help="dropout probability for decoder output")
-
-        # Scheduled sampling options
-        parser.add_argument("--scheduled-sampling-probs", type=lambda p: utils.eval_str_list(p),
-                            metavar="P_1,P_2,...,P_N", default=[1.0],
-                            help="scheduled sampling probabilities of sampling the truth "
-                            "labels for N epochs starting from --start-schedule-sampling-epoch; "
-                            "all later epochs using P_N")
-        parser.add_argument("--start-scheduled-sampling-epoch", type=int,
-                            metavar="N", default=1,
-                            help="start scheduled sampling from the specified epoch")
-        # fmt: on
-
     @classmethod
     def build_model(cls, args, task):
         """Build a new model instance."""
-        # make sure that all args are properly defaulted (in case there are any new ones)
-        base_architecture(args)
 
         max_source_positions = getattr(
             args, "max_source_positions", DEFAULT_MAX_SOURCE_POSITIONS
@@ -225,7 +239,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             share_input_output_embed=args.share_decoder_input_output_embed,
             adaptive_softmax_cutoff=(
                 utils.eval_str_list(args.adaptive_softmax_cutoff, type=int)
-                if args.criterion == "adaptive_loss"
+                if args.criterion_name == "adaptive_loss"
                 else None
             ),
             max_target_positions=max_target_positions,
@@ -483,7 +497,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         )
         self.hidden_size = hidden_size
         self.share_input_output_embed = share_input_output_embed
-        if attn_type is None or attn_type.lower() == "none":
+        if attn_type is None or str(attn_type).lower() == "none":
             # no attention, no encoder output needed (language model case)
             need_attn = False
             encoder_output_units = 0
@@ -513,13 +527,13 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             ]
         )
 
-        if attn_type is None or attn_type.lower() == "none":
+        if attn_type is None or str(attn_type).lower() == "none":
             self.attention = None
-        elif attn_type.lower() == "bahdanau":
+        elif str(attn_type).lower() == "bahdanau":
             self.attention = speech_attention.BahdanauAttention(
                 hidden_size, encoder_output_units, attn_dim,
             )
-        elif attn_type.lower() == "luong":
+        elif str(attn_type).lower() == "luong":
             self.attention = speech_attention.LuongAttention(
                 hidden_size, encoder_output_units,
             )
@@ -852,7 +866,6 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         self.need_attn = need_attn
 
 
-@register_model_architecture("speech_lstm", "speech_lstm")
 def base_architecture(args):
     args.dropout = getattr(args, "dropout", 0.4)
     args.encoder_conv_channels = getattr(
