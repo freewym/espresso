@@ -5,7 +5,7 @@ common:
   log_format: simple
   log_interval: 4000
   seed: 1
-  empty_cache_freq: 50
+  empty_cache_freq: 10
 
 checkpoint:
   save_dir: checkpoints
@@ -58,6 +58,8 @@ optimizer:
 lr_scheduler:
   _name: reduce_lr_on_plateau_v2
   lr_shrink: 0.5
+  warmup_updates: 1000
+  warmup_init_lr: 1e-05
   start_reduce_lr_epoch: 10
 
 model:
@@ -70,6 +72,7 @@ model:
   encoder_rnn_layers: 4
   encoder_rnn_bidirectional: True
   encoder_rnn_residual: False
+  encoder_multilayer_rnn_as_single_module: True
   decoder_embed_dim: 512
   decoder_freeze_embed: False
   decoder_hidden_size: 1024
