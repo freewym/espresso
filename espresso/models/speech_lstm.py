@@ -5,6 +5,7 @@
 
 from dataclasses import dataclass, field
 import logging
+import os
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -66,6 +67,13 @@ class SpeechLSTMModelConfig(FairseqDataclass):
             "help": "create residual connections for rnn encoder "
             "layers (starting from the 2nd layer), i.e., the actual "
             "output of such layer is the sum of its input and output"
+        },
+    )
+    encoder_multilayer_rnn_as_single_module: bool = field(
+        default=False,
+        metadata={
+            "help": "if True use a single nn.Module.LSTM for multilayer LSTMs (faster and may fix a possible cuDNN error); "
+            "otherwise use nn.ModuleList(for back-compatibility). Note: if True then encoder_rnn_residual is set to False"
         },
     )
     decoder_embed_path: Optional[str] = field(default=None, metadata={"help": "path to pre-trained decoder embedding"})
@@ -206,6 +214,10 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         else:
             rnn_encoder_input_size = task.feat_dim
 
+        if args.encoder_multilayer_rnn_as_single_module and args.encoder_rnn_residual:
+            args.encoder_rnn_residual = False
+            logger.info("--encoder-rnn-residual is set to False when --encoder-multilayer-rnn-as-single-module=True")
+
         scheduled_sampling_rate_scheduler = ScheduledSamplingRateScheduler(
             args.scheduled_sampling_probs, args.start_scheduled_sampling_epoch,
         )
@@ -221,6 +233,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
             residual=args.encoder_rnn_residual,
             src_bucketed=(getattr(task.cfg, "num_batch_buckets", 0) > 0),
             max_source_positions=max_source_positions,
+            multilayer_rnn_as_single_module=args.encoder_multilayer_rnn_as_single_module,
         )
         decoder = SpeechLSTMDecoder(
             dictionary=task.target_dictionary,
@@ -309,6 +322,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
         padding_value=0.0,
         src_bucketed=False,
         max_source_positions=DEFAULT_MAX_SOURCE_POSITIONS,
+        multilayer_rnn_as_single_module=False,
     ):
         super().__init__(None)  # no src dictionary
         self.conv_layers_before = conv_layers_before
@@ -324,18 +338,30 @@ class SpeechLSTMEncoder(FairseqEncoder):
         self.residual = residual
         self.max_source_positions = max_source_positions
 
-        self.lstm = nn.ModuleList(
-            [
-                LSTM(
-                    input_size=input_size if layer == 0
-                    else 2 * hidden_size if self.bidirectional
-                    else hidden_size,
-                    hidden_size=hidden_size,
-                    bidirectional=bidirectional,
-                )
-                for layer in range(num_layers)
-            ]
-        )
+        # enforce deterministic behavior (https://pytorch.org/docs/stable/generated/torch.nn.LSTM.html)
+        os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
+        self.multilayer_rnn_as_single_module = multilayer_rnn_as_single_module
+        if self.multilayer_rnn_as_single_module:
+            self.lstm = LSTM(
+                input_size=input_size,
+                hidden_size=hidden_size,
+                num_layers=num_layers,
+                dropout=self.dropout_out_module.p if num_layers > 1 else 0.0,
+                bidirectional=bidirectional,
+            )
+        else:
+            self.lstm = nn.ModuleList(
+                [
+                    LSTM(
+                        input_size=input_size if layer == 0
+                        else 2 * hidden_size if self.bidirectional
+                        else hidden_size,
+                        hidden_size=hidden_size,
+                        bidirectional=bidirectional,
+                    )
+                    for layer in range(num_layers)
+                ]
+            )
         self.left_pad = left_pad
         self.padding_value = padding_value
         self.src_bucketed = src_bucketed
@@ -392,12 +418,10 @@ class SpeechLSTMEncoder(FairseqEncoder):
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
-        state_size = 2 if self.bidirectional else 1, bsz, self.hidden_size
-        h0, c0 = x.new_zeros(*state_size), x.new_zeros(*state_size)
+        if self.multilayer_rnn_as_single_module:
+            state_size = (2 if self.bidirectional else 1) * self.num_layers, bsz, self.hidden_size
+            h0, c0 = x.new_zeros(*state_size), x.new_zeros(*state_size)
 
-        for i in range(len(self.lstm)):
-            if self.residual and i > 0:  # residual connection starts from the 2nd layer
-                prev_x = x
             # pack embedded source tokens into a PackedSequence
             packed_x = nn.utils.rnn.pack_padded_sequence(
                 x,
@@ -407,17 +431,39 @@ class SpeechLSTMEncoder(FairseqEncoder):
                 ),
                 enforce_sorted=enforce_sorted
             )
-
             # apply LSTM
-            packed_outs, (_, _) = self.lstm[i](packed_x, (h0, c0))
-
-            # unpack outputs and apply dropout
+            packed_outs, (_, _) = self.lstm(packed_x, (h0, c0))
+            # unpack outputs
             x, _ = nn.utils.rnn.pad_packed_sequence(
                 packed_outs, padding_value=self.padding_value * 1.0
             )
-            if i < len(self.lstm) - 1:  # not applying dropout for the last layer
-                x = self.dropout_out_module(x)
-            x = x + prev_x if self.residual and i > 0 else x
+        else:  # for back-compatibility
+            state_size = 2 if self.bidirectional else 1, bsz, self.hidden_size
+            h0, c0 = x.new_zeros(*state_size), x.new_zeros(*state_size)
+
+            for i in range(len(self.lstm)):
+                if self.residual and i > 0:  # residual connection starts from the 2nd layer
+                    prev_x = x
+                # pack embedded source tokens into a PackedSequence
+                packed_x = nn.utils.rnn.pack_padded_sequence(
+                    x,
+                    (
+                        src_lengths.cpu() if not self.src_bucketed else
+                        src_lengths.new_full(src_lengths.size(), x.size(0), device="cpu")
+                    ),
+                    enforce_sorted=enforce_sorted
+                )
+
+                # apply LSTM
+                packed_outs, (_, _) = self.lstm[i](packed_x, (h0, c0))
+
+                # unpack outputs and apply dropout
+                x, _ = nn.utils.rnn.pad_packed_sequence(
+                    packed_outs, padding_value=self.padding_value * 1.0
+                )
+                if i < len(self.lstm) - 1:  # not applying dropout for the last layer
+                    x = self.dropout_out_module(x)
+                x = x + prev_x if self.residual and i > 0 else x
         assert list(x.size()) == [seqlen, bsz, self.output_units]
 
         encoder_padding_mask = padding_mask.t()
@@ -458,7 +504,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
             "encoder_embedding": [],
             "encoder_states": [],
             "src_tokens": [],
-            "src_lengths": new_src_lengths,  # B x 1
+            "src_lengths": new_src_lengths,  # B
         }
 
     def max_positions(self):
@@ -881,6 +927,9 @@ def base_architecture(args):
     args.encoder_rnn_layers = getattr(args, "encoder_rnn_layers", 3)
     args.encoder_rnn_bidirectional = getattr(args, "encoder_rnn_bidirectional", True)
     args.encoder_rnn_residual = getattr(args, "encoder_rnn_residual", False)
+    args.encoder_multilayer_rnn_as_single_module = getattr(args, "encoder_multilayer_rnn_as_single_module", False)
+    if args.encoder_multilayer_rnn_as_single_module:
+        args.encoder_rnn_residual = False
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 48)
     args.decoder_embed_path = getattr(args, "decoder_embed_path", None)
     args.decoder_freeze_embed = getattr(args, "decoder_freeze_embed", False)
@@ -910,6 +959,7 @@ def speech_conv_lstm_librispeech(args):
     args.dropout = getattr(args, "dropout", 0.3)
     args.encoder_rnn_hidden_size = getattr(args, "encoder_rnn_hidden_size", 1024)
     args.encoder_rnn_layers = getattr(args, "encoder_rnn_layers", 4)
+    args.encoder_multilayer_rnn_as_single_module = getattr(args, "encoder_multilayer_rnn_as_single_module", True)
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 512)
     args.decoder_hidden_size = getattr(args, "decoder_hidden_size", 1024)
     args.decoder_layers = getattr(args, "decoder_layers", 3)
