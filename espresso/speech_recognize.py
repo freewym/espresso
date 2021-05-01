@@ -109,6 +109,7 @@ def _main(cfg, output_file):
         overrides["data"] = cfg.task.data
 
         try:
+            logger.info("loading language model(s) from {}".format(cfg.generation.lm_path))
             lms, _ = checkpoint_utils.load_model_ensemble(
                 utils.split_paths(cfg.generation.lm_path), arg_overrides=overrides, task=None,
             )
@@ -136,19 +137,19 @@ def _main(cfg, output_file):
                     open_vocab=not cfg.generation.disable_open_vocab,
                 )
                 del lms[i]
-                logger.info("LM fusion with Multi-level LM")
+                logger.info("LM shallow fusion with Multi-level LM")
             else:
                 lms[i] = TensorizedLookaheadLanguageModel(
                     m, dictionary,
                     oov_penalty=cfg.generation.oov_penalty,
                     open_vocab=not cfg.generation.disable_open_vocab,
                 )
-                logger.info("LM fusion with Look-ahead Word LM")
+                logger.info("LM shallow fusion with Look-ahead Word LM")
         else:
             assert isinstance(m, FairseqLanguageModel)
             logger.info("LM fusion with Subword LM")
     if cfg.generation.lm_weight != 0.0:
-        logger.info("using LM fusion with lm-weight={:.2f}".format(cfg.generation.lm_weight))
+        logger.info("using LM shallow fusion with lm-weight={:.2f}".format(cfg.generation.lm_weight))
 
     # Optimize ensemble for generation
     for model in chain(models, lms):
@@ -338,7 +339,7 @@ def print_options_meaning_changes(cfg, logger):
     """
     logger.info("--max-tokens is the maximum number of input frames in a batch")
     if cfg.generation.print_alignment:
-        logger.info("--print-alignment has been set to plot attentions")
+        logger.info("--print-alignment is set to True to plot attentions")
 
 
 def cli_main():
