@@ -181,7 +181,7 @@ if [ ${stage} -le 5 ]; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval $((16000/ngpus/update_freq)) --log-format simple \
-    --num-workers 0 --max-tokens 32000 --batch-size 1024 --curriculum 1 \
+    --num-workers 0 --max-tokens 32000 --batch-size 1024 --curriculum 1 --empty-cache-freq 30 \
     --valid-subset $valid_subset --batch-size-valid 1536 --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --max-epoch 30 --optimizer adam --lr 0.001 --clip-norm 1.0 \
@@ -251,7 +251,7 @@ if [ ${stage} -le 8 ]; then
   fi
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py data --task speech_recognition_espresso --seed 1 \
     --log-interval $((8000/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((4000/ngpus/update_freq)) \
-    --num-workers 0 --data-buffer-size 0 --max-tokens 26000 --batch-size 24 --curriculum 1 --empty-cache-freq 50 \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 26000 --batch-size 24 --curriculum 1 --empty-cache-freq 10 \
     --valid-subset $valid_subset --batch-size-valid 48 --ddp-backend legacy_ddp --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --optimizer adam --lr 0.001 --weight-decay 0.0 --clip-norm 2.0 \

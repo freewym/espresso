@@ -5,7 +5,7 @@ common:
   log_format: simple
   log_interval: 8000
   seed: 1
-  empty_cache_freq: 50
+  empty_cache_freq: 30
 
 checkpoint:
   save_dir: checkpoints

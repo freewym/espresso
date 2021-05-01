@@ -3,9 +3,9 @@
 common:
   fp16: false
   log_format: simple
-  log_interval: 500
+  log_interval: 1000
   seed: 1
-  empty_cache_freq: 50
+  empty_cache_freq: 10
 
 checkpoint:
   save_dir: checkpoints
