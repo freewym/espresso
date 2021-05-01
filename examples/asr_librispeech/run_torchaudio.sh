@@ -73,6 +73,7 @@ if [ ${stage} -le 0 ]; then
   cat $data_dir/{dev_clean,dev_other}/text.txt | sort -k1 > $data_dir/$valid_set/text.txt || exit 1;
 fi
 
+gcmvn_file=$data_dir/$train_set/gcmvn.npz
 if [ ${stage} -le 1 ]; then
   echo "Stage 1: Data Preprocessing"
   for dataset in $train_set $valid_set $test_set; do
@@ -85,7 +86,6 @@ if [ ${stage} -le 1 ]; then
   done
 
   if $apply_global_cmvn; then
-    gcmvn_file=$data_dir/$train_set/gcmvn.npz
     if [ -f "$gcmvn_file" ] && ! $overwrite_global_cmvn; then
       echo "$gcmvn_file exists, not overwriting it; continuing"
     else
@@ -222,7 +222,6 @@ if [ ${stage} -le 7 ]; then
   [ ! -z "$seed" ] && opts="$opts common.seed=$seed"
   [ ! -z "$tensorboard_logdir" ] && opts="$opts common.tensorboard_logdir=$tensorboard_logdir"
   if $apply_global_cmvn; then
-    gcmvn_file=$data_dir/$train_set/gcmvn.npz
     [ ! -f "$gcmvn_file" ] && echo "$gcmvn_file not found. Please generate it first" && exit 1;
     opts="$opts task.global_cmvn_stats_path=$(realpath $gcmvn_file)"
   fi
@@ -235,6 +234,7 @@ if [ ${stage} -le 7 ]; then
   else
     update_freq=$(((2+ngpus-1)/ngpus))
     config_name=lstm_librispeech
+    ! $apply_specaug && opts="$opts lr_scheduler.warmup_updates=$((2000/ngpus/update_freq))"
   fi
   if $apply_specaug; then
     config_name=${config_name}_specaug
@@ -270,6 +270,10 @@ if [ ${stage} -le 8 ]; then
       opts="$opts --lm-weight 0.4"
     fi
     decode_affix=shallow_fusion
+  fi
+  if $apply_global_cmvn; then
+    [ ! -f "$gcmvn_file" ] && echo "$gcmvn_file not found. Please generate it first" && exit 1;
+    opts="$opts --global-cmvn-stats-path=$(realpath $gcmvn_file)"
   fi
   for dataset in $test_set; do
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
