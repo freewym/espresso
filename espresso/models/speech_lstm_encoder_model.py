@@ -61,6 +61,12 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
                             help="create residual connections for rnn encoder "
                             "layers (starting from the 2nd layer), i.e., the actual "
                             "output of such layer is the sum of its input and output")
+        parser.add_argument("--encoder-multilayer-rnn-as-single-module",
+                            type=lambda x: utils.eval_bool(x),
+                            help="if True use a single nn.Module.LSTM for multilayer LSTMs "
+                            "(faster and may fix a possible cuDNN error); otherwise use "
+                            "nn.ModuleList(for back-compatibility). Note: if True then "
+                            "encoder_rnn_residual is set to False")
 
         # Granular dropout settings (if not specified these default to --dropout)
         parser.add_argument("--encoder-rnn-dropout-in", type=float, metavar="D",
@@ -101,6 +107,10 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
         else:
             rnn_encoder_input_size = task.feat_dim
 
+        if args.encoder_multilayer_rnn_as_single_module and args.encoder_rnn_residual:
+            args.encoder_rnn_residual = False
+            logger.info("--encoder-rnn-residual is set to False when --encoder-multilayer-rnn-as-single-module=True")
+
         encoder = SpeechChunkLSTMEncoder(
             conv_layers_before=conv_layers,
             input_size=rnn_encoder_input_size,
@@ -116,6 +126,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
             chunk_left_context=getattr(task, "chunk_left_context", 0),
             training_stage=getattr(task, "training_stage", True),
             max_source_positions=max_source_positions,
+            multilayer_rnn_as_single_module=args.encoder_multilayer_rnn_as_single_module,
         )
         return cls(encoder, state_prior=getattr(task, "initial_state_prior", None))
 
@@ -287,6 +298,9 @@ def base_architecture(args):
     args.encoder_rnn_residual = getattr(args, "encoder_rnn_residual", False)
     args.encoder_rnn_dropout_in = getattr(args, "encoder_rnn_dropout_in", args.dropout)
     args.encoder_rnn_dropout_out = getattr(args, "encoder_rnn_dropout_out", args.dropout)
+    args.encoder_multilayer_rnn_as_single_module = getattr(args, "encoder_multilayer_rnn_as_single_module", True)
+    if args.encoder_multilayer_rnn_as_single_module:
+        args.encoder_rnn_residual = False
 
 
 @register_model_architecture("speech_lstm_encoder_model", "speech_conv_lstm_encoder_model_wsj")

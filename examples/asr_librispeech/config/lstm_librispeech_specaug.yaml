@@ -5,7 +5,7 @@ common:
   log_format: simple
   log_interval: 4000
   seed: 1
-  empty_cache_freq: 50
+  empty_cache_freq: 10
 
 checkpoint:
   save_dir: checkpoints
@@ -57,9 +57,9 @@ optimizer:
 
 lr_scheduler:
   _name: tri_stage
-  warmup_steps: 250
-  hold_steps: 75000
-  decay_steps: 130000
+  warmup_steps: 1000
+  hold_steps: 300000
+  decay_steps: 520000
 
 model:
   _name: speech_lstm
@@ -71,6 +71,7 @@ model:
   encoder_rnn_layers: 5
   encoder_rnn_bidirectional: True
   encoder_rnn_residual: False
+  encoder_multilayer_rnn_as_single_module: True
   decoder_embed_dim: 512
   decoder_freeze_embed: False
   decoder_hidden_size: 1024
