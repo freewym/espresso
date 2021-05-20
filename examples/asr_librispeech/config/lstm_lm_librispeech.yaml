@@ -31,7 +31,7 @@ dataset:
   curriculum: 1
 
 distributed_training:
-  distributed_world_size: 8
+  distributed_world_size: 2
   ddp_backend: pytorch_ddp
 
 criterion:
@@ -60,8 +60,8 @@ model:
   decoder_hidden_size: 800
   decoder_layers: 4
   decoder_out_embed_dim: 800
-  decoder_rnn_residual: False
+  decoder_rnn_residual: false
   decoder_dropout_in: 0.0
   decoder_dropout_out: 0.0
-  share_embed: True
-  is_wordlm: False
+  share_embed: true
+  is_wordlm: false
