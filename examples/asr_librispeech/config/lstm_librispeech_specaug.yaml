@@ -5,7 +5,7 @@ common:
   log_format: simple
   log_interval: 4000
   seed: 1
-  empty_cache_freq: 10
+  empty_cache_freq: 2
 
 checkpoint:
   save_dir: checkpoints
@@ -69,18 +69,18 @@ model:
   encoder_conv_strides: "[(1, 1), (2, 2), (1, 1), (2, 2)]"
   encoder_rnn_hidden_size: 1024
   encoder_rnn_layers: 5
-  encoder_rnn_bidirectional: True
-  encoder_rnn_residual: False
-  encoder_multilayer_rnn_as_single_module: True
+  encoder_rnn_bidirectional: true
+  encoder_rnn_residual: false
+  encoder_multilayer_rnn_as_single_module: true
   decoder_embed_dim: 512
-  decoder_freeze_embed: False
+  decoder_freeze_embed: false
   decoder_hidden_size: 1024
   decoder_layers: 3
   decoder_out_embed_dim: 3072
-  decoder_rnn_residual: True
+  decoder_rnn_residual: true
   attention_type: bahdanau
   attention_dim: 512
-  share_decoder_input_output_embed: False
+  share_decoder_input_output_embed: false
   encoder_rnn_dropout_in: 0.3
   encoder_rnn_dropout_out: 0.3
   decoder_dropout_in: 0.3
