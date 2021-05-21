@@ -551,9 +551,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
                   hidden states of shape `(src_len, batch, embed_dim)`.
                   Only populated if *return_all_hiddens* is True.
         """
-        return self.forward_scriptable(src_tokens,
-                                       src_lengths,
-                                       return_all_hiddens)
+        return self.forward_scriptable(src_tokens, src_lengths, return_all_hiddens)
 
     # TorchScript doesn't support super() method so that the scriptable Subclass
     # can't access the base class model in Torchscript.
@@ -593,7 +591,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
                 src_tokens,
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
             )
-        has_pads = (src_tokens.device.type == "xla" or encoder_padding_mask.any())
+        has_pads = src_tokens.device.type == "xla" or encoder_padding_mask.any()
 
         x = self.dropout_module(x)
         if self.fc0 is not None:
