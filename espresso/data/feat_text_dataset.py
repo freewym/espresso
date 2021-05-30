@@ -291,9 +291,9 @@ class AsrTextDataset(torch.utils.data.Dataset):
         self.utt_ids = utt_ids
         self.texts = texts
         self.size = len(self.utt_ids)  # number of utterances
-        if dictionary is not None:
-            from fairseq.tokenizer import tokenize_line
+        from fairseq.tokenizer import tokenize_line
 
+        if dictionary is not None:
             self.sizes = [
                 len(tokenize_line(dictionary.wordpiece_encode(text))) + (1 if self.append_eos else 0)
                 for text in texts
