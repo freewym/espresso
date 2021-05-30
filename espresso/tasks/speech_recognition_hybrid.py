@@ -229,7 +229,7 @@ def get_asr_dataset_from_json(
                 utt2num_frames.append(int(val["utt2num_frames"]))
 
         assert len(utt2num_frames) == 0 or len(utt_ids) == len(utt2num_frames)
-        if "feat" in next(loaded_json.items()):
+        if "feat" in next(iter(loaded_json.items())):
             extra_kwargs = {}
         else:
             extra_kwargs = {"feat_dim": 40, "feature_type": "mfcc"}

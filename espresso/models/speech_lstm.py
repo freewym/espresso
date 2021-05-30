@@ -500,7 +500,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
 
         return {
             "encoder_out": new_encoder_out,  # T x B x C
-            "encoder_padding_mask": new_encoder_padding_mask,  # B x T
+            "encoder_padding_mask": new_encoder_padding_mask,  # T x B
             "encoder_embedding": [],
             "encoder_states": [],
             "src_tokens": [],
