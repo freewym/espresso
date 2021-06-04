@@ -284,6 +284,15 @@ class SpeechTransformerModel(TransformerModel):
         self.num_updates = 0
 
     @classmethod
+    def add_args(cls, parser):
+        """Add model-specific arguments to the parser."""
+        dc = getattr(cls, "__dataclass", None)
+        if dc is not None:
+            from fairseq.dataclass.utils import gen_parser_from_dataclass
+            # do not set defaults so that settings defaults from various architectures still works
+            gen_parser_from_dataclass(parser, dc(), delete_default=True)
+
+    @classmethod
     def build_model(cls, args, task):
         """Build a new model instance."""
 
@@ -425,7 +434,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
 
     Args:
         args (argparse.Namespace): parsed command-line arguments
-        conv_layers_before (~fairseq.speech_lstm.ConvBNReLU): convolutions before
+        conv_layers_before (~espresso.modules.ConvBNReLU): convolutions before
             transformer layers
         input_size (int, optional): dimension of the input to the transformer
             before being projected to args.encoder_embed_dim
@@ -458,8 +467,9 @@ class SpeechTransformerEncoder(TransformerEncoder):
             else None
         )
 
+        export = getattr(args, "export", False)
         if getattr(args, "layernorm_embedding", False):
-            self.layernorm_embedding = LayerNorm(embed_dim)
+            self.layernorm_embedding = LayerNorm(embed_dim, export=export)
         else:
             self.layernorm_embedding = None
 
@@ -482,7 +492,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
         self.num_layers = len(self.layers)
 
         if args.encoder_normalize_before:
-            self.layer_norm = LayerNorm(embed_dim)
+            self.layer_norm = LayerNorm(embed_dim, export=export)
         else:
             self.layer_norm = None
 
