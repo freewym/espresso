@@ -32,8 +32,7 @@ from fairseq.models.lstm import (
 from fairseq.modules import AdaptiveSoftmax, FairseqDropout
 from omegaconf import II
 
-from espresso.modules import speech_attention
-from espresso.modules.speech_convolutions import ConvBNReLU
+from espresso.modules import ConvBNReLU, speech_attention
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
 import espresso.tools.utils as speech_utils
 
