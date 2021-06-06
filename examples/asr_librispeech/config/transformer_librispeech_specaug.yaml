@@ -18,8 +18,8 @@ task:
   _name: speech_recognition_espresso
   data: ???
   dict: ???
-  max_source_positions: 9999
-  max_target_positions: 999
+  max_source_positions: 3600
+  max_target_positions: 200
   global_cmvn_stats_path:
   specaugment_config: "{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
 

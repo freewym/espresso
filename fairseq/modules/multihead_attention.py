@@ -348,12 +348,13 @@ class MultiheadAttention(nn.Module):
         if self.positional_embedding is not None:
             assert src_len >= tgt_len, f"{src_len} vs {tgt_len}"
             if key_padding_mask is not None:
-                pe = self.positional_embedding(~(key_padding_mask.bool()))  # bsz x (2*src_len+1) x embed_dim
+                pe = self.positional_embedding(~(key_padding_mask.bool()))  # bsz x (2*src_len-1) x embed_dim
             else:
-                pe = self.positional_embedding(k.new_full([bsz, src_len], 1).bool())
-            pe = pe.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2).view(bsz * self.num_heads, -1, self.head_dim)
+                pe = self.positional_embedding(k.new_ones([bsz, src_len], dtype=torch.bool))
+            pe = pe.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2)  # bsz x num_heads x (2*src_len-1) x head_dim
+            pe = pe.reshape(bsz * self.num_heads, -1, self.head_dim)
             positional_logits = torch.bmm(q, pe.transpose(1, 2))
-            assert list(positional_logits.size()) == [bsz * self.num_heads, tgt_len, 2 * src_len + 1]
+            assert list(positional_logits.size()) == [bsz * self.num_heads, tgt_len, 2 * src_len - 1]
             batch_head_stride, tgt_stride, src_stride = positional_logits.stride()
             # assume src (key) and tgt (query) sequences are right-aligned
             positional_logits = positional_logits.as_strided(

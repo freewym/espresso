@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
+# Copyright (c) Yiming Wang
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
@@ -52,7 +52,7 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayer(TransformerDecoderL
         if args.use_relative_positional_embeddings:
             if args.decoder_learned_pos:
                 relative_pos_embedding_type = "learned"
-                max_relative_pos = args.max_source_positions
+                max_relative_pos = args.max_target_positions
             else:
                 relative_pos_embedding_type = "sinusoidal"
 
