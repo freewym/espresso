@@ -29,12 +29,16 @@ from fairseq.modules import (
     LayerDropModuleList,
     LayerNorm,
     PositionalEmbedding,
-    TransformerDecoderLayer,
 )
+from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 from omegaconf import II
 
-from espresso.modules.speech_convolutions import ConvBNReLU
+from espresso.modules import (
+    ConvBNReLU,
+    TransformerWithRelativePositionalEmbeddingDecoderLayer,
+    TransformerWithRelativePositionalEmbeddingEncoderLayer,
+)
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
 import espresso.tools.utils as speech_utils
 
@@ -127,6 +131,10 @@ class SpeechTransformerModelConfig(FairseqDataclass):
     no_token_positional_embeddings: bool = field(
         default=False,
         metadata={"help": "if set, disables positional embeddings (outside self attention)"}
+    )
+    use_relative_positional_embeddings: bool = field(
+        default=False,
+        metadata={"help": "if set, uses relative positional embeddings (inside self attention)"}
     )
     adaptive_softmax_cutoff: Optional[str] = field(
         default=None,
@@ -456,6 +464,9 @@ class SpeechTransformerEncoder(TransformerEncoder):
         self.conv_layers_before = conv_layers_before
         self.fc0 = Linear(input_size, embed_dim) if input_size != embed_dim else None
 
+        assert (
+            not (not args.no_token_positional_embeddings and args.use_relative_positional_embeddings)
+        ), "absolute and relative positional embeddings cannot be used simultaneously."
         self.embed_positions = (
             PositionalEmbedding(
                 self.output_lengths(self.max_source_positions),
@@ -497,6 +508,25 @@ class SpeechTransformerEncoder(TransformerEncoder):
             self.layer_norm = None
 
         self.transformer_context = transformer_context
+
+    def build_encoder_layer(self, args):
+        orig_max_source_positions = args.max_source_positions
+        args.max_source_positions = self.output_lengths(args.max_source_positions)
+        layer = TransformerWithRelativePositionalEmbeddingEncoderLayer(args)
+        args.max_source_positions = orig_max_source_positions
+        checkpoint = getattr(args, "checkpoint_activations", False)
+        if checkpoint:
+            offload_to_cpu = getattr(args, "offload_activations", False)
+            layer = checkpoint_wrapper(layer, offload_to_cpu=offload_to_cpu)
+        # if we are checkpointing, enforce that FSDP always wraps the
+        # checkpointed layer, regardless of layer size
+        min_params_to_wrap = (
+            getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
+            if not checkpoint
+            else 0
+        )
+        layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
+        return layer
 
     def output_lengths(self, in_lengths):
         return (
@@ -671,12 +701,31 @@ class SpeechTransformerDecoder(TransformerDecoder):
         output_projection=None,
         scheduled_sampling_rate_scheduler=None,
     ):
+        assert (
+            not (not args.no_token_positional_embeddings and args.use_relative_positional_embeddings)
+        ), "absolute and relative positional embeddings cannot be used simultaneously."
         super().__init__(args, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn, output_projection=output_projection)
 
         self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
         for layer in self.layers:
-            if isinstance(layer, TransformerDecoderLayer):
+            if isinstance(layer, TransformerWithRelativePositionalEmbeddingDecoderLayer):
                 layer.need_attn = False  # make validation fast
+
+    def build_decoder_layer(self, args, no_encoder_attn=False):
+        layer = TransformerWithRelativePositionalEmbeddingDecoderLayer(args, no_encoder_attn)
+        checkpoint = getattr(args, "checkpoint_activations", False)
+        if checkpoint:
+            offload_to_cpu = getattr(args, "offload_activations", False)
+            layer = checkpoint_wrapper(layer, offload_to_cpu=offload_to_cpu)
+        # if we are checkpointing, enforce that FSDP always wraps the
+        # checkpointed layer, regardless of layer size
+        min_params_to_wrap = (
+            getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
+            if not checkpoint
+            else 0
+        )
+        layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
+        return layer
 
     def forward(
         self,
@@ -820,6 +869,9 @@ def base_architecture(args):
     )
     args.no_token_positional_embeddings = getattr(
         args, "no_token_positional_embeddings", False
+    )
+    args.use_relative_positional_embeddings = getattr(
+        args, "use_relative_positional_embeddings", False
     )
     args.adaptive_input = getattr(args, "adaptive_input", False)
     args.no_cross_attention = getattr(args, "no_cross_attention", False)

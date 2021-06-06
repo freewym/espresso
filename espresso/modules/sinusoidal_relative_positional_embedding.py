@@ -17,7 +17,10 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
     """This module produces sinusoidal relative positional embeddings of any length.
     """
 
-    def __init__(self, embedding_dim, padding_idx: Optional[int] = None, init_size=1024, max_size: Optional[int] = None):
+    def __init__(
+        self, embedding_dim, padding_idx: Optional[int] = None, init_size=1024, max_size: Optional[int] = None,
+        no_scale_embedding=False,
+    ):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.padding_idx = padding_idx
@@ -27,6 +30,7 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
         self.onnx_trace = False
         self.register_buffer("_float_tensor", torch.FloatTensor(1))
         self.max_size = max_size
+        self.embedding_scale = 1.0 if no_scale_embedding else math.sqrt(embedding_dim)
 
     def prepare_for_onnx_export_(self):
         self.onnx_trace = True
@@ -113,7 +117,7 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
         if self.padding_idx is not None:
             positions = positions + (self.padding_idx + 1)
 
-        used_weights = self.weights[positions, :]
+        used_weights = self.weights[positions, :] * self.embedding_scale
         if self.onnx_trace:
             return used_weights.unsqueeze(0).repeat(bsz, 1, 1)
         else:

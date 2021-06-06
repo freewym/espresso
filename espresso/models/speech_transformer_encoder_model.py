@@ -75,6 +75,8 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
                                  "can be None or a tuple of two non-negative integers/None")
         parser.add_argument("--no-token-positional-embeddings", action="store_true",
                             help="if set, disables positional embeddings (outside self attention)")
+        parser.add_argument("--use-relative-positional-embeddings", action="store_true",
+                            help="if set, uses relative positional embeddings (inside self attention)")
         parser.add_argument("--layernorm-embedding", action="store_true",
                             help="add layernorm to embedding")
         parser.add_argument("--checkpoint-activations", action="store_true",
@@ -404,6 +406,9 @@ def base_architecture(args):
     args.dropout = getattr(args, "dropout", 0.2)
     args.no_token_positional_embeddings = getattr(
         args, "no_token_positional_embeddings", False
+    )
+    args.use_relative_positional_embeddings = getattr(
+        args, "use_relative_positional_embeddings", False
     )
     args.adaptive_input = getattr(args, "adaptive_input", False)
     args.layernorm_embedding = getattr(args, "layernorm_embedding", False)

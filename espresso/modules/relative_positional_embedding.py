@@ -23,5 +23,7 @@ def RelativePositionalEmbedding(
         m = LearnedRelativePositionalEmbedding(embedding_dim, padding_idx, max_size=max_size)
     else:
         assert max_size is not None
-        m = SinusoidalRelativePositionalEmbedding(embedding_dim, padding_idx, init_size=1024, max_size=max_size)
+        m = SinusoidalRelativePositionalEmbedding(
+            embedding_dim, padding_idx, init_size=1024, max_size=max_size, no_scale_embedding=False
+        )
     return m

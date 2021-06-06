@@ -82,6 +82,8 @@ model:
   activation_fn: relu
   decoder_output_dim: 512
   decoder_input_dim: 512
+  no_token_positional_embeddings: false
+  use_relative_positional_embeddings: false
 
 bpe:
   _name: sentencepiece
