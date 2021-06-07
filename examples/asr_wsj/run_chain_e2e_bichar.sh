@@ -200,7 +200,7 @@ if [ ${stage} -le 6 ]; then
     --arch speech_tdnn_wsj --criterion lattice_free_mmi --num-targets $num_targets \
     --dropout 0.2 --kernel-sizes "[3]*6" --strides "[1]*5+[3]" --dilations "[1,1,1,3,3,3]" --num-layers 6 \
     --denominator-fst-path $tree_dir/den.fst --leaky-hmm-coefficient 1e-03 --output-l2-regularization-coefficient 5e-05 \
-    --max-source-positions 9999 --max-target-positions 9999 2>&1 | tee $log_file
+    --max-source-positions 3000 --max-target-positions 3000 2>&1 | tee $log_file
 fi
 
 if [ ${stage} -le 7 ]; then

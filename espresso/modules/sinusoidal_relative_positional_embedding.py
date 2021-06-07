@@ -16,7 +16,7 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
 
     def __init__(
         self, embedding_dim, padding_idx: Optional[int] = None, init_size=1024, max_size: Optional[int] = None,
-        no_scale_embedding=False,
+        no_scale_embedding=True,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
