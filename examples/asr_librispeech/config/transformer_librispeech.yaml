@@ -71,19 +71,21 @@ model:
   encoder_layers: 12
   encoder_attention_heads: 8
   encoder_normalize_before: true
+  encoder_learned_pos: false
+  encoder_relative_positional_embeddings: true
   decoder_embed_dim: 512
   decoder_ffn_embed_dim: 2048
   decoder_layers: 6
   decoder_attention_heads: 8
   decoder_normalize_before: true
+  decoder_learned_pos: false
+  decoder_relative_positional_embeddings: false
   attention_dropout: 0.1
   activation_dropout: 0.1
   dropout: 0.1
   activation_fn: relu
   decoder_output_dim: 512
   decoder_input_dim: 512
-  no_token_positional_embeddings: false
-  use_relative_positional_embeddings: false
 
 bpe:
   _name: sentencepiece

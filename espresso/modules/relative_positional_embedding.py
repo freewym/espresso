@@ -5,8 +5,6 @@
 
 from typing import Optional
 
-import torch.nn as nn
-
 from .learned_relative_positional_embedding import LearnedRelativePositionalEmbedding
 from .sinusoidal_relative_positional_embedding import SinusoidalRelativePositionalEmbedding
 

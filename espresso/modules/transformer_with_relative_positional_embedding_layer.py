@@ -16,7 +16,7 @@ class TransformerWithRelativePositionalEmbeddingEncoderLayer(TransformerEncoderL
     def build_self_attention(self, embed_dim, args):
         relative_pos_embedding_type = None
         max_relative_pos = None
-        if args.use_relative_positional_embeddings:
+        if args.encoder_relative_positional_embeddings:
             if args.encoder_learned_pos:
                 relative_pos_embedding_type = "learned"
                 max_relative_pos = args.max_source_positions
@@ -49,7 +49,7 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayer(TransformerDecoderL
     ):
         relative_pos_embedding_type = None
         max_relative_pos = None
-        if args.use_relative_positional_embeddings:
+        if args.decoder_relative_positional_embeddings:
             if args.decoder_learned_pos:
                 relative_pos_embedding_type = "learned"
                 max_relative_pos = args.max_target_positions

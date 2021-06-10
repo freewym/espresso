@@ -83,6 +83,10 @@ class SpeechTransformerModelConfig(FairseqDataclass):
     encoder_learned_pos: bool = field(
         default=False, metadata={"help": "use learned positional embeddings in the encoder"}
     )
+    encoder_relative_positional_embeddings: bool = field(
+        default=False,
+        metadata={"help": "if set, uses relative positional embeddings (inside self attention) for encoder"}
+    )
     decoder_embed_path: Optional[str] = field(
         default=None, metadata={"help": "path to pre-trained decoder embedding"}
     )
@@ -98,6 +102,10 @@ class SpeechTransformerModelConfig(FairseqDataclass):
     )
     decoder_learned_pos: bool = field(
         default=False, metadata={"help": "use learned positional embeddings in the decoder"}
+    )
+    decoder_relative_positional_embeddings: bool = field(
+        default=False,
+        metadata={"help": "if set, uses relative positional embeddings (inside self attention) for decoder"}
     )
     decoder_normalize_before: bool = field(
         default=True, metadata={"help": "apply layernorm before each decoder block"}
@@ -131,10 +139,6 @@ class SpeechTransformerModelConfig(FairseqDataclass):
     no_token_positional_embeddings: bool = field(
         default=False,
         metadata={"help": "if set, disables positional embeddings (outside self attention)"}
-    )
-    use_relative_positional_embeddings: bool = field(
-        default=False,
-        metadata={"help": "if set, uses relative positional embeddings (inside self attention)"}
     )
     adaptive_softmax_cutoff: Optional[str] = field(
         default=None,
@@ -464,9 +468,8 @@ class SpeechTransformerEncoder(TransformerEncoder):
         self.conv_layers_before = conv_layers_before
         self.fc0 = Linear(input_size, embed_dim) if input_size != embed_dim else None
 
-        assert (
-            not (not args.no_token_positional_embeddings and args.use_relative_positional_embeddings)
-        ), "absolute and relative positional embeddings cannot be used simultaneously."
+        if not args.no_token_positional_embeddings and args.encoder_relative_positional_embeddings:
+            logger.info("disabled encoder's absolute positional embeddings as encoder_relative_positional_embeddings is True.")
         self.embed_positions = (
             PositionalEmbedding(
                 self.output_lengths(self.max_source_positions),
@@ -474,7 +477,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
                 0,
                 learned=args.encoder_learned_pos,
             )
-            if not args.no_token_positional_embeddings
+            if not args.no_token_positional_embeddings and not args.encoder_relative_positional_embeddings
             else None
         )
 
@@ -701,10 +704,14 @@ class SpeechTransformerDecoder(TransformerDecoder):
         output_projection=None,
         scheduled_sampling_rate_scheduler=None,
     ):
-        assert (
-            not (not args.no_token_positional_embeddings and args.use_relative_positional_embeddings)
-        ), "absolute and relative positional embeddings cannot be used simultaneously."
+        is_no_token_positional_embeddings_changed = False
+        if not args.no_token_positional_embeddings and args.decoder_relative_positional_embeddings:
+            args.no_token_positional_embeddings = True
+            is_no_token_positional_embeddings_changed = True
+            logger.info("disabled decoder's absolute positional embeddings as decoder_relative_positional_embeddings is True.")
         super().__init__(args, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn, output_projection=output_projection)
+        if is_no_token_positional_embeddings_changed:
+            args.no_token_positional_embeddings = not args.no_token_positional_embeddings
 
         self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
         for layer in self.layers:
@@ -848,6 +855,7 @@ def base_architecture(args):
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
     args.encoder_learned_pos = getattr(args, "encoder_learned_pos", False)
+    args.encoder_relative_positional_embeddings = getattr(args, "encoder_relative_positional_embeddings", False)
     args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
     args.decoder_embed_path = getattr(args, "decoder_embed_path", None)
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
@@ -858,6 +866,7 @@ def base_architecture(args):
     args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 4)
     args.decoder_normalize_before = getattr(args, "decoder_normalize_before", True)
     args.decoder_learned_pos = getattr(args, "decoder_learned_pos", False)
+    args.decoder_relative_positional_embeddings = getattr(args, "decoder_relative_positional_embeddings", False)
     args.attention_dropout = getattr(args, "attention_dropout", 0.2)
     args.activation_dropout = getattr(args, "activation_dropout", 0.2)
     args.activation_fn = getattr(args, "activation_fn", "relu")
@@ -869,9 +878,6 @@ def base_architecture(args):
     )
     args.no_token_positional_embeddings = getattr(
         args, "no_token_positional_embeddings", False
-    )
-    args.use_relative_positional_embeddings = getattr(
-        args, "use_relative_positional_embeddings", False
     )
     args.adaptive_input = getattr(args, "adaptive_input", False)
     args.no_cross_attention = getattr(args, "no_cross_attention", False)

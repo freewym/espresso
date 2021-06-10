@@ -70,13 +70,15 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
                             help="num encoder attention heads")
         parser.add_argument("--encoder-normalize-before", action="store_true",
                             help="apply layernorm before each encoder block")
+        parser.add_argument("--encoder-learned-pos", action="store_true",
+                            help="use learned positional embeddings in the encoder")
+        parser.add_argument("--encoder-relative-positional-embeddings", action="store_true",
+                            help="if set, uses relative positional embeddings (inside self attention) for encoder")
         parser.add_argument("--encoder-transformer-context", type=str, metavar="EXPR",
                             help="left/right context for time-restricted self-attention; "
                                  "can be None or a tuple of two non-negative integers/None")
         parser.add_argument("--no-token-positional-embeddings", action="store_true",
                             help="if set, disables positional embeddings (outside self attention)")
-        parser.add_argument("--use-relative-positional-embeddings", action="store_true",
-                            help="if set, uses relative positional embeddings (inside self attention)")
         parser.add_argument("--layernorm-embedding", action="store_true",
                             help="add layernorm to embedding")
         parser.add_argument("--checkpoint-activations", action="store_true",
@@ -399,6 +401,7 @@ def base_architecture(args):
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
     args.encoder_learned_pos = getattr(args, "encoder_learned_pos", False)
+    args.encoder_relative_positional_embeddings = getattr(args, "encoder_relative_positional_embeddings", False)
     args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
     args.attention_dropout = getattr(args, "attention_dropout", 0.2)
     args.activation_dropout = getattr(args, "activation_dropout", 0.2)
@@ -406,9 +409,6 @@ def base_architecture(args):
     args.dropout = getattr(args, "dropout", 0.2)
     args.no_token_positional_embeddings = getattr(
         args, "no_token_positional_embeddings", False
-    )
-    args.use_relative_positional_embeddings = getattr(
-        args, "use_relative_positional_embeddings", False
     )
     args.adaptive_input = getattr(args, "adaptive_input", False)
     args.layernorm_embedding = getattr(args, "layernorm_embedding", False)

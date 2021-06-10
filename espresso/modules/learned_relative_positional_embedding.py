@@ -32,11 +32,10 @@ class LearnedRelativePositionalEmbedding(nn.Embedding):
         self.reset_parameters()
 
     def reset_parameters(self):
-        #nn.init.normal_(self.weight, mean=0.0, std=self.embedding_dim ** -0.5)
         nn.init.xavier_uniform_(self.weight)
         if self.padding_idx is not None:
             nn.init.constant_(self.weight[self.padding_idx], 0.0)
-    
+
     def forward(
         self,
         input: Tensor,

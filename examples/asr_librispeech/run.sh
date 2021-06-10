@@ -232,7 +232,7 @@ if [ ${stage} -le 8 ]; then
   opts=""
   if $use_transformer; then
     update_freq=$(((8+ngpus-1)/ngpus))
-    opts="$opts --arch speech_transformer_librispeech --max-tokens 22000 --max-epoch 100 --lr-scheduler tri_stage"
+    opts="$opts --arch speech_transformer_librispeech --max-tokens 22000 --max-epoch 100 --lr-scheduler tri_stage --encoder-relative-positional-embeddings"
     opts="$opts --warmup-steps $((25000/ngpus/update_freq)) --hold-steps $((900000/ngpus/update_freq)) --decay-steps $((1550000/ngpus/update_freq))"
     if $apply_specaug; then
       specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
