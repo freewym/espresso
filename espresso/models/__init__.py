@@ -3,12 +3,11 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import importlib
 import os
+
+from fairseq.models import import_models
 
 
 # automatically import any Python files in the models/ directory
-for file in sorted(os.listdir(os.path.dirname(__file__))):
-    if not file.startswith("_") and not file.startswith(".") and file.endswith(".py"):
-        file_name = file[: file.find(".py")]
-        importlib.import_module("espresso.models." + file_name)
+models_dir = os.path.dirname(__file__)
+import_models(models_dir, "espresso.models")
