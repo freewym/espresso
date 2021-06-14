@@ -90,6 +90,8 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         xformers_blocksparse_blocksize: Optional[
             int
         ] = 16,  # This should be part of the config
+        relative_pos_embedding_type: Optional[str] = None,
+        max_relative_pos: Optional[int] = None,
     ):
         super().__init__(dictionary)
 
@@ -161,6 +163,16 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         self.onnx_trace = False
         self.skip_embed_dim_check = False
         self.init_incremental_state()
+
+        self.positional_embedding = None
+        if relative_pos_embedding_type is not None:
+            assert relative_pos_embedding_type in ["learned", "sinusoidal"]
+            from espresso.modules import RelativePositionalEmbedding
+
+            self.positional_embedding = RelativePositionalEmbedding(
+                embed_dim, padding_idx=None, max_size=max_relative_pos,
+                learned=(relative_pos_embedding_type == "learned"),
+            )
 
     def prepare_for_onnx_export_(self):
         self.onnx_trace = True
@@ -527,6 +539,7 @@ class MultiheadAttention(FairseqIncrementalDecoder):
             # Since pruning will break the dimension check and it is not easy to modify the pytorch API,
             # it is preferred to bypass the pytorch MHA when we need to skip embed_dim_check
             and not self.skip_embed_dim_check
+            and self.positional_embedding is None
         ):
             assert key is not None and value is not None
 
@@ -701,6 +714,25 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         else:
             attn_weights = torch.bmm(q, k.transpose(1, 2))
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
+
+        if self.positional_embedding is not None:
+            assert src_len >= tgt_len, f"{src_len} vs {tgt_len}"
+            if key_padding_mask is not None:
+                pe = self.positional_embedding(~(key_padding_mask.bool()))  # bsz x (2*src_len-1) x embed_dim
+            else:
+                pe = self.positional_embedding(k.new_ones([bsz, src_len], dtype=torch.bool))
+            pe = pe.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2)  # bsz x num_heads x (2*src_len-1) x head_dim
+            pe = pe.reshape(bsz * self.num_heads, -1, self.head_dim)
+            positional_logits = torch.bmm(q, pe.transpose(1, 2))
+            assert list(positional_logits.size()) == [bsz * self.num_heads, tgt_len, 2 * src_len - 1]
+            batch_head_stride, tgt_stride, src_stride = positional_logits.stride()
+            # assume src (key) and tgt (query) sequences are right-aligned
+            positional_logits = positional_logits.as_strided(
+                (bsz * self.num_heads, tgt_len, src_len),
+                (batch_head_stride, tgt_stride - src_stride, src_stride),
+                storage_offset=src_stride * (tgt_len - 1)
+            )
+            attn_weights = attn_weights + positional_logits
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
 

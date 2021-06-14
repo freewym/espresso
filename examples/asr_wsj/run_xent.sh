@@ -180,7 +180,7 @@ if [ ${stage} -le 5 ]; then
     --arch speech_tdnn_wsj --criterion subsampled_cross_entropy_with_accuracy --num-targets $num_targets \
     --initial-state-prior-file $state_prior_file --state-prior-update-interval 10 --state-prior-update-smoothing 0.01 \
     --chunk-width 150 --chunk-left-context 10 --chunk-right-context 10 --label-delay -3 \
-    --max-source-positions 9999 --max-target-positions 9999 2>&1 | tee $log_file
+    --max-source-positions 3000 --max-target-positions 3000 2>&1 | tee $log_file
 fi
 
 if [ ${stage} -le 6 ]; then
