@@ -299,7 +299,7 @@ if [ ${stage} -le 9 ]; then
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
     --criterion label_smoothed_cross_entropy_v2 --label-smoothing 0.05 --smoothing-type temporal \
     --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
-    --max-source-positions 9999 --max-target-positions 999 $opts 2>&1 | tee $log_file
+    --max-source-positions 3000 --max-target-positions 300 $opts 2>&1 | tee $log_file
 fi
 
 if [ ${stage} -le 10 ]; then
