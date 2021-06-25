@@ -291,7 +291,7 @@ if [ ${stage} -le 9 ]; then
   fi
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py data --task speech_recognition_espresso --seed 1 \
     --log-interval $((800/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((2000/ngpus/update_freq)) \
-    --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --batch-size 32 --curriculum 2 --empty-cache-freq 10 \
+    --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --batch-size 32 --curriculum 2 --empty-cache-freq 2 \
     --valid-subset $valid_subset --batch-size-valid 64 --ddp-backend legacy_ddp --update-freq $update_freq \
     --distributed-world-size $ngpus \
     --optimizer adam --lr 0.001 --weight-decay 0.0 \
