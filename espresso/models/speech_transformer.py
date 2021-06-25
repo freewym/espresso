@@ -686,7 +686,7 @@ class SpeechTransformerEncoder(TransformerEncoder):
             "encoder_embedding": [],
             "encoder_states": encoder_states,  # List[T x B x C]
             "src_tokens": [],
-            "src_lengths": [],
+            "src_lengths": [src_lengths],  # List[B]
         }
 
     def max_positions(self):
