@@ -185,7 +185,7 @@ if [ ${stage} -le 5 ]; then
   [ -f $lmdir/checkpoint_last.pt ] && log_file="-a $log_file"
   opts=""
   [ ! -z "$seed" ] && opts="$opts common.seed=$seed"
-  [ ! -z "$lm_tensorboard_logdir" ] && opts="$opts common.tensorboard_logdir=$lm_tensorboard_logdir"
+  [ ! -z "$lm_tensorboard_logdir" ] && opts="$opts +common.tensorboard_logdir=$lm_tensorboard_logdir"
   update_freq=$(((2+ngpus-1)/ngpus))
   CUDA_VISIBLE_DEVICES=$free_gpu fairseq-hydra-train \
     task.data=$(realpath $lmdatadir) task.dict=$(realpath $lmdict) \
@@ -220,7 +220,7 @@ if [ ${stage} -le 7 ]; then
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   opts=""
   [ ! -z "$seed" ] && opts="$opts common.seed=$seed"
-  [ ! -z "$tensorboard_logdir" ] && opts="$opts common.tensorboard_logdir=$tensorboard_logdir"
+  [ ! -z "$tensorboard_logdir" ] && opts="$opts +common.tensorboard_logdir=$tensorboard_logdir"
   if $apply_global_cmvn; then
     [ ! -f "$gcmvn_file" ] && echo "$gcmvn_file not found. Please generate it first" && exit 1;
     opts="$opts task.global_cmvn_stats_path=$(realpath $gcmvn_file)"
