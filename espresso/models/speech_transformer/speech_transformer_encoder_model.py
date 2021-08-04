@@ -18,18 +18,18 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.models.transformer import Linear
+from fairseq.models.transformer import (
+    DEFAULT_MIN_PARAMS_TO_WRAP,
+    Linear,
+)
 from omegaconf import DictConfig
 
 from espresso.models.speech_transformer import SpeechTransformerEncoder
+from espresso.models.speech_transformer.speech_transformer_model import (
+    DEFAULT_MAX_SOURCE_POSITIONS,
+)
 from espresso.modules.speech_convolutions import ConvBNReLU
 import espresso.tools.utils as speech_utils
-
-
-DEFAULT_MAX_SOURCE_POSITIONS = 10240
-
-
-DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
 
 
 logger = logging.getLogger(__name__)
