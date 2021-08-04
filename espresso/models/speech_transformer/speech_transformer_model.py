@@ -5,11 +5,7 @@
 
 from dataclasses import dataclass, field
 import logging
-from typing import Any, Dict, List, Optional
-
-import torch
-from torch import Tensor
-import torch.nn as nn
+from typing import List, Optional
 
 from fairseq import utils
 from fairseq.dataclass import ChoiceEnum, FairseqDataclass
@@ -19,35 +15,20 @@ from fairseq.models import (
     register_model_architecture,
 )
 from fairseq.models.transformer import (
-    Linear,
-    TransformerModel,
+    DEFAULT_MIN_PARAMS_TO_WRAP,
     TransformerEncoder,
-    TransformerDecoder,
+    TransformerModel,
 )
-from fairseq.modules import (
-    FairseqDropout,
-    LayerDropModuleList,
-    LayerNorm,
-    PositionalEmbedding,
-)
-from fairseq.modules.checkpoint_activations import checkpoint_wrapper
-from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 from omegaconf import II
 
-from espresso.modules import (
-    ConvBNReLU,
-    TransformerWithRelativePositionalEmbeddingDecoderLayer,
-    TransformerWithRelativePositionalEmbeddingEncoderLayer,
-)
+from espresso.models import speech_transformer
+from espresso.modules import ConvBNReLU
 from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
 import espresso.tools.utils as speech_utils
 
 
 DEFAULT_MAX_SOURCE_POSITIONS = 10240
 DEFAULT_MAX_TARGET_POSITIONS = 1024
-
-
-DEFAULT_MIN_PARAMS_TO_WRAP = int(1e8)
 
 
 logger = logging.getLogger(__name__)
@@ -389,14 +370,14 @@ class SpeechTransformerModel(TransformerModel):
 
     @classmethod
     def build_encoder(cls, args, conv_layers_before=None, input_size=83, transformer_context=None):
-        return SpeechTransformerEncoder(
+        return speech_transformer.SpeechTransformerEncoder(
             args, conv_layers_before=conv_layers_before, input_size=input_size,
             transformer_context=transformer_context,
         )
 
     @classmethod
     def build_decoder(cls, args, tgt_dict, embed_tokens, scheduled_sampling_rate_scheduler=None):
-        return SpeechTransformerDecoder(
+        return speech_transformer.SpeechTransformerDecoder(
             args,
             tgt_dict,
             embed_tokens,
@@ -437,406 +418,6 @@ class SpeechTransformerModel(TransformerModel):
             epoch=epoch,
         )
         return decoder_out
-
-
-class SpeechTransformerEncoder(TransformerEncoder):
-    """
-    Transformer encoder consisting of 2D convolution layers and
-    *args.encoder_layers* layers. Each layer is a :class:`TransformerEncoderLayer`.
-
-    Args:
-        args (argparse.Namespace): parsed command-line arguments
-        conv_layers_before (~espresso.modules.ConvBNReLU): convolutions before
-            transformer layers
-        input_size (int, optional): dimension of the input to the transformer
-            before being projected to args.encoder_embed_dim
-    """
-
-    def __init__(self, args, conv_layers_before=None, input_size=83, transformer_context=None):
-        self.args = args
-        super(TransformerEncoder, self).__init__(None)  # no src dictionary
-        self.register_buffer("version", torch.Tensor([3]))
-
-        self.dropout_module = FairseqDropout(
-            args.dropout, module_name=self.__class__.__name__
-        )
-        self.encoder_layerdrop = args.encoder_layerdrop
-
-        embed_dim = args.encoder_embed_dim
-        self.max_source_positions = args.max_source_positions
-
-        self.conv_layers_before = conv_layers_before
-        self.fc0 = Linear(input_size, embed_dim) if input_size != embed_dim else None
-
-        if not args.no_token_positional_embeddings and args.encoder_relative_positional_embeddings:
-            logger.info("disabled encoder's absolute positional embeddings as encoder_relative_positional_embeddings is True.")
-        self.embed_positions = (
-            PositionalEmbedding(
-                self.output_lengths(self.max_source_positions),
-                embed_dim,
-                0,
-                learned=args.encoder_learned_pos,
-            )
-            if not args.no_token_positional_embeddings and not args.encoder_relative_positional_embeddings
-            else None
-        )
-
-        export = getattr(args, "export", False)
-        if getattr(args, "layernorm_embedding", False):
-            self.layernorm_embedding = LayerNorm(embed_dim, export=export)
-        else:
-            self.layernorm_embedding = None
-
-        if not args.adaptive_input and args.quant_noise_pq > 0:
-            self.quant_noise = apply_quant_noise_(
-                nn.Linear(embed_dim, embed_dim, bias=False),
-                args.quant_noise_pq,
-                args.quant_noise_pq_block_size,
-            )
-        else:
-            self.quant_noise = None
-
-        if self.encoder_layerdrop > 0.0:
-            self.layers = LayerDropModuleList(p=self.encoder_layerdrop)
-        else:
-            self.layers = nn.ModuleList([])
-        self.layers.extend(
-            [self.build_encoder_layer(args) for i in range(args.encoder_layers)]
-        )
-        self.num_layers = len(self.layers)
-
-        if args.encoder_normalize_before:
-            self.layer_norm = LayerNorm(embed_dim, export=export)
-        else:
-            self.layer_norm = None
-
-        self.transformer_context = transformer_context
-
-    def build_encoder_layer(self, args):
-        orig_max_source_positions = args.max_source_positions
-        args.max_source_positions = self.output_lengths(args.max_source_positions)
-        layer = TransformerWithRelativePositionalEmbeddingEncoderLayer(args)
-        args.max_source_positions = orig_max_source_positions
-        checkpoint = getattr(args, "checkpoint_activations", False)
-        if checkpoint:
-            offload_to_cpu = getattr(args, "offload_activations", False)
-            layer = checkpoint_wrapper(layer, offload_to_cpu=offload_to_cpu)
-        # if we are checkpointing, enforce that FSDP always wraps the
-        # checkpointed layer, regardless of layer size
-        min_params_to_wrap = (
-            getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
-            if not checkpoint
-            else 0
-        )
-        layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
-        return layer
-
-    def output_lengths(self, in_lengths):
-        return (
-            in_lengths if self.conv_layers_before is None
-            else self.conv_layers_before.output_lengths(in_lengths)
-        )
-
-    def get_attn_mask(self, in_lengths):
-        """
-        Create attention mask according to sequence lengths and transformer context.
-
-        Args:
-            in_lengths (LongTensor): lengths of each input sequence of shape `(batch)`
-
-        Returns:
-            attn_mask (ByteTensor|BoolTensor, optional): self-attention mask of shape
-            `(tgt_len, src_len)`, where `tgt_len` is the length of output and `src_len`
-            is the length of input, though here both are equal to `seq_len`.
-            `attn_mask[tgt_i, src_j] = 1` means that when calculating the
-            embedding for `tgt_i`, we exclude (mask out) `src_j`.
-        """
-        if (
-            self.transformer_context is None
-            or (self.transformer_context[0] is None and self.transformer_context[1] is None)
-        ):
-            return None
-        max_len = in_lengths.data.max()
-        all_ones = in_lengths.ones([max_len, max_len], dtype=torch.bool)
-        # at this point left and right context cannot be both None
-        if self.transformer_context[0] is None:  # mask is a triu matrix
-            return all_ones.triu(self.transformer_context[1] + 1)
-        if self.transformer_context[1] is None:  # mask is a tril matrix
-            return all_ones.tril(-self.transformer_context[0] - 1)
-        return (
-            all_ones.triu(self.transformer_context[1] + 1) | all_ones.tril(-self.transformer_context[0] - 1)
-        )
-
-    def forward(
-        self,
-        src_tokens,
-        src_lengths,
-        return_all_hiddens: bool = False,
-    ):
-        """
-        Args:
-            src_tokens (LongTensor): tokens in the source language of shape
-                `(batch, src_len)`
-            src_lengths (torch.LongTensor): lengths of each source sentence of
-                shape `(batch)`
-            return_all_hiddens (bool, optional): also return all of the
-                intermediate hidden states (default: False).
-
-        Returns:
-            dict:
-                - **encoder_out** (Tensor): the last encoder layer's output of
-                  shape `(src_len, batch, embed_dim)`
-                - **encoder_padding_mask** (ByteTensor): the positions of
-                  padding elements of shape `(batch, src_len)`
-                - **encoder_embedding** (Tensor): the (scaled) embedding lookup
-                  of shape `(batch, src_len, embed_dim)`
-                - **encoder_states** (List[Tensor]): all intermediate
-                  hidden states of shape `(src_len, batch, embed_dim)`.
-                  Only populated if *return_all_hiddens* is True.
-        """
-        return self.forward_scriptable(src_tokens, src_lengths, return_all_hiddens)
-
-    # TorchScript doesn't support super() method so that the scriptable Subclass
-    # can't access the base class model in Torchscript.
-    # Current workaround is to add a helper function with different name and
-    # call the helper function from scriptable Subclass.
-    def forward_scriptable(
-        self,
-        src_tokens,
-        src_lengths,
-        return_all_hiddens: bool = False,
-    ):
-        """
-        Args:
-            src_tokens (LongTensor): tokens in the source language of shape
-                `(batch, src_len)`
-            src_lengths (torch.LongTensor): lengths of each source sentence of
-                shape `(batch)`
-            return_all_hiddens (bool, optional): also return all of the
-                intermediate hidden states (default: False).
-
-        Returns:
-            dict:
-                - **encoder_out** (Tensor): the last encoder layer's output of
-                  shape `(src_len, batch, embed_dim)`
-                - **encoder_padding_mask** (ByteTensor): the positions of
-                  padding elements of shape `(batch, src_len)`
-                - **encoder_embedding** (Tensor): the (scaled) embedding lookup
-                  of shape `(batch, src_len, embed_dim)`
-                - **encoder_states** (List[Tensor]): all intermediate
-                  hidden states of shape `(src_len, batch, embed_dim)`.
-                  Only populated if *return_all_hiddens* is True.
-        """
-        if self.conv_layers_before is not None:
-            x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens, src_lengths)
-        else:
-            x, encoder_padding_mask = (
-                src_tokens,
-                ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
-            )
-        has_pads = src_tokens.device.type == "xla" or encoder_padding_mask.any()
-
-        x = self.dropout_module(x)
-        if self.fc0 is not None:
-            x = self.fc0(x)
-            if self.embed_positions is not None:
-                # 0s in `~encoder_padding_mask` are used as pad_idx for positional embeddings
-                x = x + self.embed_positions((~encoder_padding_mask).int())
-            if self.layernorm_embedding is not None:
-                x = self.layernorm_embedding(x)
-            x = self.dropout_module(x)
-        elif self.embed_positions is not None:
-            # 0s in `~encoder_padding_mask` are used as pad_idx for positional embeddings
-            x = x + self.embed_positions((~encoder_padding_mask).int())
-            if self.layernorm_embedding is not None:
-                x = self.layernorm_embedding(x)
-
-        # account for padding while computing the representation
-        if has_pads:
-            x = x * (1 - encoder_padding_mask.unsqueeze(-1).type_as(x))
-
-        # B x T x C -> T x B x C
-        x = x.transpose(0, 1)
-
-        encoder_states = []
-
-        if return_all_hiddens:
-            encoder_states.append(x)
-
-        attn_mask = self.get_attn_mask(src_lengths)
-
-        # encoder layers
-        for layer in self.layers:
-            x = layer(x, encoder_padding_mask=encoder_padding_mask if has_pads else None, attn_mask=attn_mask)
-            if return_all_hiddens:
-                assert encoder_states is not None
-                encoder_states.append(x)
-
-        if self.layer_norm is not None:
-            x = self.layer_norm(x)
-
-        # The Pytorch Mobile lite interpreter does not supports returning NamedTuple in
-        # `forward` so we use a dictionary instead.
-        # TorchScript does not support mixed values so the values are all lists.
-        # The empty list is equivalent to None.
-        return {
-            "encoder_out": [x],  # T x B x C
-            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any()
-            else [],  # B x T
-            "encoder_embedding": [],
-            "encoder_states": encoder_states,  # List[T x B x C]
-            "src_tokens": [],
-            "src_lengths": [src_lengths],  # List[B]
-        }
-
-    def max_positions(self):
-        """Maximum input length supported by the encoder."""
-        return self.max_source_positions
-
-
-class SpeechTransformerDecoder(TransformerDecoder):
-    def __init__(
-        self,
-        args,
-        dictionary,
-        embed_tokens,
-        no_encoder_attn=False,
-        output_projection=None,
-        scheduled_sampling_rate_scheduler=None,
-    ):
-        is_no_token_positional_embeddings_changed = False
-        if not args.no_token_positional_embeddings and args.decoder_relative_positional_embeddings:
-            args.no_token_positional_embeddings = True
-            is_no_token_positional_embeddings_changed = True
-            logger.info("disabled decoder's absolute positional embeddings as decoder_relative_positional_embeddings is True.")
-        super().__init__(args, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn, output_projection=output_projection)
-        if is_no_token_positional_embeddings_changed:
-            args.no_token_positional_embeddings = not args.no_token_positional_embeddings
-
-        self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
-        for layer in self.layers:
-            if isinstance(layer, TransformerWithRelativePositionalEmbeddingDecoderLayer):
-                layer.need_attn = False  # make validation fast
-
-    def build_decoder_layer(self, args, no_encoder_attn=False):
-        layer = TransformerWithRelativePositionalEmbeddingDecoderLayer(args, no_encoder_attn)
-        checkpoint = getattr(args, "checkpoint_activations", False)
-        if checkpoint:
-            offload_to_cpu = getattr(args, "offload_activations", False)
-            layer = checkpoint_wrapper(layer, offload_to_cpu=offload_to_cpu)
-        # if we are checkpointing, enforce that FSDP always wraps the
-        # checkpointed layer, regardless of layer size
-        min_params_to_wrap = (
-            getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
-            if not checkpoint
-            else 0
-        )
-        layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
-        return layer
-
-    def forward(
-        self,
-        prev_output_tokens,
-        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
-        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
-        features_only: bool = False,
-        full_context_alignment: bool = False,
-        alignment_layer: Optional[int] = None,
-        alignment_heads: Optional[int] = None,
-        src_lengths: Optional[Any] = None,
-        return_all_hiddens: bool = False,
-        **kwargs,
-    ):
-        """
-        Args:
-            prev_output_tokens (LongTensor): previous decoder outputs of shape
-                `(batch, tgt_len)`, for input feeding/teacher forcing
-            encoder_out (optional): output from the encoder, used for
-                encoder-side attention
-            incremental_state (dict): dictionary used for storing state during
-                :ref:`Incremental decoding`
-            features_only (bool, optional): only return features without
-                applying output layer (default: False).
-            full_context_alignment (bool, optional): don't apply
-                auto-regressive mask to self-attention (default: False).
-
-        Returns:
-            tuple:
-                - the decoder's output of shape `(batch, tgt_len, vocab)`
-                - a dictionary with any model-specific outputs
-        """
-
-        if self.training and alignment_layer is None:  # no attention tensors during training to save memory
-            alignment_layer = self.num_layers  # can be any value no less than this
-        if self.training and self.scheduled_sampling_rate_scheduler is not None:
-            epoch = kwargs.get("epoch", 1)
-            sampling_prob = self.scheduled_sampling_rate_scheduler.step(epoch)
-            if sampling_prob < 1.0:  # apply scheduled sampling
-                assert not features_only
-                return self._forward_with_scheduled_sampling(
-                    prev_output_tokens, sampling_prob, encoder_out=encoder_out,
-                    incremental_state={},  # use empty dict to preserve forward state
-                    full_context_alignment=full_context_alignment,
-                    alignment_layer=alignment_layer,
-                    alignment_heads=alignment_heads,
-                    src_lengths=src_lengths,
-                    return_all_hiddens=return_all_hiddens,
-                )
-
-        x, extra = self.extract_features(
-            prev_output_tokens,
-            encoder_out=encoder_out,
-            incremental_state=incremental_state,
-            full_context_alignment=full_context_alignment,
-            alignment_layer=alignment_layer,
-            alignment_heads=alignment_heads,
-        )
-        if not features_only:
-            x = self.output_layer(x)
-        return x, extra
-
-    def _forward_with_scheduled_sampling(
-        self,
-        prev_output_tokens,
-        sampling_prob,
-        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
-        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
-        features_only: bool = False,
-        full_context_alignment: bool = False,
-        alignment_layer: Optional[int] = None,
-        alignment_heads: Optional[int] = None,
-        src_lengths: Optional[Any] = None,
-        return_all_hiddens: bool = False,
-    ):
-        bsz, seqlen = prev_output_tokens.size()
-        outs = []
-        pred = None
-        for step in range(seqlen):
-            if step > 0:
-                sampling_mask = torch.rand(
-                    [bsz, 1], device=prev_output_tokens.device,
-                ).lt(sampling_prob)
-                feed_tokens = torch.where(
-                    sampling_mask, prev_output_tokens[:, step:step + 1], pred,
-                )
-            else:
-                feed_tokens = prev_output_tokens[:, step:step + 1]  # B x 1
-            x, _ = self.extract_features(
-                feed_tokens,
-                encoder_out=encoder_out,
-                incremental_state=incremental_state,
-                full_context_alignment=full_context_alignment,
-                alignment_layer=alignment_layer,
-                alignment_heads=alignment_heads,
-            )
-            x = self.output_layer(x)  # B x 1 x V
-            outs.append(x)
-            pred = x.argmax(-1)  # B x 1
-        x = torch.cat(outs, dim=1)  # B x T x V
-        return x, None
-
-    def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
-        raise NotImplementedError
 
 
 def base_architecture(args):
