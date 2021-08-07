@@ -8,26 +8,32 @@ from typing import Any, Dict, List, Optional
 
 import torch
 from torch import Tensor
-import torch.nn as nn
 
-from fairseq import utils
 from fairseq.distributed import fsdp_wrap
-from fairseq.models.transformer import (
-    DEFAULT_MIN_PARAMS_TO_WRAP,
-    TransformerDecoder,
-)
+from fairseq.models.transformer import TransformerDecoderBase
 from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 
-from espresso.modules import TransformerWithRelativePositionalEmbeddingDecoderLayer
+from espresso.models.transformer import SpeechTransformerConfig
+from espresso.modules import (
+    TransformerWithRelativePositionalEmbeddingDecoderLayerBase,
+)
 
 
 logger = logging.getLogger(__name__)
 
 
-class SpeechTransformerDecoder(TransformerDecoder):
+# rewrite name for backward compatibility in `make_generation_fast_`
+def module_name_fordropout(module_name: str) -> str:
+    if module_name == "SpeechTransformerDecoderBase":
+        return "SpeechTransformerDecoder"
+    else:
+        return module_name
+
+
+class SpeechTransformerDecoderBase(TransformerDecoderBase):
     def __init__(
         self,
-        args,
+        cfg,
         dictionary,
         embed_tokens,
         no_encoder_attn=False,
@@ -35,32 +41,29 @@ class SpeechTransformerDecoder(TransformerDecoder):
         scheduled_sampling_rate_scheduler=None,
     ):
         is_no_token_positional_embeddings_changed = False
-        if not args.no_token_positional_embeddings and args.decoder_relative_positional_embeddings:
-            args.no_token_positional_embeddings = True
+        if not cfg.no_token_positional_embeddings and cfg.decoder.relative_positional_embeddings:
+            cfg.no_token_positional_embeddings = True
             is_no_token_positional_embeddings_changed = True
             logger.info("disabled decoder's absolute positional embeddings as decoder_relative_positional_embeddings is True.")
-        super().__init__(args, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn, output_projection=output_projection)
+        super().__init__(cfg, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn, output_projection=output_projection)
+        self.dropout_module.module_name = module_name_fordropout(self.__class__.__name__)
         if is_no_token_positional_embeddings_changed:
-            args.no_token_positional_embeddings = not args.no_token_positional_embeddings
+            cfg.no_token_positional_embeddings = not cfg.no_token_positional_embeddings
 
         self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
         for layer in self.layers:
-            if isinstance(layer, TransformerWithRelativePositionalEmbeddingDecoderLayer):
+            if isinstance(layer, TransformerWithRelativePositionalEmbeddingDecoderLayerBase):
                 layer.need_attn = False  # make validation fast
 
-    def build_decoder_layer(self, args, no_encoder_attn=False):
-        layer = TransformerWithRelativePositionalEmbeddingDecoderLayer(args, no_encoder_attn)
-        checkpoint = getattr(args, "checkpoint_activations", False)
+    def build_decoder_layer(self, cfg, no_encoder_attn=False):
+        layer = TransformerWithRelativePositionalEmbeddingDecoderLayerBase(cfg, no_encoder_attn)
+        checkpoint = cfg.checkpoint_activations
         if checkpoint:
-            offload_to_cpu = getattr(args, "offload_activations", False)
+            offload_to_cpu = cfg.offload_activations
             layer = checkpoint_wrapper(layer, offload_to_cpu=offload_to_cpu)
         # if we are checkpointing, enforce that FSDP always wraps the
         # checkpointed layer, regardless of layer size
-        min_params_to_wrap = (
-            getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
-            if not checkpoint
-            else 0
-        )
+        min_params_to_wrap = cfg.min_params_to_wrap if not checkpoint else 0
         layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
         return layer
 
@@ -167,3 +170,34 @@ class SpeechTransformerDecoder(TransformerDecoder):
 
     def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
         raise NotImplementedError
+
+
+class SpeechTransformerDecoder(SpeechTransformerDecoderBase):
+    def __init__(
+        self,
+        args,
+        dictionary,
+        embed_tokens,
+        no_encoder_attn=False,
+        output_projection=None,
+        scheduled_sampling_rate_scheduler=None,
+    ):
+        self.args = args
+        super().__init__(
+            SpeechTransformerConfig.from_namespace(args),
+            dictionary,
+            embed_tokens,
+            no_encoder_attn=no_encoder_attn,
+            output_projection=output_projection,
+            scheduled_sampling_rate_scheduler=scheduled_sampling_rate_scheduler,
+        )
+
+    def build_output_projection(self, args, dictionary, embed_tokens):
+        super().build_output_projection(
+            SpeechTransformerConfig.from_namespace(args), dictionary, embed_tokens
+        )
+
+    def build_decoder_layer(self, args, no_encoder_attn=False):
+        return super().build_decoder_layer(
+            SpeechTransformerConfig.from_namespace(args), no_encoder_attn=no_encoder_attn
+        )
