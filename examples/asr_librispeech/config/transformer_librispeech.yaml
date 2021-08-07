@@ -62,30 +62,32 @@ lr_scheduler:
   decay_steps: 193750
 
 model:
-  _name: speech_transformer
-  encoder_conv_channels: "[64, 64, 128, 128]"
-  encoder_conv_kernel_sizes: "[(3, 3), (3, 3), (3, 3), (3, 3)]"
-  encoder_conv_strides: "[(1, 1), (2, 2), (1, 1), (2, 2)]"
-  encoder_embed_dim: 512
-  encoder_ffn_embed_dim: 2048
-  encoder_layers: 12
-  encoder_attention_heads: 8
-  encoder_normalize_before: true
-  encoder_learned_pos: false
-  encoder_relative_positional_embeddings: true
-  decoder_embed_dim: 512
-  decoder_ffn_embed_dim: 2048
-  decoder_layers: 6
-  decoder_attention_heads: 8
-  decoder_normalize_before: true
-  decoder_learned_pos: false
-  decoder_relative_positional_embeddings: false
+  _name: speech_transformer_base
+  encoder:
+    conv_channels: "[64, 64, 128, 128]"
+    conv_kernel_sizes: "[(3, 3), (3, 3), (3, 3), (3, 3)]"
+    conv_strides: "[(1, 1), (2, 2), (1, 1), (2, 2)]"
+    embed_dim: 512
+    ffn_embed_dim: 2048
+    layers: 12
+    attention_heads: 8
+    normalize_before: true
+    learned_pos: false
+    relative_positional_embeddings: true
+  decoder:
+    embed_dim: 512
+    ffn_embed_dim: 2048
+    layers: 6
+    attention_heads: 8
+    normalize_before: true
+    learned_pos: false
+    relative_positional_embeddings: false
+    input_dim: 512
+    output_dim: 512
   attention_dropout: 0.1
   activation_dropout: 0.1
   dropout: 0.1
   activation_fn: relu
-  decoder_output_dim: 512
-  decoder_input_dim: 512
 
 bpe:
   _name: sentencepiece
