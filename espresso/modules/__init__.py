@@ -8,7 +8,9 @@ from .speech_attention import BahdanauAttention, LuongAttention
 from .speech_convolutions import ConvBNReLU
 from .transformer_with_relative_positional_embedding_layer import (
     TransformerWithRelativePositionalEmbeddingDecoderLayer,
+    TransformerWithRelativePositionalEmbeddingDecoderLayerBase,
     TransformerWithRelativePositionalEmbeddingEncoderLayer,
+    TransformerWithRelativePositionalEmbeddingEncoderLayerBase,
 )
 
 
@@ -18,5 +20,7 @@ __all__ = [
     "LuongAttention",
     "RelativePositionalEmbedding",
     "TransformerWithRelativePositionalEmbeddingDecoderLayer",
+    "TransformerWithRelativePositionalEmbeddingDecoderLayerBase",
     "TransformerWithRelativePositionalEmbeddingEncoderLayer",
+    "TransformerWithRelativePositionalEmbeddingEncoderLayerBase",
 ]

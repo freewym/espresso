@@ -10,9 +10,8 @@ import torch.nn as nn
 
 from fairseq.distributed import fsdp_wrap
 from fairseq.models.transformer import (
-    DEFAULT_MIN_PARAMS_TO_WRAP,
     Linear,
-    TransformerEncoder,
+    TransformerEncoderBase,
 )
 from fairseq.modules import (
     FairseqDropout,
@@ -23,9 +22,9 @@ from fairseq.modules import (
 from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 
+from espresso.models.transformer import SpeechTransformerConfig
 from espresso.modules import (
-    ConvBNReLU,
-    TransformerWithRelativePositionalEmbeddingEncoderLayer,
+    TransformerWithRelativePositionalEmbeddingEncoderLayerBase,
 )
 import espresso.tools.utils as speech_utils
 
@@ -33,60 +32,67 @@ import espresso.tools.utils as speech_utils
 logger = logging.getLogger(__name__)
 
 
-class SpeechTransformerEncoder(TransformerEncoder):
+# rewrite name for backward compatibility in `make_generation_fast_`
+def module_name_fordropout(module_name: str) -> str:
+    if module_name == 'SpeechTransformerEncoderBase':
+        return 'SpeechTransformerEncoder'
+    else:
+        return module_name
+
+
+class SpeechTransformerEncoderBase(TransformerEncoderBase):
     """
     Transformer encoder consisting of 2D convolution layers and
-    *args.encoder_layers* layers. Each layer is a
+    *cfg.encoder.layers* layers. Each layer is a
     :class:`TransformerWithRelativePositionalEmbeddingEncoderLayer`.
 
     Args:
-        args (argparse.Namespace): parsed command-line arguments
+        cfg (FairseqDataclass): model configuration
         conv_layers_before (~espresso.modules.ConvBNReLU): convolutions before
             transformer layers
         input_size (int, optional): dimension of the input to the transformer
-            before being projected to args.encoder_embed_dim
+            before being projected to cfg.encoder.embed_dim
     """
 
-    def __init__(self, args, conv_layers_before=None, input_size=83, transformer_context=None):
-        self.args = args
-        super(TransformerEncoder, self).__init__(None)  # no src dictionary
+    def __init__(self, cfg, conv_layers_before=None, input_size=83, transformer_context=None):
+        self.cfg = cfg
+        super(TransformerEncoderBase, self).__init__(None)  # no src dictionary
         self.register_buffer("version", torch.Tensor([3]))
 
         self.dropout_module = FairseqDropout(
-            args.dropout, module_name=self.__class__.__name__
+            cfg.dropout, module_name=module_name_fordropout(self.__class__.__name__)
         )
-        self.encoder_layerdrop = args.encoder_layerdrop
+        self.encoder_layerdrop = cfg.encoder.layerdrop
 
-        embed_dim = args.encoder_embed_dim
-        self.max_source_positions = args.max_source_positions
+        embed_dim = cfg.encoder.embed_dim
+        self.max_source_positions = cfg.max_source_positions
 
         self.conv_layers_before = conv_layers_before
         self.fc0 = Linear(input_size, embed_dim) if input_size != embed_dim else None
 
-        if not args.no_token_positional_embeddings and args.encoder_relative_positional_embeddings:
+        if not cfg.no_token_positional_embeddings and cfg.encoder.relative_positional_embeddings:
             logger.info("disabled encoder's absolute positional embeddings as encoder_relative_positional_embeddings is True.")
         self.embed_positions = (
             PositionalEmbedding(
                 self.output_lengths(self.max_source_positions),
                 embed_dim,
                 0,
-                learned=args.encoder_learned_pos,
+                learned=cfg.encoder.learned_pos,
             )
-            if not args.no_token_positional_embeddings and not args.encoder_relative_positional_embeddings
+            if not cfg.no_token_positional_embeddings and not cfg.encoder.relative_positional_embeddings
             else None
         )
 
-        export = getattr(args, "export", False)
-        if getattr(args, "layernorm_embedding", False):
-            self.layernorm_embedding = LayerNorm(embed_dim, export=export)
+        if cfg.layernorm_embedding:
+            self.layernorm_embedding = LayerNorm(embed_dim, export=cfg.export)
         else:
             self.layernorm_embedding = None
 
-        if not args.adaptive_input and args.quant_noise_pq > 0:
+        if not cfg.adaptive_input and cfg.quant_noise.pq > 0:
             self.quant_noise = apply_quant_noise_(
                 nn.Linear(embed_dim, embed_dim, bias=False),
-                args.quant_noise_pq,
-                args.quant_noise_pq_block_size,
+                cfg.quant_noise.pq,
+                cfg.quant_noise.pq_block_size,
             )
         else:
             self.quant_noise = None
@@ -96,33 +102,29 @@ class SpeechTransformerEncoder(TransformerEncoder):
         else:
             self.layers = nn.ModuleList([])
         self.layers.extend(
-            [self.build_encoder_layer(args) for i in range(args.encoder_layers)]
+            [self.build_encoder_layer(cfg) for i in range(cfg.encoder.layers)]
         )
         self.num_layers = len(self.layers)
 
-        if args.encoder_normalize_before:
-            self.layer_norm = LayerNorm(embed_dim, export=export)
+        if cfg.encoder.normalize_before:
+            self.layer_norm = LayerNorm(embed_dim, export=cfg.export)
         else:
             self.layer_norm = None
 
         self.transformer_context = transformer_context
 
-    def build_encoder_layer(self, args):
-        orig_max_source_positions = args.max_source_positions
-        args.max_source_positions = self.output_lengths(args.max_source_positions)
-        layer = TransformerWithRelativePositionalEmbeddingEncoderLayer(args)
-        args.max_source_positions = orig_max_source_positions
-        checkpoint = getattr(args, "checkpoint_activations", False)
+    def build_encoder_layer(self, cfg):
+        orig_max_source_positions = cfg.max_source_positions
+        cfg.max_source_positions = self.output_lengths(cfg.max_source_positions)
+        layer = TransformerWithRelativePositionalEmbeddingEncoderLayerBase(cfg)
+        cfg.max_source_positions = orig_max_source_positions
+        checkpoint = cfg.checkpoint_activations
         if checkpoint:
-            offload_to_cpu = getattr(args, "offload_activations", False)
+            offload_to_cpu = cfg.offload_activations
             layer = checkpoint_wrapper(layer, offload_to_cpu=offload_to_cpu)
         # if we are checkpointing, enforce that FSDP always wraps the
         # checkpointed layer, regardless of layer size
-        min_params_to_wrap = (
-            getattr(args, "min_params_to_wrap", DEFAULT_MIN_PARAMS_TO_WRAP)
-            if not checkpoint
-            else 0
-        )
+        min_params_to_wrap = cfg.min_params_to_wrap if not checkpoint else 0
         layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
         return layer
 
@@ -287,3 +289,19 @@ class SpeechTransformerEncoder(TransformerEncoder):
     def max_positions(self):
         """Maximum input length supported by the encoder."""
         return self.max_source_positions
+
+
+class SpeechTransformerEncoder(SpeechTransformerEncoderBase):
+    def __init__(self, args, conv_layers_before=None, input_size=83, transformer_context=None):
+        self.args = args
+        super().__init__(
+            SpeechTransformerConfig.from_namespace(args),
+            conv_layers_before=conv_layers_before,
+            input_size=input_size,
+            transformer_context=transformer_context,
+        )
+
+    def build_encoder_layer(self, args):
+        return super().build_encoder_layer(
+            SpeechTransformerConfig.from_namespace(args),
+        )
