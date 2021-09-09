@@ -327,10 +327,10 @@ class SpeechLSTMEncoder(FairseqEncoder):
         self.conv_layers_before = conv_layers_before
         self.num_layers = num_layers
         self.dropout_in_module = FairseqDropout(
-            dropout_in, module_name=self.__class__.__name__
+            dropout_in * 1.0, module_name=self.__class__.__name__
         )
         self.dropout_out_module = FairseqDropout(
-            dropout_out, module_name=self.__class__.__name__
+            dropout_out * 1.0, module_name=self.__class__.__name__
         )
         self.bidirectional = bidirectional
         self.hidden_size = hidden_size
@@ -535,10 +535,10 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
     ):
         super().__init__(dictionary)
         self.dropout_in_module = FairseqDropout(
-            dropout_in, module_name=self.__class__.__name__
+            dropout_in * 1.0, module_name=self.__class__.__name__
         )
         self.dropout_out_module = FairseqDropout(
-            dropout_out, module_name=self.__class__.__name__
+            dropout_out * 1.0, module_name=self.__class__.__name__
         )
         self.hidden_size = hidden_size
         self.share_input_output_embed = share_input_output_embed
