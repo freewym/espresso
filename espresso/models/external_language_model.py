@@ -50,9 +50,9 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
 
         assert isinstance(wordlm, FairseqLanguageModel)
         self.lm_decoder = wordlm.decoder
-        assert hasattr(self.lm_decoder, "masked_copy_incremental_state") and callable(
-            self.lm_decoder.masked_copy_incremental_state
-        ), "The wrapped decoder should implement masked_copy_incremental_state()"
+        assert hasattr(self.lm_decoder, "masked_copy_cached_state") and callable(
+            self.lm_decoder.masked_copy_cached_state
+        ), "The wrapped decoder should implement masked_copy_cached_state()"
         self.oov_penalty = oov_penalty
         self.open_vocab = open_vocab
         self.zero = 1e-10  # a sufficiently small value to avoid the log(0) issue
@@ -135,7 +135,7 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
                 log_probs=False,
                 sample=None,
             )  # B x 1 x V
-            self.lm_decoder.masked_copy_incremental_state(
+            self.lm_decoder.masked_copy_cached_state(
                 incremental_state,
                 old_cached_state,
                 ~batch_space_mask,
@@ -344,11 +344,9 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
 
         assert isinstance(wordlm, FairseqLanguageModel)
         self.wordlm_decoder = wordlm.decoder
-        assert hasattr(
-            self.wordlm_decoder, "masked_copy_incremental_state"
-        ) and callable(
-            self.wordlm_decoder.masked_copy_incremental_state
-        ), "The wrapped decoder should implement masked_copy_incremental_state()"
+        assert hasattr(self.wordlm_decoder, "masked_copy_cached_state") and callable(
+            self.wordlm_decoder.masked_copy_cached_state
+        ), "The wrapped decoder should implement masked_copy_cached_state()"
         assert isinstance(subwordlm, FairseqLanguageModel)
         self.subwordlm_decoder = subwordlm.decoder
         self.subwordlm_weight = subwordlm_weight
@@ -449,7 +447,7 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
             )[
                 batch_space_mask
             ]
-            self.wordlm_decoder.masked_copy_incremental_state(
+            self.wordlm_decoder.masked_copy_cached_state(
                 incremental_state,
                 old_wordlm_cached_state,
                 ~batch_space_mask,

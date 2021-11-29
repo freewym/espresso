@@ -82,7 +82,7 @@ class LSTMLanguageModelEspressoConfig(FairseqDataclass):
     tokens_per_sample: int = II("task.tokens_per_sample")
     max_target_positions: Optional[int] = II("task.max_target_positions")
     tpu: bool = II("common.tpu")
-    criterion_name: str = II("criterion._name")
+    criterion_name: Optional[str] = II("criterion._name")
 
 
 @register_model("lstm_lm_espresso", dataclass=LSTMLanguageModelEspressoConfig)

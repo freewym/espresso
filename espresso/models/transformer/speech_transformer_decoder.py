@@ -7,6 +7,7 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 
 from espresso.models.transformer import SpeechTransformerConfig
@@ -188,13 +189,170 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
         x = torch.cat(outs, dim=1)  # B x T x V
         return x, None
 
-    def masked_copy_incremental_state(
+    def initialize_cached_state(
+        self,
+        prev_output_tokens,
+        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
+    ):
+        bsz = prev_output_tokens.size(0)
+        x = self.embed_tokens(prev_output_tokens)
+        num_heads = self.cfg.decoder.attention_heads
+        embed_dim = self.cfg.decoder.embed_dim
+        zero_states = x.new_zeros(
+            len(self.layers), bsz, num_heads, 0, embed_dim // num_heads
+        )
+        cache_state = torch.jit.annotate(
+            Dict[str, Optional[Tensor]],
+            {
+                "prev_key": zero_states,
+                "prev_value": zero_states,
+            },
+        )
+        self.set_incremental_state(incremental_state, "cached_state", cache_state)
+
+    def get_cached_state(
+        self,
+        incremental_state: Dict[str, Dict[str, Optional[Tensor]]],
+    ) -> Tuple[List[Tensor], List[Tensor], Optional[List[Tensor]]]:
+        prev_key, prev_value, prev_key_padding_mask = [], [], []
+        for layer in self.layers:
+            attn_state = layer.self_attn.get_incremental_state(
+                incremental_state, "attn_state"
+            )
+            assert attn_state is not None
+            assert attn_state["prev_key"] is not None
+            prev_key.append(attn_state["prev_key"])
+            assert attn_state["prev_value"] is not None
+            prev_value.append(attn_state["prev_value"])
+            if len(attn_state) >= 3 and attn_state["prev_key_padding_mask"] is not None:
+                prev_key_padding_mask.append(attn_state["prev_key_padding_mask"])
+
+        if len(prev_key_padding_mask) == 0:
+            prev_key_padding_mask = None
+        else:
+            assert len(prev_key_padding_mask) == len(prev_key)
+
+        return prev_key, prev_value, prev_key_padding_mask
+
+    def get_incremental_state(
+        self,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
+        key: str,
+    ) -> Optional[Dict[str, Optional[Tensor]]]:
+        if key != "cached_state":
+            return super().get_incremental_state(incremental_state, key)
+        if incremental_state is None:
+            return None
+
+        prev_key, prev_value, prev_key_padding_mask = self.get_cached_state(
+            self, incremental_state
+        )
+        cached_state: Dict[str, Optional[Tensor]] = {
+            "prev_key": torch.stack(prev_key),
+            "prev_value": torch.stack(prev_value),
+        }
+        if prev_key_padding_mask is not None:
+            cached_state["prev_key_padding_mask"] = torch.stack(prev_key_padding_mask)
+
+        return cached_state
+
+    def set_incremental_state(
+        self,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
+        key: str,
+        value: Dict[str, Optional[Tensor]],
+    ) -> Optional[Dict[str, Dict[str, Optional[Tensor]]]]:
+        if key != "cached_state":
+            return super().set_incremental_state(incremental_state, key, value)
+
+        if incremental_state is not None:
+            pre_key = value["pre_key"]
+            pre_value = value["pre_value"]
+            for i, layer in enumerate(self.layers):
+                attn_state: Dict[str, Optional[Tensor]] = {
+                    "prev_key": pre_key[i] if pre_key is not None else None,
+                    "prev_value": pre_value[i] if pre_value is not None else None,
+                }
+                if len(value) >= 3:
+                    prev_key_padding_mask = value["prev_key_padding_mask"]
+                    attn_state["prev_key_padding_mask"] = (
+                        prev_key_padding_mask[i]
+                        if prev_key_padding_mask is not None
+                        else None
+                    )
+                layer.self_attn.set_incremental_state(
+                    incremental_state, "attn_state", attn_state
+                )
+
+        return incremental_state
+
+    def masked_copy_cached_state(
         self,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
         src_cached_state: Tuple[Optional[Union[List[torch.Tensor], torch.Tensor]]],
         mask: Tensor,
     ):
-        raise NotImplementedError
+        if incremental_state is None:
+            assert src_cached_state is None or len(src_cached_state) == 0
+            return
+
+        prev_key, prev_value, prev_key_padding_mask = self.get_cached_state(
+            incremental_state
+        )
+        src_prev_key, src_prev_value, src_prev_key_padding_mask = (
+            src_cached_state[0],
+            src_cached_state[1],
+            src_cached_state[2],
+        )
+        # pad one more time step, assuming src_cached_state is just one step behind
+        src_prev_key = [F.pad(src_p, (0, 0, 0, 1)) for src_p in src_prev_key]
+        src_prev_value = [F.pad(src_p, (0, 0, 0, 1)) for src_p in src_prev_value]
+        if src_prev_key_padding_mask is not None:
+            src_prev_key_padding_mask = [
+                F.pad(src_p, (0, 1)) for src_p in src_prev_key_padding_mask
+            ]
+
+        def masked_copy_state(state: Optional[Tensor], src_state: Optional[Tensor]):
+            if state is None:
+                assert src_state is None
+                return None
+            else:
+                assert (
+                    state.size(0) == mask.size(0)
+                    and src_state is not None
+                    and state.size() == src_state.size()
+                )
+                state[mask, ...] = src_state[mask, ...]
+                return state
+
+        prev_key = [
+            masked_copy_state(p, src_p) for (p, src_p) in zip(prev_key, src_prev_key)
+        ]
+        prev_value = [
+            masked_copy_state(p, src_p)
+            for (p, src_p) in zip(prev_value, src_prev_value)
+        ]
+        if prev_key_padding_mask is None:
+            prev_key_padding_mask = src_prev_key_padding_mask
+        else:
+            assert src_prev_key_padding_mask is not None
+            prev_key_padding_mask = [
+                masked_copy_state(p, src_p)
+                for (p, src_p) in zip(prev_key_padding_mask, src_prev_key_padding_mask)
+            ]
+
+        cached_state = torch.jit.annotate(
+            Dict[str, Optional[Tensor]],
+            {
+                "prev_key": torch.stack(prev_key),
+                "prev_value": torch.stack(prev_value),
+            },
+        )
+        if prev_key_padding_mask is not None:
+            cached_state["prev_key_padding_mask"] = torch.stack(prev_key_padding_mask)
+
+        self.set_incremental_state(incremental_state, "cached_state", cached_state)
 
 
 class SpeechTransformerDecoder(SpeechTransformerDecoderBase):
