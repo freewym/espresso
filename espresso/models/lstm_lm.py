@@ -6,6 +6,10 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from omegaconf import II
+
+from espresso.models.speech_lstm import SpeechLSTMDecoder
+from espresso.tasks.speech_recognition import SpeechRecognitionEspressoTask
 from fairseq import utils
 from fairseq.dataclass import FairseqDataclass
 from fairseq.models import (
@@ -14,11 +18,6 @@ from fairseq.models import (
     register_model_architecture,
 )
 from fairseq.models.lstm import Embedding
-from omegaconf import II
-
-from espresso.models.speech_lstm import SpeechLSTMDecoder
-from espresso.tasks.speech_recognition import SpeechRecognitionEspressoTask
-
 
 DEFAULT_MAX_TARGET_POSITIONS = 1e5
 
@@ -73,11 +72,11 @@ class LSTMLanguageModelEspressoConfig(FairseqDataclass):
     # Granular dropout settings (if not specified these default to --dropout)
     decoder_dropout_in: Optional[float] = field(
         default=II("model.dropout"),
-        metadata={"help": "dropout probability for decoder input embedding"}
+        metadata={"help": "dropout probability for decoder input embedding"},
     )
     decoder_dropout_out: Optional[float] = field(
         default=II("model.dropout"),
-        metadata={"help": "dropout probability for decoder output"}
+        metadata={"help": "dropout probability for decoder output"},
     )
     # options from other parts of the config
     tokens_per_sample: int = II("task.tokens_per_sample")
@@ -167,8 +166,7 @@ class LSTMLanguageModelEspresso(FairseqLanguageModel):
                 args.decoder_embed_path, dictionary, args.decoder_embed_dim
             )
         # one last double check of parameter combinations
-        if args.share_embed and (
-                args.decoder_embed_dim != args.decoder_out_embed_dim):
+        if args.share_embed and (args.decoder_embed_dim != args.decoder_out_embed_dim):
             raise ValueError(
                 "--share-embed requires "
                 "--decoder-embed-dim to match --decoder-out-embed-dim"

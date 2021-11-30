@@ -11,12 +11,11 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
+from espresso.models.external_language_model import RawOutExternalLanguageModelBase
 from fairseq import search, utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
 from fairseq.ngram_repeat_block import NGramRepeatBlock
-
-from espresso.models.external_language_model import RawOutExternalLanguageModelBase
 
 
 class SequenceGenerator(nn.Module):
@@ -116,7 +115,9 @@ class SequenceGenerator(nn.Module):
 
         self.eos_factor = kwargs.get("eos_factor", None)
         assert temperature > 0, "--temperature must be greater than 0"
-        assert self.eos_factor is None or self.eos_factor >= 1.0, "--eos-factor must be >= 1.0 if set"
+        assert (
+            self.eos_factor is None or self.eos_factor >= 1.0
+        ), "--eos-factor must be >= 1.0 if set"
 
         self.search = (
             search.BeamSearch(tgt_dict) if search_strategy is None else search_strategy
@@ -222,10 +223,14 @@ class SequenceGenerator(nn.Module):
                 for i in range(self.model.models_size)
             ],
         )
-        lm_incremental_state = torch.jit.annotate(
-            Dict[str, Dict[str, Optional[Tensor]]],
-            torch.jit.annotate(Dict[str, Dict[str, Optional[Tensor]]], {})
-        ) if self.lm_model is not None else None
+        lm_incremental_state = (
+            torch.jit.annotate(
+                Dict[str, Dict[str, Optional[Tensor]]],
+                torch.jit.annotate(Dict[str, Dict[str, Optional[Tensor]]], {}),
+            )
+            if self.lm_model is not None
+            else None
+        )
         net_input = sample["net_input"]
 
         if "src_tokens" in net_input:
@@ -235,7 +240,9 @@ class SequenceGenerator(nn.Module):
             else:
                 # length of the source text being the character length except EndOfSentence and pad
                 src_lengths = (
-                    (src_tokens.ne(self.eos) & src_tokens.ne(self.pad)).long().sum(dim=1)
+                    (src_tokens.ne(self.eos) & src_tokens.ne(self.pad))
+                    .long()
+                    .sum(dim=1)
                 )
         elif "source" in net_input:
             src_tokens = net_input["source"]
@@ -375,7 +382,9 @@ class SequenceGenerator(nn.Module):
                 )
 
             if self.lm_model is not None:
-                lm_out = self.lm_model(tokens[:, : step + 1], incremental_state=lm_incremental_state)
+                lm_out = self.lm_model(
+                    tokens[:, : step + 1], incremental_state=lm_incremental_state
+                )
                 if isinstance(self.lm_model, RawOutExternalLanguageModelBase):
                     probs = lm_out[0]
                 else:

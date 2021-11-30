@@ -5,12 +5,16 @@
 
 from fairseq.models.transformer import TransformerConfig
 from fairseq.modules import MultiheadAttention
-from fairseq.modules.transformer_layer import TransformerDecoderLayerBase, TransformerEncoderLayerBase
+from fairseq.modules.transformer_layer import (
+    TransformerDecoderLayerBase,
+    TransformerEncoderLayerBase,
+)
 
 
-class TransformerWithRelativePositionalEmbeddingEncoderLayerBase(TransformerEncoderLayerBase):
-    """Encoder layer block with optional relative positional embedding.
-    """
+class TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
+    TransformerEncoderLayerBase
+):
+    """Encoder layer block with optional relative positional embedding."""
 
     def __init__(self, cfg):
         super().__init__(cfg)
@@ -38,7 +42,9 @@ class TransformerWithRelativePositionalEmbeddingEncoderLayerBase(TransformerEnco
 
 
 # backward compatible with the legacy argparse format
-class TransformerWithRelativePositionalEmbeddingEncoderLayer(TransformerWithRelativePositionalEmbeddingEncoderLayerBase):
+class TransformerWithRelativePositionalEmbeddingEncoderLayer(
+    TransformerWithRelativePositionalEmbeddingEncoderLayerBase
+):
     def __init__(self, args):
         super().__init__(TransformerConfig.from_namespace(args))
         self.args = args
@@ -49,14 +55,20 @@ class TransformerWithRelativePositionalEmbeddingEncoderLayer(TransformerWithRela
         )
 
 
-class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(TransformerDecoderLayerBase):
-    """Decoder layer block with optional relative positional embedding.
-    """
+class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
+    TransformerDecoderLayerBase
+):
+    """Decoder layer block with optional relative positional embedding."""
 
     def __init__(
         self, cfg, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False
     ):
-        super().__init__(cfg, no_encoder_attn=no_encoder_attn, add_bias_kv=add_bias_kv, add_zero_attn=add_zero_attn)
+        super().__init__(
+            cfg,
+            no_encoder_attn=no_encoder_attn,
+            add_bias_kv=add_bias_kv,
+            add_zero_attn=add_zero_attn,
+        )
 
     def build_self_attention(
         self, embed_dim, cfg, add_bias_kv=False, add_zero_attn=False
@@ -85,7 +97,9 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(TransformerDeco
 
 
 # backward compatible with the legacy argparse format
-class TransformerWithRelativePositionalEmbeddingDecoderLayer(TransformerWithRelativePositionalEmbeddingDecoderLayerBase):
+class TransformerWithRelativePositionalEmbeddingDecoderLayer(
+    TransformerWithRelativePositionalEmbeddingDecoderLayerBase
+):
     def __init__(
         self, args, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False
     ):

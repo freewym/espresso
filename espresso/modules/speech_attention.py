@@ -4,10 +4,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
+
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.nn import Parameter
-import torch.nn.functional as F
 
 
 class BaseAttention(nn.Module):
@@ -35,7 +36,7 @@ class BaseAttention(nn.Module):
 
 
 class BahdanauAttention(BaseAttention):
-    """ Bahdanau Attention."""
+    """Bahdanau Attention."""
 
     def __init__(self, query_dim, value_dim, embed_dim, normalize=True):
         super().__init__(query_dim, value_dim, embed_dim)
@@ -64,9 +65,9 @@ class BahdanauAttention(BaseAttention):
         if self.normalize:
             # normed_v = g * v / ||v||
             normed_v = self.g * self.v / torch.norm(self.v)
-            attn_scores = (
-                normed_v * torch.tanh(projected_query + key + self.b)
-            ).sum(dim=2)  # len x bsz
+            attn_scores = (normed_v * torch.tanh(projected_query + key + self.b)).sum(
+                dim=2
+            )  # len x bsz
         else:
             attn_scores = self.v * torch.tanh(projected_query + key).sum(dim=2)
 
@@ -87,7 +88,7 @@ class BahdanauAttention(BaseAttention):
 
 
 class LuongAttention(BaseAttention):
-    """ Luong Attention."""
+    """Luong Attention."""
 
     def __init__(self, query_dim, value_dim, embed_dim=None, scale=True):
         super().__init__(query_dim, value_dim, embed_dim)

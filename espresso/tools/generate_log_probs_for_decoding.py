@@ -24,6 +24,7 @@ class GenerateLogProbsForDecoding(nn.Module):
         """
         super().__init__()
         from fairseq.sequence_generator import EnsembleModel
+
         if isinstance(models, EnsembleModel):
             self.model = models
         else:
@@ -53,7 +54,9 @@ class GenerateLogProbsForDecoding(nn.Module):
 
         # compute the encoder output
         encoder_outs = self.model.forward_encoder(net_input)
-        logits = encoder_outs[0]["encoder_out"][0].transpose(0, 1).float()  # T x B x V -> B x T x V
+        logits = (
+            encoder_outs[0]["encoder_out"][0].transpose(0, 1).float()
+        )  # T x B x V -> B x T x V
         assert logits.size(0) == bsz
         padding_mask = (
             encoder_outs[0]["encoder_padding_mask"][0].t()

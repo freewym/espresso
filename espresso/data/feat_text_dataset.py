@@ -3,11 +3,11 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from io import BytesIO
 import logging
 import os
 import re
 from concurrent.futures.thread import ThreadPoolExecutor
+from io import BytesIO
 from subprocess import PIPE, run
 from typing import Any, Dict, List, Optional
 
@@ -15,12 +15,14 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from espresso.tools.specaug_interpolate import specaug
+from espresso.tools.utils import (
+    compute_num_frames_from_feat_or_waveform,
+    get_torchaudio_fbank_or_mfcc,
+)
 from fairseq.data import data_utils
 from fairseq.data.audio.audio_utils import get_waveform
 from fairseq.data.audio.feature_transforms import CompositeAudioFeatureTransform
-
-from espresso.tools.specaug_interpolate import specaug
-from espresso.tools.utils import compute_num_frames_from_feat_or_waveform, get_torchaudio_fbank_or_mfcc
 
 try:
     import kaldi_io
@@ -46,7 +48,9 @@ class AudioFeatDataset(torch.utils.data.Dataset):
         rxfiles: List[str],
         utt2num_frames: Optional[List[int]] = None,
         feat_dim: Optional[int] = None,  # only relevant when reading from raw waveforms
-        feature_type: Optional[str] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
+        feature_type: Optional[
+            str
+        ] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
         seed=1,
         feature_transforms_config: Optional[Dict[str, Any]] = None,
         specaugment_config: Optional[str] = None,
@@ -65,11 +69,14 @@ class AudioFeatDataset(torch.utils.data.Dataset):
         first_rxfile = rxfiles[0]
         if re.search(r"\.ark:\d+$", first_rxfile.strip()) is not None:  # from feats.scp
             self.input_format = "feat"
-            self.feat_dim = kaldi_io.read_mat(first_rxfile).shape[1]  # feature dimension
+            self.feat_dim = kaldi_io.read_mat(first_rxfile).shape[
+                1
+            ]  # feature dimension
         else:
             self.input_format = (
-                "command" if re.search(r"\|$", first_rxfile.strip()) is not None else
-                "wave"
+                "command"
+                if re.search(r"\|$", first_rxfile.strip()) is not None
+                else "wave"
             )
             self.feat_dim = feat_dim
             self.feature_type = feature_type
@@ -81,7 +88,9 @@ class AudioFeatDataset(torch.utils.data.Dataset):
             with ThreadPoolExecutor(max_workers=32) as ex:
                 futures = []
                 for rxfile in self.rxfiles:
-                    futures.append(ex.submit(compute_num_frames_from_feat_or_waveform, rxfile))
+                    futures.append(
+                        ex.submit(compute_num_frames_from_feat_or_waveform, rxfile)
+                    )
 
                 for future in tqdm(futures, desc="Processing", leave=False):
                     result = future.result()
@@ -89,7 +98,9 @@ class AudioFeatDataset(torch.utils.data.Dataset):
 
         assert len(self.sizes) == self.size
         self.sizes = np.array(self.sizes, dtype=np.int32)
-        self.feature_transforms = CompositeAudioFeatureTransform.from_config_dict(config=feature_transforms_config)
+        self.feature_transforms = CompositeAudioFeatureTransform.from_config_dict(
+            config=feature_transforms_config
+        )
         self.seed = seed
         self.specaugment_config = specaugment_config
         self.epoch = 1
@@ -117,11 +128,20 @@ class AudioFeatDataset(torch.utils.data.Dataset):
             feat = kaldi_io.read_mat(self.rxfiles[i])
         else:
             if self.input_format == "command":
-                source = BytesIO(run(self.rxfiles[i][:-1], shell=True, stdout=PIPE).stdout)
+                source = BytesIO(
+                    run(self.rxfiles[i][:-1], shell=True, stdout=PIPE).stdout
+                )
             else:
                 source = self.rxfiles[i]
-            waveform, sample_rate = get_waveform(source, normalization=False, always_2d=True)
-            feat = get_torchaudio_fbank_or_mfcc(waveform, sample_rate, n_bins=self.feat_dim, feature_type=self.feature_type)
+            waveform, sample_rate = get_waveform(
+                source, normalization=False, always_2d=True
+            )
+            feat = get_torchaudio_fbank_or_mfcc(
+                waveform,
+                sample_rate,
+                n_bins=self.feat_dim,
+                feature_type=self.feature_type,
+            )
             if self.feature_transforms is not None:
                 feat = self.feature_transforms(feat)
         if self.specaugment_config is not None and self.specaugment_config != "":
@@ -151,15 +171,29 @@ class AudioFeatCachedDataset(AudioFeatDataset):
     """
 
     def __init__(
-        self, utt_ids: List[str], rxfiles: List[str], utt2num_frames: Optional[List[int]] = None,
+        self,
+        utt_ids: List[str],
+        rxfiles: List[str],
+        utt2num_frames: Optional[List[int]] = None,
         feat_dim: Optional[int] = None,  # only relevant when reading from raw waveforms
-        feature_type: Optional[str] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
-        seed=1, feature_transforms_config: Optional[Dict[str, Any]] = None, specaugment_config: Optional[str] = None,
-        ordered_prefetch=False, cache_size=4096,
+        feature_type: Optional[
+            str
+        ] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
+        seed=1,
+        feature_transforms_config: Optional[Dict[str, Any]] = None,
+        specaugment_config: Optional[str] = None,
+        ordered_prefetch=False,
+        cache_size=4096,
     ):
         super().__init__(
-            utt_ids, rxfiles, utt2num_frames=utt2num_frames, feat_dim=feat_dim, feature_type=feature_type,
-            seed=seed, feature_transforms_config=feature_transforms_config, specaugment_config=specaugment_config,
+            utt_ids,
+            rxfiles,
+            utt2num_frames=utt2num_frames,
+            feat_dim=feat_dim,
+            feature_type=feature_type,
+            seed=seed,
+            feature_transforms_config=feature_transforms_config,
+            specaugment_config=specaugment_config,
         )
         self.cache = None
         self.cache_index = {}
@@ -198,12 +232,13 @@ class AudioFeatCachedDataset(AudioFeatDataset):
             feat = self._get_features(i)
             return torch.from_numpy(feat).float()
         if i not in self.cache_index:
-            assert (
-                self.start_pos_for_next_cache < len(self.ordered_indices)
+            assert self.start_pos_for_next_cache < len(
+                self.ordered_indices
             ), "Position for next cache starting beyond the end of ordered_indices."
             try:
                 pos_start = self.ordered_indices.index(
-                    i, self.start_pos_for_next_cache,
+                    i,
+                    self.start_pos_for_next_cache,
                 )
             except ValueError:
                 raise ValueError(
@@ -212,25 +247,26 @@ class AudioFeatCachedDataset(AudioFeatDataset):
                     "with the full list of indices, and then try again.".format(i)
                 )
             pos_end = min(
-                pos_start + self.cache_size, len(self.ordered_indices),
+                pos_start + self.cache_size,
+                len(self.ordered_indices),
             )
             self.start_pos_for_next_cache = pos_end if self.ordered_prefetch else 0
             total_size = 0
-            for idx in self.ordered_indices[pos_start: pos_end]:
+            for idx in self.ordered_indices[pos_start:pos_end]:
                 total_size += self.sizes[idx]
             self.cache = np.empty((total_size, self.feat_dim), dtype=self.dtype)
             ptx = 0
             self.cache_index.clear()
-            for idx in self.ordered_indices[pos_start: pos_end]:
+            for idx in self.ordered_indices[pos_start:pos_end]:
                 self.cache_index[idx] = ptx
                 length = self.sizes[idx]
-                dst = self.cache[ptx: ptx + length]
+                dst = self.cache[ptx : ptx + length]
                 feat = self._get_features(idx)
                 np.copyto(dst, feat)
                 ptx += length
 
         ptx = self.cache_index[i]
-        a = self.cache[ptx: ptx + self.sizes[i]].copy()
+        a = self.cache[ptx : ptx + self.sizes[i]].copy()
         return torch.from_numpy(a).float()
 
 
@@ -241,14 +277,27 @@ class AudioFeatInMemoryDataset(AudioFeatDataset):
     """
 
     def __init__(
-        self, utt_ids: List[str], rxfiles: List[str], utt2num_frames: Optional[List[int]] = None,
+        self,
+        utt_ids: List[str],
+        rxfiles: List[str],
+        utt2num_frames: Optional[List[int]] = None,
         feat_dim: Optional[int] = None,  # only relevant when reading from raw waveforms
-        feature_type: Optional[str] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
-        seed=1, feature_transforms_config: Optional[Dict[str, Any]] = None, specaugment_config: Optional[str] = None,
+        feature_type: Optional[
+            str
+        ] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
+        seed=1,
+        feature_transforms_config: Optional[Dict[str, Any]] = None,
+        specaugment_config: Optional[str] = None,
     ):
         super().__init__(
-            utt_ids, rxfiles, utt2num_frames=utt2num_frames, feat_dim=feat_dim, feature_type=feature_type,
-            seed=seed, feature_transforms_config=feature_transforms_config, specaugment_config=specaugment_config,
+            utt_ids,
+            rxfiles,
+            utt2num_frames=utt2num_frames,
+            feat_dim=feat_dim,
+            feature_type=feature_type,
+            seed=seed,
+            feature_transforms_config=feature_transforms_config,
+            specaugment_config=specaugment_config,
         )
         self.read_data()
 
@@ -260,7 +309,7 @@ class AudioFeatInMemoryDataset(AudioFeatDataset):
         )
         for i in range(len(self.data_offsets)):
             ptx = self.data_offsets[i]
-            dst = self.buffer[ptx: ptx + self.sizes[i]]
+            dst = self.buffer[ptx : ptx + self.sizes[i]]
             feat = self._get_features(i)
             np.copyto(dst, feat)
 
@@ -271,7 +320,7 @@ class AudioFeatInMemoryDataset(AudioFeatDataset):
     def __getitem__(self, i):
         self.check_index(i)
         ptx = self.data_offsets[i]
-        a = self.buffer[ptx: ptx + self.sizes[i]].copy()
+        a = self.buffer[ptx : ptx + self.sizes[i]].copy()
         return torch.from_numpy(a).float()
 
 
@@ -279,7 +328,9 @@ class AsrTextDataset(torch.utils.data.Dataset):
     """Takes a text file as input, tokenizes and tensorizes it in memory at instantiation.
     Both original text and tokenized text are kept in memory."""
 
-    def __init__(self, utt_ids: List[str], texts: List[str], dictionary=None, append_eos=True):
+    def __init__(
+        self, utt_ids: List[str], texts: List[str], dictionary=None, append_eos=True
+    ):
         super().__init__()
         self.dtype = np.float
         self.dictionary = dictionary
@@ -295,7 +346,8 @@ class AsrTextDataset(torch.utils.data.Dataset):
 
         if dictionary is not None:
             self.sizes = [
-                len(tokenize_line(dictionary.wordpiece_encode(text))) + (1 if self.append_eos else 0)
+                len(tokenize_line(dictionary.wordpiece_encode(text)))
+                + (1 if self.append_eos else 0)
                 for text in texts
             ]
         else:
@@ -313,9 +365,7 @@ class AsrTextDataset(torch.utils.data.Dataset):
         assert isinstance(indices, (list, np.ndarray))
         indices = np.array(indices)
         assert all(indices < self.size) and all(indices >= 0)
-        assert (
-            len(np.unique(indices)) == len(indices)
-        ), "Duplicate elements in indices."
+        assert len(np.unique(indices)) == len(indices), "Duplicate elements in indices."
         self.utt_ids = [self.utt_ids[i] for i in indices]
         self.texts = [self.texts[i] for i in indices]
         self.sizes = self.sizes[indices]
@@ -325,7 +375,9 @@ class AsrTextDataset(torch.utils.data.Dataset):
         self.check_index(i)
         if self.dictionary is not None:
             token_text = self.dictionary.wordpiece_encode(self.texts[i])
-            tensor_item = self.dictionary.encode_line(token_text, add_if_not_exist=False, append_eos=self.append_eos).long()
+            tensor_item = self.dictionary.encode_line(
+                token_text, add_if_not_exist=False, append_eos=self.append_eos
+            ).long()
         else:
             tensor_item = None
         return (tensor_item, self.texts[i])
