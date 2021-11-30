@@ -9,10 +9,10 @@ import logging
 import re
 import sys
 from concurrent.futures.thread import ThreadPoolExecutor
+
 from tqdm import tqdm
 
 from espresso.tools.utils import compute_num_frames_from_feat_or_waveform
-
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -40,7 +40,9 @@ def get_parser():
 
 def process(line):
     utt_id, rxfile = line.rstrip().split(None, 1)
-    assert re.search(r"\.ark:\d+$", rxfile.strip()) is None, "Please provide raw waveform files"
+    assert (
+        re.search(r"\.ark:\d+$", rxfile.strip()) is None
+    ), "Please provide raw waveform files"
     num_frames = compute_num_frames_from_feat_or_waveform(rxfile)
     return utt_id + " " + str(num_frames)
 

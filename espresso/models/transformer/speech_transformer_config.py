@@ -30,7 +30,9 @@ _NAME_PARSER = r"(decoder|encoder|quant_noise)_(.*)"
 class SpeechEncDecBaseConfig(EncDecBaseConfig):
     relative_positional_embeddings: bool = field(
         default=False,
-        metadata={"help": "if set, uses relative positional embeddings (inside self attention)"}
+        metadata={
+            "help": "if set, uses relative positional embeddings (inside self attention)"
+        },
     )
 
 
@@ -38,20 +40,23 @@ class SpeechEncDecBaseConfig(EncDecBaseConfig):
 class SpeechEncoderConfig(SpeechEncDecBaseConfig):
     # config specific for SpeechTransformerModel
     conv_channels: str = field(
-        default="[64, 64, 128, 128]", metadata={"help": "list of encoder convolution\'s out channels"}
+        default="[64, 64, 128, 128]",
+        metadata={"help": "list of encoder convolution's out channels"},
     )
     conv_kernel_sizes: str = field(
-        default="[(3, 3), (3, 3), (3, 3), (3, 3)]", metadata={"help": "list of encoder convolution\'s kernel sizes"}
+        default="[(3, 3), (3, 3), (3, 3), (3, 3)]",
+        metadata={"help": "list of encoder convolution's kernel sizes"},
     )
     conv_strides: str = field(
-        default="[(1, 1), (2, 2), (1, 1), (2, 2)]", metadata={"help": "list of encoder convolution\'s out strides"}
+        default="[(1, 1), (2, 2), (1, 1), (2, 2)]",
+        metadata={"help": "list of encoder convolution's out strides"},
     )
     transformer_context: Optional[str] = field(
         default=None,
         metadata={
             "help": "left/right context for time-restricted self-attention; "
             "can be None or a tuple of two non-negative integers/None"
-        }
+        },
     )
 
 
@@ -59,7 +64,9 @@ class SpeechEncoderConfig(SpeechEncDecBaseConfig):
 class SpeechDecoderConfig(SpeechEncDecBaseConfig):
     input_dim: int = field(
         default=II("model.decoder.embed_dim"),
-        metadata={"help": "decoder input dimension (extra linear layer if different from decoder embed dim)"},
+        metadata={
+            "help": "decoder input dimension (extra linear layer if different from decoder embed dim)"
+        },
     )
     output_dim: int = field(
         default=II("model.decoder.embed_dim"),
@@ -203,7 +210,7 @@ class SpeechTransformerConfig(FairseqDataclass):
             "help": "scheduled sampling probabilities of sampling the truth "
             "labels for N epochs starting from --start-schedule-sampling-epoch; "
             "all later epochs using the last value in the list"
-        }
+        },
     )
     start_scheduled_sampling_epoch: int = field(
         default=1,

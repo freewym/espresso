@@ -10,7 +10,6 @@ import os
 import sys
 from collections import Counter
 
-
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -63,7 +62,7 @@ def main(args):
     for fn in args.text_files:
         with (open(fn, "r", encoding="utf-8") if fn != "-" else sys.stdin) as f:
             for line in f:
-                tokens = line.rstrip().split()[args.skip_ncols:]
+                tokens = line.rstrip().split()[args.skip_ncols :]
                 tokens = [tok for tok in tokens if tok not in exclude]
                 counter.update(tokens)
 
@@ -105,7 +104,7 @@ def main(args):
         invocab_count = 0
         with open(args.valid_text, "r", encoding="utf-8") as f:
             for line in f:
-                tokens = line.rstrip().split()[args.skip_ncols:]
+                tokens = line.rstrip().split()[args.skip_ncols :]
                 tokens = [tok for tok in tokens if tok not in exclude]
                 total_count += len(tokens)
                 invocab_count += len([tok for tok in tokens if tok in vocab_set])
@@ -120,7 +119,7 @@ def main(args):
             invocab_count = 0
             with open(path, "r", encoding="utf-8") as f:
                 for line in f:
-                    tokens = line.rstrip().split()[args.skip_ncols:]
+                    tokens = line.rstrip().split()[args.skip_ncols :]
                     tokens = [tok for tok in tokens if tok not in exclude]
                     total_count += len(tokens)
                     invocab_count += len([tok for tok in tokens if tok in vocab_set])

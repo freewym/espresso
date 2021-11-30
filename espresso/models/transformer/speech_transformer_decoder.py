@@ -9,15 +9,11 @@ from typing import Any, Dict, List, Optional
 import torch
 from torch import Tensor
 
+from espresso.models.transformer import SpeechTransformerConfig
+from espresso.modules import TransformerWithRelativePositionalEmbeddingDecoderLayerBase
 from fairseq.distributed import fsdp_wrap
 from fairseq.models.transformer import TransformerDecoderBase
 from fairseq.modules.checkpoint_activations import checkpoint_wrapper
-
-from espresso.models.transformer import SpeechTransformerConfig
-from espresso.modules import (
-    TransformerWithRelativePositionalEmbeddingDecoderLayerBase,
-)
-
 
 logger = logging.getLogger(__name__)
 
@@ -41,22 +37,39 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
         scheduled_sampling_rate_scheduler=None,
     ):
         is_no_token_positional_embeddings_changed = False
-        if not cfg.no_token_positional_embeddings and cfg.decoder.relative_positional_embeddings:
+        if (
+            not cfg.no_token_positional_embeddings
+            and cfg.decoder.relative_positional_embeddings
+        ):
             cfg.no_token_positional_embeddings = True
             is_no_token_positional_embeddings_changed = True
-            logger.info("disabled decoder's absolute positional embeddings as decoder_relative_positional_embeddings is True.")
-        super().__init__(cfg, dictionary, embed_tokens, no_encoder_attn=no_encoder_attn, output_projection=output_projection)
-        self.dropout_module.module_name = module_name_fordropout(self.__class__.__name__)
+            logger.info(
+                "disabled decoder's absolute positional embeddings as decoder_relative_positional_embeddings is True."
+            )
+        super().__init__(
+            cfg,
+            dictionary,
+            embed_tokens,
+            no_encoder_attn=no_encoder_attn,
+            output_projection=output_projection,
+        )
+        self.dropout_module.module_name = module_name_fordropout(
+            self.__class__.__name__
+        )
         if is_no_token_positional_embeddings_changed:
             cfg.no_token_positional_embeddings = not cfg.no_token_positional_embeddings
 
         self.scheduled_sampling_rate_scheduler = scheduled_sampling_rate_scheduler
         for layer in self.layers:
-            if isinstance(layer, TransformerWithRelativePositionalEmbeddingDecoderLayerBase):
+            if isinstance(
+                layer, TransformerWithRelativePositionalEmbeddingDecoderLayerBase
+            ):
                 layer.need_attn = False  # make validation fast
 
     def build_decoder_layer(self, cfg, no_encoder_attn=False):
-        layer = TransformerWithRelativePositionalEmbeddingDecoderLayerBase(cfg, no_encoder_attn)
+        layer = TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
+            cfg, no_encoder_attn
+        )
         checkpoint = cfg.checkpoint_activations
         if checkpoint:
             offload_to_cpu = cfg.offload_activations
@@ -99,7 +112,9 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
                 - a dictionary with any model-specific outputs
         """
 
-        if self.training and alignment_layer is None:  # no attention tensors during training to save memory
+        if (
+            self.training and alignment_layer is None
+        ):  # no attention tensors during training to save memory
             alignment_layer = self.num_layers  # can be any value no less than this
         if self.training and self.scheduled_sampling_rate_scheduler is not None:
             epoch = kwargs.get("epoch", 1)
@@ -107,7 +122,9 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
             if sampling_prob < 1.0:  # apply scheduled sampling
                 assert not features_only
                 return self._forward_with_scheduled_sampling(
-                    prev_output_tokens, sampling_prob, encoder_out=encoder_out,
+                    prev_output_tokens,
+                    sampling_prob,
+                    encoder_out=encoder_out,
                     incremental_state={},  # use empty dict to preserve forward state
                     full_context_alignment=full_context_alignment,
                     alignment_layer=alignment_layer,
@@ -147,13 +164,16 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
         for step in range(seqlen):
             if step > 0:
                 sampling_mask = torch.rand(
-                    [bsz, 1], device=prev_output_tokens.device,
+                    [bsz, 1],
+                    device=prev_output_tokens.device,
                 ).lt(sampling_prob)
                 feed_tokens = torch.where(
-                    sampling_mask, prev_output_tokens[:, step:step + 1], pred,
+                    sampling_mask,
+                    prev_output_tokens[:, step : step + 1],
+                    pred,
                 )
             else:
-                feed_tokens = prev_output_tokens[:, step:step + 1]  # B x 1
+                feed_tokens = prev_output_tokens[:, step : step + 1]  # B x 1
             x, _ = self.extract_features(
                 feed_tokens,
                 encoder_out=encoder_out,
@@ -168,7 +188,9 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
         x = torch.cat(outs, dim=1)  # B x T x V
         return x, None
 
-    def masked_copy_incremental_state(self, incremental_state, another_cached_state, mask):
+    def masked_copy_incremental_state(
+        self, incremental_state, another_cached_state, mask
+    ):
         raise NotImplementedError
 
 
@@ -199,5 +221,6 @@ class SpeechTransformerDecoder(SpeechTransformerDecoderBase):
 
     def build_decoder_layer(self, args, no_encoder_attn=False):
         return super().build_decoder_layer(
-            SpeechTransformerConfig.from_namespace(args), no_encoder_attn=no_encoder_attn
+            SpeechTransformerConfig.from_namespace(args),
+            no_encoder_attn=no_encoder_attn,
         )

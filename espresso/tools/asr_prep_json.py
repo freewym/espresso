@@ -5,11 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-from collections import OrderedDict
 import json
 import logging
 import sys
-
+from collections import OrderedDict
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -26,8 +25,9 @@ def read_file(ordered_dict, key, dtype, *paths):
             for line in f:
                 utt_id, val = line.strip().split(None, 1)
                 if utt_id in ordered_dict:
-                    assert key not in ordered_dict[utt_id], \
+                    assert key not in ordered_dict[utt_id], (
                         "Duplicate utterance id " + utt_id + " in " + key
+                    )
                     ordered_dict[utt_id].update({key: dtype(val)})
                 else:
                     ordered_dict[utt_id] = {key: val}

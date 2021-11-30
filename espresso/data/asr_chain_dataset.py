@@ -9,13 +9,10 @@ import re
 from typing import List
 
 import numpy as np
-
 import torch
 
-from fairseq.data import FairseqDataset, data_utils
-
 import espresso.tools.utils as speech_utils
-
+from fairseq.data import FairseqDataset, data_utils
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +21,9 @@ def collate(samples, pad_to_length=None, pad_to_multiple=1, src_bucketed=False):
     try:
         from pychain import ChainGraphBatch
     except ImportError:
-        raise ImportError("Please install OpenFST and PyChain by `make openfst pychain` after entering espresso/tools")
+        raise ImportError(
+            "Please install OpenFST and PyChain by `make openfst pychain` after entering espresso/tools"
+        )
 
     if len(samples) == 0:
         return {}
@@ -32,7 +31,8 @@ def collate(samples, pad_to_length=None, pad_to_multiple=1, src_bucketed=False):
     def merge(key, pad_to_length=None):
         if key == "source":
             return speech_utils.collate_frames(
-                [s[key] for s in samples], 0.0,
+                [s[key] for s in samples],
+                0.0,
                 pad_to_length=pad_to_length,
                 pad_to_multiple=pad_to_multiple,
             )
@@ -79,7 +79,10 @@ def collate(samples, pad_to_length=None, pad_to_multiple=1, src_bucketed=False):
         "utt_id": utt_id,
         "nsentences": len(samples),
         "ntokens": ntokens,
-        "net_input": {"src_tokens": src_frames, "src_lengths": src_lengths},
+        "net_input": {
+            "src_tokens": src_frames,
+            "src_lengths": src_lengths,
+        },
         "target": target,
         "text": text,
     }
@@ -98,10 +101,12 @@ class NumeratorGraphDataset(FairseqDataset):
 
     def read_fsts(self, utt_ids: List[str], rxfiles: List[str]):
         try:
-            from pychain import ChainGraph
             import simplefst
+            from pychain import ChainGraph
         except ImportError:
-            raise ImportError("Please install OpenFST and PyChain by `make openfst pychain` after entering espresso/tools")
+            raise ImportError(
+                "Please install OpenFST and PyChain by `make openfst pychain` after entering espresso/tools"
+            )
 
         self.utt_ids = []
         self.rxfiles = []
@@ -111,7 +116,9 @@ class NumeratorGraphDataset(FairseqDataset):
         for i, rxfile in enumerate(rxfiles):
             file_path, offset = self._parse_rxfile(rxfile)
             fst = simplefst.StdVectorFst.read_ark(file_path, offset)
-            graph = ChainGraph(fst, initial_mode="fst", final_mode="fst", log_domain=True)
+            graph = ChainGraph(
+                fst, initial_mode="fst", final_mode="fst", log_domain=True
+            )
             if not graph.is_empty:  # skip empty graphs
                 self.utt_ids.append(utt_ids[i])
                 self.rxfiles.append(rxfile)
@@ -325,7 +332,9 @@ class AsrChainDataset(FairseqDataset):
                 - `text` (List[str]): list of original text
         """
         return collate(
-            samples, pad_to_length=pad_to_length, pad_to_multiple=self.pad_to_multiple,
+            samples,
+            pad_to_length=pad_to_length,
+            pad_to_multiple=self.pad_to_multiple,
             src_bucketed=(self.buckets is not None),
         )
 
@@ -388,7 +397,10 @@ class AsrChainDataset(FairseqDataset):
             list: list of removed indices
         """
         return data_utils.filter_paired_dataset_indices_by_size(
-            self.src_sizes, self.tgt_sizes, indices, max_sizes,
+            self.src_sizes,
+            self.tgt_sizes,
+            indices,
+            max_sizes,
         )
 
     @property

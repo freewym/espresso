@@ -3,14 +3,18 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from argparse import Namespace
 import logging
+from argparse import Namespace
 from typing import Optional
 
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from omegaconf import DictConfig
+from torch import Tensor
 
+import espresso.tools.utils as speech_utils
+from espresso.models.speech_lstm import SpeechLSTMEncoder
+from espresso.modules.speech_convolutions import ConvBNReLU
 from fairseq import utils
 from fairseq.models import (
     FairseqEncoderModel,
@@ -18,12 +22,6 @@ from fairseq.models import (
     register_model_architecture,
 )
 from fairseq.models.lstm import Linear
-from omegaconf import DictConfig
-
-from espresso.models.speech_lstm import SpeechLSTMEncoder
-from espresso.modules.speech_convolutions import ConvBNReLU
-import espresso.tools.utils as speech_utils
-
 
 DEFAULT_MAX_SOURCE_POSITIONS = 1e5
 
@@ -84,14 +82,31 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
             args, "max_source_positions", DEFAULT_MAX_SOURCE_POSITIONS
         )
 
-        out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
-        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
-        strides = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
-        logger.info("input feature dimension: {}, channels: {}".format(task.feat_dim, task.feat_in_channels))
+        out_channels = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_channels, type=int
+        )
+        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_kernel_sizes, type=int
+        )
+        strides = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_strides, type=int
+        )
+        logger.info(
+            "input feature dimension: {}, channels: {}".format(
+                task.feat_dim, task.feat_in_channels
+            )
+        )
         assert task.feat_dim % task.feat_in_channels == 0
-        conv_layers = ConvBNReLU(
-            out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,
-        ) if out_channels is not None else None
+        conv_layers = (
+            ConvBNReLU(
+                out_channels,
+                kernel_sizes,
+                strides,
+                in_channels=task.feat_in_channels,
+            )
+            if out_channels is not None
+            else None
+        )
 
         rnn_encoder_input_size = task.feat_dim // task.feat_in_channels
         if conv_layers is not None:
@@ -109,7 +124,9 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
 
         if args.encoder_multilayer_rnn_as_single_module and args.encoder_rnn_residual:
             args.encoder_rnn_residual = False
-            logger.info("--encoder-rnn-residual is set to False when --encoder-multilayer-rnn-as-single-module=True")
+            logger.info(
+                "--encoder-rnn-residual is set to False when --encoder-multilayer-rnn-as-single-module=True"
+            )
 
         encoder = SpeechChunkLSTMEncoder(
             conv_layers_before=conv_layers,
@@ -121,7 +138,9 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
             bidirectional=args.encoder_rnn_bidirectional,
             residual=args.encoder_rnn_residual,
             src_bucketed=(getattr(task.cfg, "num_batch_buckets", 0) > 0),
-            num_targets=getattr(task, "num_targets", None),  # targets for encoder-only model
+            num_targets=getattr(
+                task, "num_targets", None
+            ),  # targets for encoder-only model
             chunk_width=getattr(task, "chunk_width", None),
             chunk_left_context=getattr(task, "chunk_left_context", 0),
             training_stage=getattr(task, "training_stage", True),
@@ -147,7 +166,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
     def update_state_prior(self, new_state_prior, factor=0.1):
         assert self.state_prior is not None
         self.state_prior = self.state_prior.to(new_state_prior)
-        self.state_prior = (1. - factor) * self.state_prior + factor * new_state_prior
+        self.state_prior = (1.0 - factor) * self.state_prior + factor * new_state_prior
         self.state_prior = self.state_prior / self.state_prior.sum()  # re-normalize
 
     def state_dict(self):
@@ -174,6 +193,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
 
 class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
     """LSTM encoder."""
+
     def __init__(
         self,
         conv_layers_before=None,
@@ -213,13 +233,14 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
             else 0
         )
         assert chunk_width is None or chunk_width > 0
-        assert (
-            (conv_layers_before is None and chunk_left_context >= 0)
-            or (conv_layers_before is not None and chunk_left_context >= receptive_field_radius)
+        assert (conv_layers_before is None and chunk_left_context >= 0) or (
+            conv_layers_before is not None
+            and chunk_left_context >= receptive_field_radius
         )
         self.out_chunk_begin = self.output_lengths(chunk_left_context + 1) - 1
         self.out_chunk_end = (
-            self.output_lengths(chunk_left_context + chunk_width) if chunk_width is not None
+            self.output_lengths(chunk_left_context + chunk_width)
+            if chunk_width is not None
             else None
         )
         self.training_stage = training_stage
@@ -249,16 +270,21 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
                 decreasing order. If False, this condition is not
                 required. Default: True.
         """
-        out = super().forward(src_tokens, src_lengths, enforce_sorted=enforce_sorted, **unused)
-        x, encoder_padding_mask, x_lengths = out.encoder_out, out.encoder_padding_mask, out.src_lengths
+        out = super().forward(
+            src_tokens, src_lengths, enforce_sorted=enforce_sorted, **unused
+        )
+        x, encoder_padding_mask, x_lengths = (
+            out.encoder_out,
+            out.encoder_padding_mask,
+            out.src_lengths,
+        )
 
         # determine which output frame to select for loss evaluation/test, assuming
         # all examples in a batch are of the same length for chunk-wise training/test
-        if (
-            self.out_chunk_end is not None
-            and (self.training or not self.training_stage)
+        if self.out_chunk_end is not None and (
+            self.training or not self.training_stage
         ):
-            x = x[self.out_chunk_begin: self.out_chunk_end]  # T x B x C -> W x B x C
+            x = x[self.out_chunk_begin : self.out_chunk_end]  # T x B x C -> W x B x C
             x_lengths = x_lengths.fill_(x.size(0))
             assert encoder_padding_mask is None
 
@@ -271,7 +297,8 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
         # The empty list is equivalent to None.
         return {
             "encoder_out": [x],  # T x B x C
-            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any()
+            "encoder_padding_mask": [encoder_padding_mask]
+            if encoder_padding_mask.any()
             else [],  # T x B
             "encoder_embedding": [],
             "encoder_states": [],
@@ -284,25 +311,37 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
 def base_architecture(args):
     args.dropout = getattr(args, "dropout", 0.4)
     args.encoder_conv_channels = getattr(
-        args, "encoder_conv_channels", "[64, 64, 128, 128]",
+        args,
+        "encoder_conv_channels",
+        "[64, 64, 128, 128]",
     )
     args.encoder_conv_kernel_sizes = getattr(
-        args, "encoder_conv_kernel_sizes", "[(3, 3), (3, 3), (3, 3), (3, 3)]",
+        args,
+        "encoder_conv_kernel_sizes",
+        "[(3, 3), (3, 3), (3, 3), (3, 3)]",
     )
     args.encoder_conv_strides = getattr(
-        args, "encoder_conv_strides", "[(1, 1), (2, 2), (1, 1), (2, 2)]",
+        args,
+        "encoder_conv_strides",
+        "[(1, 1), (2, 2), (1, 1), (2, 2)]",
     )
     args.encoder_rnn_hidden_size = getattr(args, "encoder_rnn_hidden_size", 320)
     args.encoder_rnn_layers = getattr(args, "encoder_rnn_layers", 3)
     args.encoder_rnn_bidirectional = getattr(args, "encoder_rnn_bidirectional", True)
     args.encoder_rnn_residual = getattr(args, "encoder_rnn_residual", False)
     args.encoder_rnn_dropout_in = getattr(args, "encoder_rnn_dropout_in", args.dropout)
-    args.encoder_rnn_dropout_out = getattr(args, "encoder_rnn_dropout_out", args.dropout)
-    args.encoder_multilayer_rnn_as_single_module = getattr(args, "encoder_multilayer_rnn_as_single_module", True)
+    args.encoder_rnn_dropout_out = getattr(
+        args, "encoder_rnn_dropout_out", args.dropout
+    )
+    args.encoder_multilayer_rnn_as_single_module = getattr(
+        args, "encoder_multilayer_rnn_as_single_module", True
+    )
     if args.encoder_multilayer_rnn_as_single_module:
         args.encoder_rnn_residual = False
 
 
-@register_model_architecture("speech_lstm_encoder_model", "speech_conv_lstm_encoder_model_wsj")
+@register_model_architecture(
+    "speech_lstm_encoder_model", "speech_conv_lstm_encoder_model_wsj"
+)
 def conv_lstm_encoder_wsj(args):
     base_architecture(args)

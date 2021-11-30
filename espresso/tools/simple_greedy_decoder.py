@@ -6,7 +6,6 @@
 from typing import Dict, List, Optional
 
 import numpy as np
-
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -14,8 +13,15 @@ from torch import Tensor
 
 class SimpleGreedyDecoder(nn.Module):
     def __init__(
-        self, models, dictionary, max_len_a=0, max_len_b=200, max_len=0,
-        temperature=1.0, eos=None, symbols_to_strip_from_output=None,
+        self,
+        models,
+        dictionary,
+        max_len_a=0,
+        max_len_b=200,
+        max_len=0,
+        temperature=1.0,
+        eos=None,
+        symbols_to_strip_from_output=None,
         for_validation=True,
     ):
         """Decode given speech audios with the simple greedy search.
@@ -38,6 +44,7 @@ class SimpleGreedyDecoder(nn.Module):
         """
         super().__init__()
         from fairseq.sequence_generator import EnsembleModel
+
         if isinstance(models, EnsembleModel):
             self.model = models
         else:
@@ -47,7 +54,8 @@ class SimpleGreedyDecoder(nn.Module):
         self.eos = dictionary.eos() if eos is None else eos
         self.symbols_to_strip_from_output = (
             symbols_to_strip_from_output.union({self.eos})
-            if symbols_to_strip_from_output is not None else {self.eos}
+            if symbols_to_strip_from_output is not None
+            else {self.eos}
         )
         self.vocab_size = len(dictionary)
         self.max_len_a = max_len_a
@@ -76,7 +84,9 @@ class SimpleGreedyDecoder(nn.Module):
         return self._decode(sample, **kwargs)
 
     @torch.no_grad()
-    def _decode(self, sample: Dict[str, Dict[str, Tensor]], bos_token: Optional[int] = None):
+    def _decode(
+        self, sample: Dict[str, Dict[str, Tensor]], bos_token: Optional[int] = None
+    ):
         incremental_states = torch.jit.annotate(
             List[Dict[str, Dict[str, Optional[Tensor]]]],
             [
@@ -97,27 +107,34 @@ class SimpleGreedyDecoder(nn.Module):
         # for validation, make the maximum decoding length equal to at least the
         # length of target, and the length of encoder_out if possible; otherwise
         # max_len is obtained from max_len_a/b
-        max_len = max(max_encoder_output_length, target.size(1)) \
-            if self.for_validation else \
-            min(
+        max_len = (
+            max(max_encoder_output_length, target.size(1))
+            if self.for_validation
+            else min(
                 int(self.max_len_a * src_len + self.max_len_b),
                 self.max_len - 1,
             )
+        )
 
         tokens = src_tokens.new(bsz, max_len + 2).long().fill_(self.pad)
         tokens[:, 0] = self.eos if bos_token is None else bos_token
         # lprobs is only used when target is not None (i.e., for validation)
-        lprobs = encoder_outs[0]["encoder_out"][0].new_full(
-            (bsz, target.size(1), self.vocab_size), -np.log(self.vocab_size),
-        ) if self.for_validation else None
+        lprobs = (
+            encoder_outs[0]["encoder_out"][0].new_full(
+                (bsz, target.size(1), self.vocab_size),
+                -np.log(self.vocab_size),
+            )
+            if self.for_validation
+            else None
+        )
         attn = None
         for step in range(max_len + 1):  # one extra step for EOS marker
             is_eos = tokens[:, step].eq(self.eos)
             if step > 0 and is_eos.sum() == is_eos.size(0):
                 # all predictions are finished (i.e., ended with eos)
-                tokens = tokens[:, :step + 1]
+                tokens = tokens[:, : step + 1]
                 if attn is not None:
-                    attn = attn[:, :, :step + 1]
+                    attn = attn[:, :, : step + 1]
                 break
             log_probs, avg_attn_scores = self.model.forward_decoder(
                 tokens[:, : step + 1],
@@ -139,7 +156,9 @@ class SimpleGreedyDecoder(nn.Module):
                 avg_attn_scores = avg_attn_scores[0]
             if avg_attn_scores is not None:
                 if attn is None:
-                    attn = avg_attn_scores.new(bsz, max_encoder_output_length, max_len + 2)
+                    attn = avg_attn_scores.new(
+                        bsz, max_encoder_output_length, max_len + 2
+                    )
                 attn[:, :, step + 1].copy_(avg_attn_scores)
 
         return tokens, lprobs, attn

@@ -8,11 +8,11 @@ import logging
 import torch
 import torch.nn as nn
 
+import espresso.tools.utils as speech_utils
+from espresso.models.transformer import SpeechTransformerConfig
+from espresso.modules import TransformerWithRelativePositionalEmbeddingEncoderLayerBase
 from fairseq.distributed import fsdp_wrap
-from fairseq.models.transformer import (
-    Linear,
-    TransformerEncoderBase,
-)
+from fairseq.models.transformer import Linear, TransformerEncoderBase
 from fairseq.modules import (
     FairseqDropout,
     LayerDropModuleList,
@@ -22,20 +22,13 @@ from fairseq.modules import (
 from fairseq.modules.checkpoint_activations import checkpoint_wrapper
 from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 
-from espresso.models.transformer import SpeechTransformerConfig
-from espresso.modules import (
-    TransformerWithRelativePositionalEmbeddingEncoderLayerBase,
-)
-import espresso.tools.utils as speech_utils
-
-
 logger = logging.getLogger(__name__)
 
 
 # rewrite name for backward compatibility in `make_generation_fast_`
 def module_name_fordropout(module_name: str) -> str:
-    if module_name == 'SpeechTransformerEncoderBase':
-        return 'SpeechTransformerEncoder'
+    if module_name == "SpeechTransformerEncoderBase":
+        return "SpeechTransformerEncoder"
     else:
         return module_name
 
@@ -54,7 +47,9 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             before being projected to cfg.encoder.embed_dim
     """
 
-    def __init__(self, cfg, conv_layers_before=None, input_size=83, transformer_context=None):
+    def __init__(
+        self, cfg, conv_layers_before=None, input_size=83, transformer_context=None
+    ):
         self.cfg = cfg
         super(TransformerEncoderBase, self).__init__(None)  # no src dictionary
         self.register_buffer("version", torch.Tensor([3]))
@@ -70,8 +65,13 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         self.conv_layers_before = conv_layers_before
         self.fc0 = Linear(input_size, embed_dim) if input_size != embed_dim else None
 
-        if not cfg.no_token_positional_embeddings and cfg.encoder.relative_positional_embeddings:
-            logger.info("disabled encoder's absolute positional embeddings as encoder_relative_positional_embeddings is True.")
+        if (
+            not cfg.no_token_positional_embeddings
+            and cfg.encoder.relative_positional_embeddings
+        ):
+            logger.info(
+                "disabled encoder's absolute positional embeddings as encoder_relative_positional_embeddings is True."
+            )
         self.embed_positions = (
             PositionalEmbedding(
                 self.output_lengths(self.max_source_positions),
@@ -79,7 +79,8 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
                 0,
                 learned=cfg.encoder.learned_pos,
             )
-            if not cfg.no_token_positional_embeddings and not cfg.encoder.relative_positional_embeddings
+            if not cfg.no_token_positional_embeddings
+            and not cfg.encoder.relative_positional_embeddings
             else None
         )
 
@@ -130,7 +131,8 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
 
     def output_lengths(self, in_lengths):
         return (
-            in_lengths if self.conv_layers_before is None
+            in_lengths
+            if self.conv_layers_before is None
             else self.conv_layers_before.output_lengths(in_lengths)
         )
 
@@ -148,9 +150,8 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             `attn_mask[tgt_i, src_j] = 1` means that when calculating the
             embedding for `tgt_i`, we exclude (mask out) `src_j`.
         """
-        if (
-            self.transformer_context is None
-            or (self.transformer_context[0] is None and self.transformer_context[1] is None)
+        if self.transformer_context is None or (
+            self.transformer_context[0] is None and self.transformer_context[1] is None
         ):
             return None
         max_len = in_lengths.data.max()
@@ -160,8 +161,8 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             return all_ones.triu(self.transformer_context[1] + 1)
         if self.transformer_context[1] is None:  # mask is a tril matrix
             return all_ones.tril(-self.transformer_context[0] - 1)
-        return (
-            all_ones.triu(self.transformer_context[1] + 1) | all_ones.tril(-self.transformer_context[0] - 1)
+        return all_ones.triu(self.transformer_context[1] + 1) | all_ones.tril(
+            -self.transformer_context[0] - 1
         )
 
     def forward(
@@ -225,11 +226,13 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
                   Only populated if *return_all_hiddens* is True.
         """
         if self.conv_layers_before is not None:
-            x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens, src_lengths)
+            x, src_lengths, encoder_padding_mask = self.conv_layers_before(
+                src_tokens, src_lengths
+            )
         else:
             x, encoder_padding_mask = (
                 src_tokens,
-                ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
+                ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1)),
             )
         has_pads = src_tokens.device.type == "xla" or encoder_padding_mask.any()
 
@@ -264,7 +267,11 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
 
         # encoder layers
         for layer in self.layers:
-            x = layer(x, encoder_padding_mask=encoder_padding_mask if has_pads else None, attn_mask=attn_mask)
+            x = layer(
+                x,
+                encoder_padding_mask=encoder_padding_mask if has_pads else None,
+                attn_mask=attn_mask,
+            )
             if return_all_hiddens:
                 assert encoder_states is not None
                 encoder_states.append(x)
@@ -278,7 +285,8 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         # The empty list is equivalent to None.
         return {
             "encoder_out": [x],  # T x B x C
-            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any()
+            "encoder_padding_mask": [encoder_padding_mask]
+            if encoder_padding_mask.any()
             else [],  # B x T
             "encoder_embedding": [],
             "encoder_states": encoder_states,  # List[T x B x C]
@@ -292,7 +300,9 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
 
 
 class SpeechTransformerEncoder(SpeechTransformerEncoderBase):
-    def __init__(self, args, conv_layers_before=None, input_size=83, transformer_context=None):
+    def __init__(
+        self, args, conv_layers_before=None, input_size=83, transformer_context=None
+    ):
         self.args = args
         super().__init__(
             SpeechTransformerConfig.from_namespace(args),

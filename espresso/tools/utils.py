@@ -3,23 +3,25 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from io import BytesIO
 import os
 import re
-import numpy as np
 from collections import Counter
+from io import BytesIO
 from subprocess import PIPE, run
 
+import numpy as np
 import torch
 
 try:
     import kaldi_io
+
     has_kaldi_io = True
 except ImportError:
     has_kaldi_io = False
 
 try:
     import soundfile
+
     has_soundfile = True
 except ImportError:
     has_soundfile = False
@@ -53,7 +55,9 @@ def tokenize(sent, space="<space>", non_lang_syms=None):
     return " ".join(tokens)
 
 
-def collate_frames(values, pad_value=0.0, left_pad=False, pad_to_length=None, pad_to_multiple=1):
+def collate_frames(
+    values, pad_value=0.0, left_pad=False, pad_to_length=None, pad_to_multiple=1
+):
     """Convert a list of 2d tensor into a padded 3d tensor."""
     assert values[0].dim() == 2, "expected 2, got " + str(values[0].dim)
     length = max(v.size(0) for v in values)
@@ -64,8 +68,7 @@ def collate_frames(values, pad_value=0.0, left_pad=False, pad_to_length=None, pa
     res = values[0].new(len(values), length, dim).fill_(pad_value)
 
     for i, v in enumerate(values):
-        dst = res[i][length - v.size(0):, :] if left_pad \
-            else res[i][:v.size(0), :]
+        dst = res[i][length - v.size(0) :, :] if left_pad else res[i][: v.size(0), :]
         assert dst.numel() == v.numel()
         dst.copy_(v)
     return res
@@ -87,7 +90,10 @@ def sequence_mask(sequence_length, max_len=None):
 
 
 def convert_padding_direction(
-    src_frames, src_lengths, right_to_left=False, left_to_right=False,
+    src_frames,
+    src_lengths,
+    right_to_left=False,
+    left_to_right=False,
 ):
     """Counterpart of :func:`~fairseq.utils.convert_padding_direction`,
     operating on 3d tensors of size B x T x C. Note that this function is unware
@@ -116,11 +122,9 @@ def eval_str_nested_list_or_tuple(x, type=int):
     if isinstance(x, str):
         x = eval(x)
     if isinstance(x, list):
-        return list(
-            map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
+        return list(map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
     elif isinstance(x, tuple):
-        return tuple(
-            map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
+        return tuple(map(lambda s: eval_str_nested_list_or_tuple(s, type), x))
     else:
         try:
             return type(x)
@@ -134,6 +138,7 @@ def plot_attention(attention, hypo_sent, utt_id, save_dir):
     """
     try:
         import matplotlib as mpl
+
         mpl.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
@@ -141,7 +146,8 @@ def plot_attention(attention, hypo_sent, utt_id, save_dir):
             """This function requires matplotlib.
             Please install it to generate plots, or unset --print-alignment.
             If you are on a cluster where you do not have admin rights you could
-            try using virtualenv.""")
+            try using virtualenv."""
+        )
 
     attn = attention.data.numpy()
     plt.matshow(attn)
@@ -194,8 +200,10 @@ def edit_distance(ref, hyp):
         if i == 0 and j == 0:
             break
         elif (
-            i >= 1 and j >= 1 and dist[i][j] == dist[i - 1][j - 1] and
-            ref[i - 1] == hyp[j - 1]
+            i >= 1
+            and j >= 1
+            and dist[i][j] == dist[i - 1][j - 1]
+            and ref[i - 1] == hyp[j - 1]
         ):
             steps.append("corr")
             i, j = i - 1, j - 1
@@ -212,9 +220,7 @@ def edit_distance(ref, hyp):
             i = i - 1
     steps = steps[::-1]
 
-    counter = Counter(
-        {"words": len(ref), "corr": 0, "sub": 0, "ins": 0, "del": 0}
-    )
+    counter = Counter({"words": len(ref), "corr": 0, "sub": 0, "ins": 0, "del": 0})
     counter.update(steps)
 
     return dist, steps, counter
@@ -245,8 +251,8 @@ def aligned_print(ref, hyp, steps):
     for i in range(len(steps)):
         delim = " " if i < len(steps) - 1 else "\n"
         if steps[i] == "sub":
-            ref_idx = i - steps[: i].count("ins")
-            hyp_idx = i - steps[: i].count("del")
+            ref_idx = i - steps[:i].count("ins")
+            hyp_idx = i - steps[:i].count("del")
             if len(ref[ref_idx]) < len(hyp[hyp_idx]):
                 out_str += (
                     ref[ref_idx] + " " * (len(hyp[hyp_idx]) - len(ref[ref_idx])) + delim
@@ -254,50 +260,49 @@ def aligned_print(ref, hyp, steps):
             else:
                 out_str += ref[ref_idx] + delim
         elif steps[i] == "ins":
-            idx = i - steps[: i].count("del")
+            idx = i - steps[:i].count("del")
             out_str += " " * len(hyp[idx]) + delim
         else:
             assert steps[i] == "del" or steps[i] == "corr"
-            idx = i - steps[: i].count("ins")
+            idx = i - steps[:i].count("ins")
             out_str += ref[idx] + delim
 
     out_str += "HYP: "
     for i in range(len(steps)):
         delim = " " if i < len(steps) - 1 else "\n"
         if steps[i] == "sub":
-            ref_idx = i - steps[: i].count("ins")
-            hyp_idx = i - steps[: i].count("del")
+            ref_idx = i - steps[:i].count("ins")
+            hyp_idx = i - steps[:i].count("del")
             if len(ref[ref_idx]) > len(hyp[hyp_idx]):
                 out_str += (
-                    hyp[hyp_idx] + " " * (len(ref[ref_idx]) - len(hyp[hyp_idx])) +
-                    delim
+                    hyp[hyp_idx] + " " * (len(ref[ref_idx]) - len(hyp[hyp_idx])) + delim
                 )
             else:
                 out_str += hyp[hyp_idx] + delim
         elif steps[i] == "del":
-            idx = i - steps[: i].count("ins")
+            idx = i - steps[:i].count("ins")
             out_str += " " * len(ref[idx]) + delim
         else:
             assert steps[i] == "ins" or steps[i] == "corr"
-            idx = i - steps[: i].count("del")
+            idx = i - steps[:i].count("del")
             out_str += hyp[idx] + delim
 
     out_str += "STP: "
     for i in range(len(steps)):
         delim = " " if i < len(steps) - 1 else "\n"
         if steps[i] == "sub":
-            ref_idx = i - steps[: i].count("ins")
-            hyp_idx = i - steps[: i].count("del")
+            ref_idx = i - steps[:i].count("ins")
+            hyp_idx = i - steps[:i].count("del")
             if len(ref[ref_idx]) > len(hyp[hyp_idx]):
                 out_str += "S" + " " * (len(ref[ref_idx]) - 1) + delim
             else:
                 out_str += "S" + " " * (len(hyp[hyp_idx]) - 1) + delim
         elif steps[i] == "ins":
-            idx = i - steps[: i].count("del")
+            idx = i - steps[:i].count("del")
             out_str += "I" + " " * (len(hyp[idx]) - 1) + delim
         else:
             assert steps[i] == "del" or steps[i] == "corr"
-            idx = i - steps[: i].count("ins")
+            idx = i - steps[:i].count("ins")
             sym = "D" if steps[i] == "del" else " "
             out_str += sym + " " * (len(ref[idx]) - 1) + delim
 
@@ -314,11 +319,15 @@ def aligned_print(ref, hyp, steps):
 
 
 def get_torchaudio_fbank_or_mfcc(
-    waveform: np.ndarray, sample_rate: float, n_bins: int = 80, feature_type: str = "fbank"
+    waveform: np.ndarray,
+    sample_rate: float,
+    n_bins: int = 80,
+    feature_type: str = "fbank",
 ) -> np.ndarray:
     """Get mel-filter bank or mfcc features via TorchAudio."""
     try:
         import torchaudio.compliance.kaldi as ta_kaldi
+
         waveform = torch.from_numpy(waveform)
         if feature_type == "fbank":
             features = ta_kaldi.fbank(
@@ -326,16 +335,26 @@ def get_torchaudio_fbank_or_mfcc(
             )
         else:
             features = ta_kaldi.mfcc(
-                waveform, num_mel_bins=n_bins, num_ceps=40, low_freq=20, high_freq=-400, sample_frequency=sample_rate
+                waveform,
+                num_mel_bins=n_bins,
+                num_ceps=40,
+                low_freq=20,
+                high_freq=-400,
+                sample_frequency=sample_rate,
             )
         return features.numpy()
     except ImportError:
-        raise ImportError("Please install torchaudio to enable online feature extraction: pip install torchaudio")
+        raise ImportError(
+            "Please install torchaudio to enable online feature extraction: pip install torchaudio"
+        )
 
 
 def num_samples_to_num_frames(
-    num_samples: int, sample_rate: float = 16000.0, frame_length: float = 25.0, frame_shift: int = 10.0,
-    snip_edges: bool = True
+    num_samples: int,
+    sample_rate: float = 16000.0,
+    frame_length: float = 25.0,
+    frame_shift: int = 10.0,
+    snip_edges: bool = True,
 ) -> int:
     """
     Convert number of samples to number of frames. frame_length and frame_shift are both in milliseconds.
@@ -375,10 +394,14 @@ def compute_num_frames_from_feat_or_waveform(rxfile: str) -> int:
     elif re.search(r"\|$", rxfile.strip()) is not None:  # from a command
         source = BytesIO(run(rxfile[:-1], shell=True, stdout=PIPE).stdout)
         waveform, sample_rate = get_waveform(source, always_2d=True)
-        num_frames = num_samples_to_num_frames(waveform.shape[1], sample_rate, frame_length=25.0, frame_shift=10.0)
+        num_frames = num_samples_to_num_frames(
+            waveform.shape[1], sample_rate, frame_length=25.0, frame_shift=10.0
+        )
     else:  # from a raw waveform file
         if not has_soundfile:
             raise ImportError("Please install soundfile with: pip install soundfile")
         info = soundfile.info(rxfile)
-        num_frames = num_samples_to_num_frames(info.frames, info.samplerate, frame_length=25.0, frame_shift=10.0)
+        num_frames = num_samples_to_num_frames(
+            info.frames, info.samplerate, frame_length=25.0, frame_shift=10.0
+        )
     return num_frames

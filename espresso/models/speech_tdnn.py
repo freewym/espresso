@@ -3,15 +3,17 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from argparse import Namespace
 import logging
+from argparse import Namespace
 from typing import Dict, List, Optional
 
 import torch
-from torch import Tensor
 import torch.nn as nn
 import torch.nn.functional as F
+from omegaconf import DictConfig
+from torch import Tensor
 
+import espresso.tools.utils as speech_utils
 from fairseq import utils
 from fairseq.models import (
     FairseqEncoder,
@@ -21,10 +23,6 @@ from fairseq.models import (
 )
 from fairseq.models.lstm import Linear
 from fairseq.modules import FairseqDropout
-from omegaconf import DictConfig
-
-import espresso.tools.utils as speech_utils
-
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +68,19 @@ class SpeechTdnnEncoderModel(FairseqEncoderModel):
         # make sure that all args are properly defaulted (in case there are any new ones)
         base_architecture(args)
 
-        hidden_sizes = speech_utils.eval_str_nested_list_or_tuple(args.hidden_sizes, type=int)
-        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.kernel_sizes, type=int)
+        hidden_sizes = speech_utils.eval_str_nested_list_or_tuple(
+            args.hidden_sizes, type=int
+        )
+        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(
+            args.kernel_sizes, type=int
+        )
         strides = speech_utils.eval_str_nested_list_or_tuple(args.strides, type=int)
         dilations = speech_utils.eval_str_nested_list_or_tuple(args.dilations, type=int)
-        logger.info("input feature dimension: {}, output dimension: {}".format(task.feat_dim, task.num_targets))
+        logger.info(
+            "input feature dimension: {}, output dimension: {}".format(
+                task.feat_dim, task.num_targets
+            )
+        )
 
         encoder = SpeechTdnnEncoder(
             input_size=task.feat_dim,
@@ -112,13 +118,15 @@ class SpeechTdnnEncoderModel(FairseqEncoderModel):
         raise NotImplementedError
 
     def get_logits(self, net_output):
-        logits = net_output["encoder_out"][0].transpose(0, 1).squeeze(2)  # T x B x 1 -> B x T
+        logits = (
+            net_output["encoder_out"][0].transpose(0, 1).squeeze(2)
+        )  # T x B x 1 -> B x T
         return logits
 
     def update_state_prior(self, new_state_prior, factor=0.1):
         assert self.state_prior is not None
         self.state_prior = self.state_prior.to(new_state_prior)
-        self.state_prior = (1. - factor) * self.state_prior + factor * new_state_prior
+        self.state_prior = (1.0 - factor) * self.state_prior + factor * new_state_prior
         self.state_prior = self.state_prior / self.state_prior.sum()  # re-normalize
 
     def state_dict(self):
@@ -145,6 +153,7 @@ class SpeechTdnnEncoderModel(FairseqEncoderModel):
 
 class TdnnBNReLU(nn.Module):
     """A block of Tdnn-BatchNorm-ReLU layers."""
+
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, dilation=1):
         super().__init__()
         self.kernel_size = kernel_size
@@ -152,15 +161,22 @@ class TdnnBNReLU(nn.Module):
         self.dilation = dilation
         self.padding = dilation * (kernel_size - 1) // 2
         self.tdnn = nn.Conv1d(
-            in_channels, out_channels, kernel_size,
-            stride=stride, padding=self.padding, dilation=dilation,
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=self.padding,
+            dilation=dilation,
         )
         self.bn = nn.BatchNorm1d(out_channels)
 
     def output_lengths(self, in_lengths):
         out_lengths = (
-            in_lengths + 2 * self.padding - self.dilation * (self.kernel_size - 1) +
-            self.stride - 1
+            in_lengths
+            + 2 * self.padding
+            - self.dilation * (self.kernel_size - 1)
+            + self.stride
+            - 1
         ) // self.stride
         return out_lengths
 
@@ -178,10 +194,22 @@ class TdnnBNReLU(nn.Module):
 
 class SpeechTdnnEncoder(FairseqEncoder):
     """Tdnn encoder."""
+
     def __init__(
-        self, input_size, output_size, hidden_sizes=256, kernel_sizes=3, strides=1,
-        dilations=3, num_layers=1, dropout_in=0.0, dropout_out=0.0, residual=False,
-        chunk_width=None, chunk_left_context=0, training_stage=True,
+        self,
+        input_size,
+        output_size,
+        hidden_sizes=256,
+        kernel_sizes=3,
+        strides=1,
+        dilations=3,
+        num_layers=1,
+        dropout_in=0.0,
+        dropout_out=0.0,
+        residual=False,
+        chunk_width=None,
+        chunk_left_context=0,
+        training_stage=True,
     ):
         super().__init__(None)  # no src dictionary
         self.num_layers = num_layers
@@ -209,35 +237,44 @@ class SpeechTdnnEncoder(FairseqEncoder):
         )
         self.residual = residual
 
-        self.tdnn = nn.ModuleList([
-            TdnnBNReLU(
-                in_channels=input_size if layer == 0 else hidden_sizes[layer - 1],
-                out_channels=hidden_sizes[layer], kernel_size=kernel_sizes[layer],
-                stride=strides[layer], dilation=dilations[layer],
-            )
-            for layer in range(num_layers)
-        ])
+        self.tdnn = nn.ModuleList(
+            [
+                TdnnBNReLU(
+                    in_channels=input_size if layer == 0 else hidden_sizes[layer - 1],
+                    out_channels=hidden_sizes[layer],
+                    kernel_size=kernel_sizes[layer],
+                    stride=strides[layer],
+                    dilation=dilations[layer],
+                )
+                for layer in range(num_layers)
+            ]
+        )
 
         receptive_field_radius = sum(layer.padding for layer in self.tdnn)
-        assert (
-            chunk_width is None
-            or (chunk_width > 0 and chunk_left_context >= receptive_field_radius)
+        assert chunk_width is None or (
+            chunk_width > 0 and chunk_left_context >= receptive_field_radius
         )
         if (
-            chunk_width is not None and chunk_width > 0
+            chunk_width is not None
+            and chunk_width > 0
             and chunk_left_context > receptive_field_radius
         ):
             logger.warning(
-                "chunk_{{left,right}}_context can be reduced to {}".format(receptive_field_radius)
+                "chunk_{{left,right}}_context can be reduced to {}".format(
+                    receptive_field_radius
+                )
             )
         self.out_chunk_begin = self.output_lengths(chunk_left_context + 1) - 1
         self.out_chunk_end = (
-            self.output_lengths(chunk_left_context + chunk_width) if chunk_width is not None
+            self.output_lengths(chunk_left_context + chunk_width)
+            if chunk_width is not None
             else None
         )
         self.training_stage = training_stage
 
-        self.fc_out = Linear(hidden_sizes[-1], output_size, dropout=self.dropout_out_module.p)
+        self.fc_out = Linear(
+            hidden_sizes[-1], output_size, dropout=self.dropout_out_module.p
+        )
 
     def output_lengths(self, in_lengths):
         out_lengths = in_lengths
@@ -246,14 +283,15 @@ class SpeechTdnnEncoder(FairseqEncoder):
         return out_lengths
 
     def forward(self, src_tokens, src_lengths: Tensor, **unused):
-        x, x_lengths, encoder_padding_mask = self.extract_features(src_tokens, src_lengths)
-        if (
-            self.out_chunk_end is not None
-            and (self.training or not self.training_stage)
+        x, x_lengths, encoder_padding_mask = self.extract_features(
+            src_tokens, src_lengths
+        )
+        if self.out_chunk_end is not None and (
+            self.training or not self.training_stage
         ):
             # determine which output frame to select for loss evaluation/test, assuming
             # all examples in a batch are of the same length for chunk-wise training/test
-            x = x[self.out_chunk_begin: self.out_chunk_end]  # T x B x C -> W x B x C
+            x = x[self.out_chunk_begin : self.out_chunk_end]  # T x B x C -> W x B x C
             x_lengths = x_lengths.fill_(x.size(0))
             assert not encoder_padding_mask.any()
         x = self.output_layer(x)
@@ -264,7 +302,8 @@ class SpeechTdnnEncoder(FairseqEncoder):
         # The empty list is equivalent to None.
         return {
             "encoder_out": [x],  # T x B x C
-            "encoder_padding_mask": [encoder_padding_mask] if encoder_padding_mask.any()
+            "encoder_padding_mask": [encoder_padding_mask]
+            if encoder_padding_mask.any()
             else [],  # T x B
             "encoder_embedding": [],
             "encoder_states": [],
@@ -282,7 +321,11 @@ class SpeechTdnnEncoder(FairseqEncoder):
             # apply Tdnn
             x, x_lengths, padding_mask = self.tdnn[i](x, x_lengths)
             x = self.dropout_out_module(x)
-            x = x + prev_x if self.residual and i > 0 and x.size(1) == prev_x.size(1) else x
+            x = (
+                x + prev_x
+                if self.residual and i > 0 and x.size(1) == prev_x.size(1)
+                else x
+            )
 
         x = x.transpose(0, 1)  # B x T x C -> T x B x C
         encoder_padding_mask = padding_mask.t()
@@ -302,12 +345,16 @@ class SpeechTdnnEncoder(FairseqEncoder):
             new_encoder_padding_mask = []
         else:
             new_encoder_padding_mask = [
-                encoder_out["encoder_padding_mask"][0].index_select(1, new_order)  # note: transposed
+                encoder_out["encoder_padding_mask"][0].index_select(
+                    1, new_order
+                )  # note: transposed
             ]
         if len(encoder_out["src_lengths"]) == 0:
             new_src_lengths = []
         else:
-            new_src_lengths = [(encoder_out["src_lengths"][0]).index_select(0, new_order)]
+            new_src_lengths = [
+                (encoder_out["src_lengths"][0]).index_select(0, new_order)
+            ]
 
         return {
             "encoder_out": new_encoder_out,  # T x B x C

@@ -3,10 +3,10 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import dataclass, field
 import logging
-import numpy as np
+from dataclasses import dataclass, field
 
+import numpy as np
 import torch
 
 from fairseq import utils
@@ -18,7 +18,6 @@ from fairseq.criterions.label_smoothed_cross_entropy import (
 from fairseq.data import data_utils
 from fairseq.dataclass import ChoiceEnum
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -26,7 +25,9 @@ LABEL_SMOOTHING_CHOICES = ChoiceEnum(["uniform", "unigram", "temporal"])
 
 
 @dataclass
-class LabelSmoothedCrossEntropyV2CriterionConfig(LabelSmoothedCrossEntropyCriterionConfig):
+class LabelSmoothedCrossEntropyV2CriterionConfig(
+    LabelSmoothedCrossEntropyCriterionConfig
+):
     print_training_sample_interval: int = field(
         default=500,
         metadata={
@@ -53,28 +54,40 @@ def temporal_label_smoothing_prob_mask(
     # see https://arxiv.org/pdf/1612.02695.pdf
     # prob_mask.dtype=int for deterministic behavior of Tensor.scatter_add_()
     prob_mask = torch.zeros_like(lprobs, dtype=torch.int)  # bsz x tgtlen x vocab_size
-    idx_tensor = target.new_full(target.size(), padding_index).unsqueeze(-1)  # bsz x tgtlen x 1
+    idx_tensor = target.new_full(target.size(), padding_index).unsqueeze(
+        -1
+    )  # bsz x tgtlen x 1
     # hard-code the remaining probabilty mass distributed symmetrically
     # over neighbors at distance ±1 and ±2 with a 5 : 2 ratio
     idx_tensor[:, 2:, 0] = target[:, :-2]  # two neighbors to the left
     prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
     idx_tensor.fill_(padding_index)[:, 1:, 0] = target[:, :-1]
     prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
-    idx_tensor.fill_(padding_index)[:, :-2, 0] = target[:, 2:]  # two neighbors to the right
+    idx_tensor.fill_(padding_index)[:, :-2, 0] = target[
+        :, 2:
+    ]  # two neighbors to the right
     prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([2]).expand_as(idx_tensor))
     idx_tensor.fill_(padding_index)[:, :-1, 0] = target[:, 1:]
     prob_mask.scatter_add_(-1, idx_tensor, prob_mask.new([5]).expand_as(idx_tensor))
     prob_mask[:, :, padding_index] = 0  # clear cumulative count on <pad>
     prob_mask = prob_mask.float()  # convert to float
     sum_prob = prob_mask.sum(-1, keepdim=True)
-    sum_prob[sum_prob.squeeze(-1).eq(0.0)] = 1.0  # to deal with the "division by 0" problem
+    sum_prob[
+        sum_prob.squeeze(-1).eq(0.0)
+    ] = 1.0  # to deal with the "division by 0" problem
     prob_mask = prob_mask.div_(sum_prob).view(-1, prob_mask.size(-1))
     return prob_mask
 
 
 def label_smoothed_nll_loss(
-    lprobs, target, epsilon, ignore_index=None, reduce=True,
-    smoothing_type="uniform", prob_mask=None, unigram_tensor=None,
+    lprobs,
+    target,
+    epsilon,
+    ignore_index=None,
+    reduce=True,
+    smoothing_type="uniform",
+    prob_mask=None,
+    unigram_tensor=None,
 ):
     if target.dim() == lprobs.dim() - 1:
         target = target.unsqueeze(-1)
@@ -107,9 +120,11 @@ def label_smoothed_nll_loss(
     return loss, nll_loss
 
 
-@register_criterion("label_smoothed_cross_entropy_v2", dataclass=LabelSmoothedCrossEntropyV2CriterionConfig)
+@register_criterion(
+    "label_smoothed_cross_entropy_v2",
+    dataclass=LabelSmoothedCrossEntropyV2CriterionConfig,
+)
 class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
-
     def __init__(
         self,
         task,
@@ -122,8 +137,11 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
         report_accuracy=False,
     ):
         super().__init__(
-            task, sentence_avg, label_smoothing,
-            ignore_prefix_size=ignore_prefix_size, report_accuracy=report_accuracy,
+            task,
+            sentence_avg,
+            label_smoothing,
+            ignore_prefix_size=ignore_prefix_size,
+            report_accuracy=report_accuracy,
         )
 
         self.dictionary = task.target_dictionary
@@ -166,20 +184,25 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
             logging_output["total"] = utils.item(total.data)
 
         if (
-            hasattr(model, "num_updates") and model.training and
-            model.num_updates // self.print_interval >
-            (model.num_updates - 1) // self.print_interval and
-            model.num_updates != self.prev_num_updates
+            hasattr(model, "num_updates")
+            and model.training
+            and model.num_updates // self.print_interval
+            > (model.num_updates - 1) // self.print_interval
+            and model.num_updates != self.prev_num_updates
         ):  # print a randomly sampled result every print_interval updates
             self.prev_num_updates = model.num_updates
             target = model.get_targets(sample, net_output)
-            pred = lprobs.view(target.size(0), -1, lprobs.size(-1)).argmax(-1).cpu()  # bsz x len
+            pred = (
+                lprobs.view(target.size(0), -1, lprobs.size(-1)).argmax(-1).cpu()
+            )  # bsz x len
             assert pred.size() == target.size()
             with data_utils.numpy_seed(model.num_updates):
                 i = np.random.randint(0, len(sample["id"]))
             length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
             ref_one = sample["text"][i]
-            pred_one = self.dictionary.wordpiece_decode(self.dictionary.string(pred.data[i][:length]))
+            pred_one = self.dictionary.wordpiece_decode(
+                self.dictionary.string(pred.data[i][:length])
+            )
             logger.info("sample REF: " + ref_one)
             logger.info("sample PRD: " + pred_one)
 
@@ -190,10 +213,15 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
     ):
         lprobs, target = self.get_lprobs_and_target(model, net_output, sample)
         bsz = sample["target"].size(0)
-        prob_mask = temporal_label_smoothing_prob_mask(
-            lprobs.view(bsz, -1, lprobs.size(-1)), target.view(bsz, -1),
-            padding_index=self.padding_idx,
-        ) if smoothing_type == "temporal" else None
+        prob_mask = (
+            temporal_label_smoothing_prob_mask(
+                lprobs.view(bsz, -1, lprobs.size(-1)),
+                target.view(bsz, -1),
+                padding_index=self.padding_idx,
+            )
+            if smoothing_type == "temporal"
+            else None
+        )
         loss, nll_loss = label_smoothed_nll_loss(
             lprobs,
             target,
