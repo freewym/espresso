@@ -6,11 +6,7 @@
 import logging
 from typing import Optional
 
-from fairseq.dataclass.utils import gen_parser_from_dataclass
-from fairseq.distributed import fsdp_wrap
-from fairseq.models import register_model
-from fairseq.models.transformer import TransformerModelBase
-
+import espresso.tools.utils as speech_utils
 from espresso.models.transformer import (
     DEFAULT_MAX_SOURCE_POSITIONS,
     DEFAULT_MAX_TARGET_POSITIONS,
@@ -19,9 +15,13 @@ from espresso.models.transformer import (
     SpeechTransformerEncoderBase,
 )
 from espresso.modules import ConvBNReLU
-from espresso.tools.scheduled_sampling_rate_scheduler import ScheduledSamplingRateScheduler
-import espresso.tools.utils as speech_utils
-
+from espresso.tools.scheduled_sampling_rate_scheduler import (
+    ScheduledSamplingRateScheduler,
+)
+from fairseq.dataclass.utils import gen_parser_from_dataclass
+from fairseq.distributed import fsdp_wrap
+from fairseq.models import register_model
+from fairseq.models.transformer import TransformerModelBase
 
 logger = logging.getLogger(__name__)
 
@@ -85,14 +85,31 @@ class SpeechTransformerModelBase(TransformerModelBase):
         if cfg.offload_activations:
             cfg.checkpoint_activations = True  # offloading implies checkpointing
 
-        out_channels = speech_utils.eval_str_nested_list_or_tuple(cfg.encoder.conv_channels, type=int)
-        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(cfg.encoder.conv_kernel_sizes, type=int)
-        strides = speech_utils.eval_str_nested_list_or_tuple(cfg.encoder.conv_strides, type=int)
-        logger.info("input feature dimension: {}, channels: {}".format(task.feat_dim, task.feat_in_channels))
+        out_channels = speech_utils.eval_str_nested_list_or_tuple(
+            cfg.encoder.conv_channels, type=int
+        )
+        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(
+            cfg.encoder.conv_kernel_sizes, type=int
+        )
+        strides = speech_utils.eval_str_nested_list_or_tuple(
+            cfg.encoder.conv_strides, type=int
+        )
+        logger.info(
+            "input feature dimension: {}, channels: {}".format(
+                task.feat_dim, task.feat_in_channels
+            )
+        )
         assert task.feat_dim % task.feat_in_channels == 0
-        conv_layers = ConvBNReLU(
-            out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,
-        ) if out_channels is not None else None
+        conv_layers = (
+            ConvBNReLU(
+                out_channels,
+                kernel_sizes,
+                strides,
+                in_channels=task.feat_in_channels,
+            )
+            if out_channels is not None
+            else None
+        )
 
         transformer_encoder_input_size = task.feat_dim // task.feat_in_channels
         if conv_layers is not None:
@@ -103,35 +120,40 @@ class SpeechTransformerModelBase(TransformerModelBase):
                 else:
                     assert isinstance(stride, int)
                     s = stride
-                transformer_encoder_input_size = (transformer_encoder_input_size + s - 1) // s
+                transformer_encoder_input_size = (
+                    transformer_encoder_input_size + s - 1
+                ) // s
             transformer_encoder_input_size *= out_channels[-1]
         else:
             transformer_encoder_input_size = task.feat_dim
 
         encoder_transformer_context = speech_utils.eval_str_nested_list_or_tuple(
-            cfg.encoder.transformer_context, type=int,
+            cfg.encoder.transformer_context,
+            type=int,
         )
         if encoder_transformer_context is not None:
             assert len(encoder_transformer_context) == 2
             for i in range(2):
-                assert (
-                    encoder_transformer_context[i] is None
-                    or (
-                        isinstance(encoder_transformer_context[i], int)
-                        and encoder_transformer_context[i] >= 0
-                    )
+                assert encoder_transformer_context[i] is None or (
+                    isinstance(encoder_transformer_context[i], int)
+                    and encoder_transformer_context[i] >= 0
                 )
 
         scheduled_sampling_rate_scheduler = ScheduledSamplingRateScheduler(
-            cfg.scheduled_sampling_probs, cfg.start_scheduled_sampling_epoch,
+            cfg.scheduled_sampling_probs,
+            cfg.start_scheduled_sampling_epoch,
         )
 
         encoder = cls.build_encoder(
-            cfg, conv_layers_before=conv_layers, input_size=transformer_encoder_input_size,
+            cfg,
+            conv_layers_before=conv_layers,
+            input_size=transformer_encoder_input_size,
             transformer_context=encoder_transformer_context,
         )
         decoder = cls.build_decoder(
-            cfg, tgt_dict, decoder_embed_tokens,
+            cfg,
+            tgt_dict,
+            decoder_embed_tokens,
             scheduled_sampling_rate_scheduler=scheduled_sampling_rate_scheduler,
         )
         # fsdp_wrap is a no-op when --ddp-backend != fully_sharded
@@ -144,14 +166,20 @@ class SpeechTransformerModelBase(TransformerModelBase):
         super().set_num_updates(num_updates)
 
     @classmethod
-    def build_encoder(cls, cfg, conv_layers_before=None, input_size=83, transformer_context=None):
+    def build_encoder(
+        cls, cfg, conv_layers_before=None, input_size=83, transformer_context=None
+    ):
         return SpeechTransformerEncoderBase(
-            cfg, conv_layers_before=conv_layers_before, input_size=input_size,
+            cfg,
+            conv_layers_before=conv_layers_before,
+            input_size=input_size,
             transformer_context=transformer_context,
         )
 
     @classmethod
-    def build_decoder(cls, cfg, tgt_dict, embed_tokens, scheduled_sampling_rate_scheduler=None):
+    def build_decoder(
+        cls, cfg, tgt_dict, embed_tokens, scheduled_sampling_rate_scheduler=None
+    ):
         return SpeechTransformerDecoderBase(
             cfg,
             tgt_dict,

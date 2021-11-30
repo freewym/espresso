@@ -47,13 +47,19 @@ def main(args):
         for line in f:
             entry = line.rstrip().split()
             tokenized = tokenize(
-                " ".join(entry[args.skip_ncols:]),
+                " ".join(entry[args.skip_ncols :]),
                 space=args.space,
                 non_lang_syms=nls,
             )
             if args.skip_ncols > 0:
                 if args.ends_with_space:
-                    print(" ".join(entry[: args.skip_ncols]) + " " + tokenized + " " + args.space)
+                    print(
+                        " ".join(entry[: args.skip_ncols])
+                        + " "
+                        + tokenized
+                        + " "
+                        + args.space
+                    )
                 else:
                     print(" ".join(entry[: args.skip_ncols]) + " " + tokenized)
             else:

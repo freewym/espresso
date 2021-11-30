@@ -4,13 +4,12 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+
 import numpy as np
 import torch
 
-from fairseq.data import FairseqDataset, data_utils
-
 import espresso.tools.utils as speech_utils
-
+from fairseq.data import FairseqDataset, data_utils
 
 logger = logging.getLogger(__name__)
 
@@ -32,14 +31,19 @@ def collate(
     def merge(key, left_pad, move_eos_to_beginning=False, pad_to_length=None):
         if key == "source":
             return speech_utils.collate_frames(
-                [s[key] for s in samples], 0.0, left_pad,
+                [s[key] for s in samples],
+                0.0,
+                left_pad,
                 pad_to_length=pad_to_length,
                 pad_to_multiple=pad_to_multiple,
             )
         elif key == "target" or key == "prev_output_tokens":
             return data_utils.collate_tokens(
                 [s[key] for s in samples],
-                pad_idx, eos_idx, left_pad, move_eos_to_beginning,
+                pad_idx,
+                eos_idx,
+                left_pad,
+                move_eos_to_beginning,
                 pad_to_length=pad_to_length,
                 pad_to_multiple=pad_to_multiple,
             )
@@ -68,7 +72,8 @@ def collate(
     target = None
     if samples[0].get("target", None) is not None:
         target = merge(
-            "target", left_pad=left_pad_target,
+            "target",
+            left_pad=left_pad_target,
             pad_to_length=pad_to_length["target"]
             if pad_to_length is not None
             else None,
@@ -101,7 +106,10 @@ def collate(
         "utt_id": utt_id,
         "nsentences": len(samples),
         "ntokens": ntokens,
-        "net_input": {"src_tokens": src_frames, "src_lengths": src_lengths},
+        "net_input": {
+            "src_tokens": src_frames,
+            "src_lengths": src_lengths,
+        },
         "target": target,
         "text": text,
     }
@@ -116,7 +124,7 @@ def collate(
         lens = [sample.get("constraints").size(0) for sample in samples]
         constraints = torch.zeros((len(samples), max(lens))).long()
         for i, sample in enumerate(samples):
-            constraints[i, 0: lens[i]] = samples[i].get("constraints")
+            constraints[i, 0 : lens[i]] = samples[i].get("constraints")
         batch["constraints"] = constraints.index_select(0, sort_order)
 
     return batch
@@ -192,7 +200,10 @@ class AsrDataset(FairseqDataset):
         )
 
         if num_buckets > 0:
-            from espresso.data import FeatBucketPadLengthDataset, TextBucketPadLengthDataset
+            from espresso.data import (
+                FeatBucketPadLengthDataset,
+                TextBucketPadLengthDataset,
+            )
 
             self.src = FeatBucketPadLengthDataset(
                 self.src,
@@ -212,7 +223,9 @@ class AsrDataset(FairseqDataset):
                     left_pad=False,
                 )
                 self.tgt_sizes = self.tgt.sizes
-                logger.info("bucketing target lengths: {}".format(list(self.tgt.buckets)))
+                logger.info(
+                    "bucketing target lengths: {}".format(list(self.tgt.buckets))
+                )
 
             # determine bucket sizes using self.num_tokens, which will return
             # the padded lengths (thanks to FeatBucketPadLengthDataset)
@@ -391,7 +404,10 @@ class AsrDataset(FairseqDataset):
             list: list of removed indices
         """
         return data_utils.filter_paired_dataset_indices_by_size(
-            self.src_sizes, self.tgt_sizes, indices, max_sizes,
+            self.src_sizes,
+            self.tgt_sizes,
+            indices,
+            max_sizes,
         )
 
     @property

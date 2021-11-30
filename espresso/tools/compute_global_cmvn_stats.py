@@ -5,21 +5,20 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
-from io import BytesIO
 import logging
 import os
 import re
 import sys
 from concurrent.futures.thread import ThreadPoolExecutor
+from io import BytesIO
 from subprocess import PIPE, run
 from typing import Tuple
+
 import numpy as np
 from tqdm import tqdm
 
-from fairseq.data.audio.audio_utils import get_waveform
-
 from espresso.tools.utils import get_torchaudio_fbank_or_mfcc
-
+from fairseq.data.audio.audio_utils import get_waveform
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -53,14 +52,18 @@ def get_parser():
     return parser
 
 
-def process(line: str, n_bins: int = 80, feature_type: str = "fbank") -> Tuple[np.ndarray, np.ndarray, int]:
+def process(
+    line: str, n_bins: int = 80, feature_type: str = "fbank"
+) -> Tuple[np.ndarray, np.ndarray, int]:
     _, rxfile = line.rstrip().split(None, 1)
     if re.search(r"\|$", rxfile) is not None:  # from a command
         source = BytesIO(run(rxfile[:-1], shell=True, stdout=PIPE).stdout)
     else:  # from a raw waveform file
         source = rxfile
     waveform, sample_rate = get_waveform(source, normalization=False, always_2d=True)
-    feat = get_torchaudio_fbank_or_mfcc(waveform, sample_rate, n_bins=n_bins, feature_type=feature_type)
+    feat = get_torchaudio_fbank_or_mfcc(
+        waveform, sample_rate, n_bins=n_bins, feature_type=feature_type
+    )
     cur_sum = feat.sum(axis=0)
     cur_frames = feat.shape[0]
     cur_unnorm_var = np.var(feat, axis=0) * cur_frames
@@ -73,7 +76,9 @@ def main(args):
             f"Computing {args.feature_type} global CMVN stats from first {args.max_num_utts} utterances in {args.file}"
         )
     else:
-        logger.info(f"Computing {args.feature_type} global CMVN stats from utterances in {args.file}")
+        logger.info(
+            f"Computing {args.feature_type} global CMVN stats from utterances in {args.file}"
+        )
 
     with ThreadPoolExecutor(max_workers=args.num_workers) as ex:
         futures = []
@@ -81,7 +86,9 @@ def main(args):
             for i, line in enumerate(f):
                 if args.max_num_utts is not None and i == args.max_num_utts:
                     break
-                futures.append(ex.submit(process, line, args.feat_dim, args.feature_type))
+                futures.append(
+                    ex.submit(process, line, args.feat_dim, args.feature_type)
+                )
 
         # implementation based on Lhotse: https://github.com/lhotse-speech/lhotse/blob/master/lhotse/features/base.py#L657
         total_sum = np.zeros((args.feat_dim,), dtype=np.float64)
@@ -94,16 +101,21 @@ def main(args):
             total_over_cur_frames = total_frames / cur_frames
             if total_frames > 0:
                 total_unnorm_var = (
-                    total_unnorm_var + cur_unnorm_var +
-                    total_over_cur_frames / updated_total_frames *
-                    (total_sum / total_over_cur_frames - cur_sum) ** 2
+                    total_unnorm_var
+                    + cur_unnorm_var
+                    + total_over_cur_frames
+                    / updated_total_frames
+                    * (total_sum / total_over_cur_frames - cur_sum) ** 2
                 )
             else:
                 total_unnorm_var = cur_unnorm_var
             total_sum = updated_total_sum
             total_frames = updated_total_frames
 
-    stats = {"mean": total_sum / total_frames, "std": np.sqrt(total_unnorm_var / total_frames)}
+    stats = {
+        "mean": total_sum / total_frames,
+        "std": np.sqrt(total_unnorm_var / total_frames),
+    }
     with open(os.path.join(args.output_dir, "gcmvn.npz"), "wb") as f:
         np.savez(f, mean=stats["mean"], std=stats["std"])
         logger.info(f"Saved CMVN stats file as {f.name}")

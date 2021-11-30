@@ -3,14 +3,21 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from argparse import Namespace
 import logging
+from argparse import Namespace
 from typing import Dict, List, Optional
 
 import torch
-from torch import Tensor
 import torch.nn.functional as F
+from omegaconf import DictConfig
+from torch import Tensor
 
+import espresso.tools.utils as speech_utils
+from espresso.models.transformer import (
+    DEFAULT_MAX_SOURCE_POSITIONS,
+    SpeechTransformerEncoder,
+)
+from espresso.modules.speech_convolutions import ConvBNReLU
 from fairseq import utils
 from fairseq.distributed import fsdp_wrap
 from fairseq.models import (
@@ -18,19 +25,7 @@ from fairseq.models import (
     register_model,
     register_model_architecture,
 )
-from fairseq.models.transformer import (
-    DEFAULT_MIN_PARAMS_TO_WRAP,
-    Linear,
-)
-from omegaconf import DictConfig
-
-from espresso.models.transformer import (
-    DEFAULT_MAX_SOURCE_POSITIONS,
-    SpeechTransformerEncoder,
-)
-from espresso.modules.speech_convolutions import ConvBNReLU
-import espresso.tools.utils as speech_utils
-
+from fairseq.models.transformer import DEFAULT_MIN_PARAMS_TO_WRAP, Linear
 
 logger = logging.getLogger(__name__)
 
@@ -128,14 +123,31 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
         if getattr(args, "offload_activations", False):
             args.checkpoint_activations = True  # offloading implies checkpointing
 
-        out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
-        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
-        strides = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
-        logger.info("input feature dimension: {}, channels: {}".format(task.feat_dim, task.feat_in_channels))
+        out_channels = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_channels, type=int
+        )
+        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_kernel_sizes, type=int
+        )
+        strides = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_strides, type=int
+        )
+        logger.info(
+            "input feature dimension: {}, channels: {}".format(
+                task.feat_dim, task.feat_in_channels
+            )
+        )
         assert task.feat_dim % task.feat_in_channels == 0
-        conv_layers = ConvBNReLU(
-            out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,
-        ) if out_channels is not None else None
+        conv_layers = (
+            ConvBNReLU(
+                out_channels,
+                kernel_sizes,
+                strides,
+                in_channels=task.feat_in_channels,
+            )
+            if out_channels is not None
+            else None
+        )
 
         transformer_encoder_input_size = task.feat_dim // task.feat_in_channels
         if conv_layers is not None:
@@ -146,23 +158,23 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
                 else:
                     assert isinstance(stride, int)
                     s = stride
-                transformer_encoder_input_size = (transformer_encoder_input_size + s - 1) // s
+                transformer_encoder_input_size = (
+                    transformer_encoder_input_size + s - 1
+                ) // s
             transformer_encoder_input_size *= out_channels[-1]
         else:
             transformer_encoder_input_size = task.feat_dim
 
         encoder_transformer_context = speech_utils.eval_str_nested_list_or_tuple(
-            args.encoder_transformer_context, type=int,
+            args.encoder_transformer_context,
+            type=int,
         )
         if encoder_transformer_context is not None:
             assert len(encoder_transformer_context) == 2
             for i in range(2):
-                assert (
-                    encoder_transformer_context[i] is None
-                    or (
-                        isinstance(encoder_transformer_context[i], int)
-                        and encoder_transformer_context[i] >= 0
-                    )
+                assert encoder_transformer_context[i] is None or (
+                    isinstance(encoder_transformer_context[i], int)
+                    and encoder_transformer_context[i] >= 0
                 )
 
         encoder = cls.build_encoder(
@@ -170,14 +182,18 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
             conv_layers_before=conv_layers,
             input_size=transformer_encoder_input_size,
             transformer_context=encoder_transformer_context,
-            num_targets=getattr(task, "num_targets", None),  # targets for encoder-only model
+            num_targets=getattr(
+                task, "num_targets", None
+            ),  # targets for encoder-only model
             chunk_width=getattr(task, "chunk_width", None),
             chunk_left_context=getattr(task, "chunk_left_context", 0),
             training_stage=getattr(task, "training_stage", True),
         )
         # fsdp_wrap is a no-op when --ddp-backend != fully_sharded
         encoder = fsdp_wrap(encoder, min_num_params=1e8)
-        return cls(args, encoder, state_prior=getattr(task, "initial_state_prior", None))
+        return cls(
+            args, encoder, state_prior=getattr(task, "initial_state_prior", None)
+        )
 
     def set_num_updates(self, num_updates):
         self.num_updates = num_updates
@@ -185,8 +201,15 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
 
     @classmethod
     def build_encoder(
-        cls, args, conv_layers_before=None, input_size=83, transformer_context=None,
-        num_targets=None, chunk_width=None, chunk_left_context=0, training_stage=True,
+        cls,
+        args,
+        conv_layers_before=None,
+        input_size=83,
+        transformer_context=None,
+        num_targets=None,
+        chunk_width=None,
+        chunk_left_context=0,
+        training_stage=True,
     ):
         return SpeechChunkTransformerEncoder(
             args,
@@ -216,7 +239,7 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
     def update_state_prior(self, new_state_prior, factor=0.1):
         assert self.state_prior is not None
         self.state_prior = self.state_prior.to(new_state_prior)
-        self.state_prior = (1. - factor) * self.state_prior + factor * new_state_prior
+        self.state_prior = (1.0 - factor) * self.state_prior + factor * new_state_prior
         self.state_prior = self.state_prior / self.state_prior.sum()  # re-normalize
 
     def state_dict(self):
@@ -243,12 +266,22 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
 
 class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
     """Transformer encoder for speech (possibly chunk) data."""
+
     def __init__(
-        self, args, conv_layers_before=None, input_size=83, transformer_context=None,
-        num_targets=None, chunk_width=None, chunk_left_context=0, training_stage=True,
+        self,
+        args,
+        conv_layers_before=None,
+        input_size=83,
+        transformer_context=None,
+        num_targets=None,
+        chunk_width=None,
+        chunk_left_context=0,
+        training_stage=True,
     ):
         super().__init__(
-            args, conv_layers_before=conv_layers_before, input_size=input_size,
+            args,
+            conv_layers_before=conv_layers_before,
+            input_size=input_size,
             transformer_context=transformer_context,
         )
         receptive_field_radius = (
@@ -257,9 +290,9 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
             else 0
         )
         assert chunk_width is None or chunk_width > 0
-        assert (
-            (conv_layers_before is None and chunk_left_context >= 0)
-            or (conv_layers_before is not None and chunk_left_context >= receptive_field_radius)
+        assert (conv_layers_before is None and chunk_left_context >= 0) or (
+            conv_layers_before is not None
+            and chunk_left_context >= receptive_field_radius
         )
         self.out_chunk_begin = self.output_lengths(chunk_left_context + 1) - 1
         self.out_chunk_end = (
@@ -303,16 +336,17 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
                   hidden states of shape `(src_len, batch, embed_dim)`.
                   Only populated if *return_all_hiddens* is True.
         """
-        out = super().forward(src_tokens, src_lengths, return_all_hiddens=return_all_hiddens)
+        out = super().forward(
+            src_tokens, src_lengths, return_all_hiddens=return_all_hiddens
+        )
         x, x_lengths = out["encoder_out"][0], out["src_lengths"][0]
 
         # determine which output frame to select for loss evaluation/test, assuming
         # all examples in a batch are of the same length for chunk-wise training/test
-        if (
-            self.out_chunk_end is not None
-            and (self.training or not self.training_stage)
+        if self.out_chunk_end is not None and (
+            self.training or not self.training_stage
         ):
-            x = x[self.out_chunk_begin: self.out_chunk_end]  # T x B x C -> W x B x C
+            x = x[self.out_chunk_begin : self.out_chunk_end]  # T x B x C -> W x B x C
             x_lengths = x_lengths.fill_(x.size(0))
 
         if self.fc_out is not None:
@@ -324,7 +358,9 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
         # The empty list is equivalent to None.
         return {
             "encoder_out": [x],  # T x B x C
-            "encoder_padding_mask": [out["encoder_padding_mask"][0].transpose(0, 1)],  # T x B
+            "encoder_padding_mask": [
+                out["encoder_padding_mask"][0].transpose(0, 1)
+            ],  # T x B
             "encoder_embedding": out["encoder_embedding"],  # None
             "encoder_states": out["encoder_states"],  # List[T x B x C]
             "src_tokens": out["src_tokens"],  # None
@@ -351,7 +387,9 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
             new_encoder_padding_mask = []
         else:
             new_encoder_padding_mask = [
-                encoder_out["encoder_padding_mask"][0].index_select(1, new_order)  # note: transposed
+                encoder_out["encoder_padding_mask"][0].index_select(
+                    1, new_order
+                )  # note: transposed
             ]
         if len(encoder_out["encoder_embedding"]) == 0:
             new_encoder_embedding = []
@@ -367,7 +405,9 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
         if len(encoder_out["src_lengths"]) == 0:
             new_src_lengths = []
         else:
-            new_src_lengths = [(encoder_out["src_lengths"][0]).index_select(0, new_order)]
+            new_src_lengths = [
+                (encoder_out["src_lengths"][0]).index_select(0, new_order)
+            ]
 
         encoder_states = encoder_out["encoder_states"]
         if len(encoder_states) > 0:
@@ -384,16 +424,24 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
         }
 
 
-@register_model_architecture("speech_transformer_encoder_model", "speech_transformer_encoder_model")
+@register_model_architecture(
+    "speech_transformer_encoder_model", "speech_transformer_encoder_model"
+)
 def base_architecture(args):
     args.encoder_conv_channels = getattr(
-        args, "encoder_conv_channels", "[64, 64, 128, 128]",
+        args,
+        "encoder_conv_channels",
+        "[64, 64, 128, 128]",
     )
     args.encoder_conv_kernel_sizes = getattr(
-        args, "encoder_conv_kernel_sizes", "[(3, 3), (3, 3), (3, 3), (3, 3)]",
+        args,
+        "encoder_conv_kernel_sizes",
+        "[(3, 3), (3, 3), (3, 3), (3, 3)]",
     )
     args.encoder_conv_strides = getattr(
-        args, "encoder_conv_strides", "[(1, 1), (2, 2), (1, 1), (2, 2)]",
+        args,
+        "encoder_conv_strides",
+        "[(1, 1), (2, 2), (1, 1), (2, 2)]",
     )
     args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 256)
     args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 1024)
@@ -401,8 +449,12 @@ def base_architecture(args):
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
     args.encoder_learned_pos = getattr(args, "encoder_learned_pos", False)
-    args.encoder_relative_positional_embeddings = getattr(args, "encoder_relative_positional_embeddings", False)
-    args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
+    args.encoder_relative_positional_embeddings = getattr(
+        args, "encoder_relative_positional_embeddings", False
+    )
+    args.encoder_transformer_context = getattr(
+        args, "encoder_transformer_context", None
+    )
     args.attention_dropout = getattr(args, "attention_dropout", 0.2)
     args.activation_dropout = getattr(args, "activation_dropout", 0.2)
     args.activation_fn = getattr(args, "activation_fn", "relu")
@@ -423,6 +475,8 @@ def base_architecture(args):
     args.quant_noise_scalar = getattr(args, "quant_noise_scalar", 0)
 
 
-@register_model_architecture("speech_transformer_encoder_model", "speech_transformer_encoder_model_wsj")
+@register_model_architecture(
+    "speech_transformer_encoder_model", "speech_transformer_encoder_model_wsj"
+)
 def speech_transformer_encoder_wsj(args):
     base_architecture(args)

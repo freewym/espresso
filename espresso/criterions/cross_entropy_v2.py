@@ -3,17 +3,19 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import dataclass, field
 import logging
-import numpy as np
+from dataclasses import dataclass, field
 
+import numpy as np
 import torch.nn.functional as F
 
 from fairseq import utils
 from fairseq.criterions import register_criterion
-from fairseq.criterions.cross_entropy import CrossEntropyCriterion, CrossEntropyCriterionConfig
+from fairseq.criterions.cross_entropy import (
+    CrossEntropyCriterion,
+    CrossEntropyCriterionConfig,
+)
 from fairseq.data import data_utils
-
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +32,6 @@ class CrossEntropyV2CriterionConfig(CrossEntropyCriterionConfig):
 
 @register_criterion("cross_entropy_v2", dataclass=CrossEntropyV2CriterionConfig)
 class CrossEntropyV2Criterion(CrossEntropyCriterion):
-
     def __init__(self, task, sentence_avg, print_training_sample_interval):
         super().__init__(task, sentence_avg)
 
@@ -61,10 +62,11 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
         }
 
         if (
-            hasattr(model, "num_updates") and model.training and
-            model.num_updates // self.print_interval >
-            (model.num_updates - 1) // self.print_interval and
-            model.num_updates != self.prev_num_updates
+            hasattr(model, "num_updates")
+            and model.training
+            and model.num_updates // self.print_interval
+            > (model.num_updates - 1) // self.print_interval
+            and model.num_updates != self.prev_num_updates
         ):  # print a randomly sampled result every print_interval updates
             self.prev_num_updates = model.num_updates
             target = model.get_targets(sample, net_output)
@@ -74,7 +76,9 @@ class CrossEntropyV2Criterion(CrossEntropyCriterion):
                 i = np.random.randint(0, len(sample["id"]))
             length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
             ref_one = sample["text"][i]
-            pred_one = self.dictionary.wordpiece_decode(self.dictionary.string(pred.data[i][:length]))
+            pred_one = self.dictionary.wordpiece_decode(
+                self.dictionary.string(pred.data[i][:length])
+            )
             logger.info("sample REF: " + ref_one)
             logger.info("sample PRD: " + pred_one)
 
