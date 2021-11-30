@@ -307,6 +307,7 @@ class TransformerDecoderLayerBase(nn.Module):
             vdim=cfg.encoder.embed_dim,
             dropout=cfg.attention_dropout,
             encoder_decoder_attention=True,
+            relaxed_attention_weight=cfg.decoder.relaxed_attention,                     
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
         )
@@ -329,6 +330,7 @@ class TransformerDecoderLayerBase(nn.Module):
         self_attn_padding_mask: Optional[torch.Tensor] = None,
         need_attn: bool = False,
         need_head_weights: bool = False,
+        encoder_attn_relaxation: float = None,                           
     ):
         """
         Args:
@@ -429,6 +431,7 @@ class TransformerDecoderLayerBase(nn.Module):
                 static_kv=True,
                 need_weights=need_attn or (not self.training and self.need_attn),
                 need_head_weights=need_head_weights,
+                encoder_attn_relaxation=encoder_attn_relaxation,                                           
             )
             x = self.dropout_module(x)
             x = self.residual_connection(x, residual)
