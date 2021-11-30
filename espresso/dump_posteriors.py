@@ -15,14 +15,13 @@ import sys
 from argparse import Namespace
 
 import numpy as np
-
 import torch
+from omegaconf import DictConfig
 
 from fairseq import checkpoint_utils, options, tasks, utils
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
 from fairseq.logging import progress_bar
 from fairseq.logging.meters import StopwatchMeter
-from omegaconf import DictConfig
 
 try:
     import kaldi_io
@@ -157,18 +156,32 @@ def _main(cfg, output_file):
                 if log_prior is not None:
                     assert lprobs.size(-1) == log_prior.size(0)
                     lprobs = lprobs - log_prior
-                out_lengths = (~padding_mask).long().sum(dim=1).cpu() if padding_mask is not None else None
+                out_lengths = (
+                    (~padding_mask).long().sum(dim=1).cpu()
+                    if padding_mask is not None
+                    else None
+                )
                 num_processed_frames = sample["ntokens"]
                 gen_timer.stop(num_processed_frames)
-                num_sentences += sample["nsentences"] if "nsentences" in sample else sample["id"].numel()
+                num_sentences += (
+                    sample["nsentences"]
+                    if "nsentences" in sample
+                    else sample["id"].numel()
+                )
 
                 if out_lengths is not None:
                     for i in range(sample["nsentences"]):
                         length = out_lengths[i]
-                        kaldi_io.write_mat(f, lprobs[i, : length, :].cpu().numpy(), key=sample["utt_id"][i])
+                        kaldi_io.write_mat(
+                            f,
+                            lprobs[i, :length, :].cpu().numpy(),
+                            key=sample["utt_id"][i],
+                        )
                 else:
                     for i in range(sample["nsentences"]):
-                        kaldi_io.write_mat(f, lprobs[i, :, :].cpu().numpy(), key=sample["utt_id"][i])
+                        kaldi_io.write_mat(
+                            f, lprobs[i, :, :].cpu().numpy(), key=sample["utt_id"][i]
+                        )
         else:  # dumping chunks within the same utterance from left to right
             for sample in progress:  # sample is actually a list of batches
                 sample = utils.move_to_cuda(sample) if use_cuda else sample
@@ -179,7 +192,10 @@ def _main(cfg, output_file):
                     if "net_input" not in chunk_sample:
                         continue
 
-                    assert chunk_sample["utt_id"] == utt_id and (chunk_sample["id"] == id).all()
+                    assert (
+                        chunk_sample["utt_id"] == utt_id
+                        and (chunk_sample["id"] == id).all()
+                    )
                     gen_timer.start()
                     lprobs, _ = task.inference_step(generator, models, chunk_sample)
                     if log_prior is not None:
@@ -198,11 +214,18 @@ def _main(cfg, output_file):
                             truncated_length = models[0].output_lengths(
                                 task.dataset(cfg.dataset.gen_subset).src_sizes[id[j]]
                             )  # length is after possible subsampling by the model
-                            mat = whole_lprobs[j, : truncated_length, :]
+                            mat = whole_lprobs[j, :truncated_length, :]
                             kaldi_io.write_mat(f, mat.numpy(), key=utt_id[j])
 
-    logger.info("Dumped {:,} utterances ({} frames) in {:.1f}s ({:.2f} sentences/s, {:.2f} frames/s)".format(
-        num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
+    logger.info(
+        "Dumped {:,} utterances ({} frames) in {:.1f}s ({:.2f} sentences/s, {:.2f} frames/s)".format(
+            num_sentences,
+            gen_timer.n,
+            gen_timer.sum,
+            num_sentences / gen_timer.sum,
+            1.0 / gen_timer.avg,
+        )
+    )
 
     return
 

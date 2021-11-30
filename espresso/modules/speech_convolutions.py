@@ -3,14 +3,15 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from torch import nn
 import torch.nn.functional as F
+from torch import nn
 
 import espresso.tools.utils as speech_utils
 
 
 class ConvBNReLU(nn.Module):
     """Sequence of convolution-BatchNorm-ReLU layers."""
+
     def __init__(self, out_channels, kernel_sizes, strides, in_channels=1):
         super().__init__()
         self.out_channels = out_channels
@@ -26,9 +27,12 @@ class ConvBNReLU(nn.Module):
         for i in range(num_layers):
             self.convolutions.append(
                 Convolution2d(
-                    self.in_channels if i == 0 else self.out_channels[i-1],
+                    self.in_channels if i == 0 else self.out_channels[i - 1],
                     self.out_channels[i],
-                    self.kernel_sizes[i], self.strides[i]))
+                    self.kernel_sizes[i],
+                    self.strides[i],
+                )
+            )
             self.batchnorms.append(nn.BatchNorm2d(out_channels[i]))
 
     def output_lengths(self, in_lengths):
@@ -46,7 +50,10 @@ class ConvBNReLU(nn.Module):
     def forward(self, src, src_lengths):
         # B X T X C -> B X (input channel num) x T X (C / input channel num)
         x = src.view(
-            src.size(0), src.size(1), self.in_channels, src.size(2) // self.in_channels,
+            src.size(0),
+            src.size(1),
+            self.in_channels,
+            src.size(2) // self.in_channels,
         ).transpose(1, 2)
         for conv, bn in zip(self.convolutions, self.batchnorms):
             x = F.relu(bn(conv(x)))
@@ -81,6 +88,10 @@ def Convolution2d(in_channels, out_channels, kernel_size, stride):
     assert kernel_size[0] % 2 == 1 and kernel_size[1] % 2 == 1
     padding = ((kernel_size[0] - 1) // 2, (kernel_size[1] - 1) // 2)
     m = nn.Conv2d(
-        in_channels, out_channels, kernel_size, stride=stride, padding=padding,
+        in_channels,
+        out_channels,
+        kernel_size,
+        stride=stride,
+        padding=padding,
     )
     return m

@@ -7,23 +7,29 @@ import math
 from typing import Dict, Optional
 
 import torch
-from torch import nn, Tensor
+from torch import Tensor, nn
 
 
 class SinusoidalRelativePositionalEmbedding(nn.Module):
-    """This module produces sinusoidal relative positional embeddings of any length.
-    """
+    """This module produces sinusoidal relative positional embeddings of any length."""
 
     def __init__(
-        self, embedding_dim, padding_idx: Optional[int] = None, init_size=1024, max_size: Optional[int] = None,
+        self,
+        embedding_dim,
+        padding_idx: Optional[int] = None,
+        init_size=1024,
+        max_size: Optional[int] = None,
         no_scale_embedding=True,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.padding_idx = padding_idx
         self.embedding_scale = 1.0 if no_scale_embedding else math.sqrt(embedding_dim)
-        self.weights = self.embedding_scale * SinusoidalRelativePositionalEmbedding.get_embedding(
-            init_size, embedding_dim, padding_idx
+        self.weights = (
+            self.embedding_scale
+            * SinusoidalRelativePositionalEmbedding.get_embedding(
+                init_size, embedding_dim, padding_idx
+            )
         )
         self.onnx_trace = False
         self.register_buffer("_float_tensor", torch.FloatTensor(1))
@@ -46,15 +52,9 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
         half_dim = embedding_dim // 2
         emb = math.log(10000) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, dtype=torch.float) * -emb)
-        emb = torch.arange(seq_len, dtype=torch.float).unsqueeze(
-            1
-        ) * emb.unsqueeze(0)
-        emb_pos = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(
-            seq_len, -1
-        )
-        emb_neg = torch.cat([torch.sin(-emb), torch.cos(-emb)], dim=1).view(
-            seq_len, -1
-        )
+        emb = torch.arange(seq_len, dtype=torch.float).unsqueeze(1) * emb.unsqueeze(0)
+        emb_pos = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1).view(seq_len, -1)
+        emb_neg = torch.cat([torch.sin(-emb), torch.cos(-emb)], dim=1).view(seq_len, -1)
         if embedding_dim % 2 == 1:
             # zero pad
             emb_pos = torch.cat([emb_pos, torch.zeros(seq_len, 1)], dim=1)
@@ -88,13 +88,16 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
         max_positions = self.weights.size(0)
         if self.padding_idx is not None:
             max_positions -= self.padding_idx + 1
-        if (
-            self.weights is None
-            or (2 * seq_len - 1 > max_positions and (self.max_size is None or seq_len <= self.max_size))
+        if self.weights is None or (
+            2 * seq_len - 1 > max_positions
+            and (self.max_size is None or seq_len <= self.max_size)
         ):
             # recompute/expand embeddings if needed
-            self.weights = self.embedding_scale * SinusoidalRelativePositionalEmbedding.get_embedding(
-                seq_len, self.embedding_dim, self.padding_idx
+            self.weights = (
+                self.embedding_scale
+                * SinusoidalRelativePositionalEmbedding.get_embedding(
+                    seq_len, self.embedding_dim, self.padding_idx
+                )
             )
             max_positions = self.weights.size(0)
             if self.padding_idx is not None:

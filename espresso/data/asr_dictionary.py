@@ -7,12 +7,12 @@ from argparse import Namespace
 from typing import Union
 
 import torch
-from fairseq.data import Dictionary, encoders
-from fairseq.file_io import PathManager
 from omegaconf import DictConfig
 
 # will automatically load modules defined from there
 from espresso.data import encoders as encoders_espresso
+from fairseq.data import Dictionary, encoders
+from fairseq.file_io import PathManager
 
 
 class AsrDictionary(Dictionary):
@@ -29,7 +29,11 @@ class AsrDictionary(Dictionary):
         extra_special_symbols=None,
     ):
         self.bos_word, self.unk_word, self.pad_word, self.eos_word, self.space_word = (
-            bos, unk, pad, eos, space
+            bos,
+            unk,
+            pad,
+            eos,
+            space,
         )
         self.symbols = []
         self.count = []
@@ -84,7 +88,9 @@ class AsrDictionary(Dictionary):
         if f_non_lang_syms is not None:
             assert isinstance(f_non_lang_syms, str)
             try:
-                with open(PathManager.get_local_path(f_non_lang_syms), "r", encoding="utf-8") as fd:
+                with open(
+                    PathManager.get_local_path(f_non_lang_syms), "r", encoding="utf-8"
+                ) as fd:
                     non_lang_syms = [x.rstrip() for x in fd.readlines()]
             except FileNotFoundError as fnfe:
                 raise fnfe
@@ -112,9 +118,8 @@ class AsrDictionary(Dictionary):
         self.tokenizer = encoders.build_tokenizer(cfg)
 
     def build_bpe(self, cfg: Union[DictConfig, Namespace]):
-        if (
-            (isinstance(cfg, DictConfig) and cfg._name == "characters_asr")
-            or (isinstance(cfg, Namespace) and getattr(cfg, "bpe", None) == "characters_asr")
+        if (isinstance(cfg, DictConfig) and cfg._name == "characters_asr") or (
+            isinstance(cfg, Namespace) and getattr(cfg, "bpe", None) == "characters_asr"
         ):
             self.bpe = encoders.build_bpe(
                 cfg, space_symbol=self.space_word, non_lang_syms=self.non_lang_syms

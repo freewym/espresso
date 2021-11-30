@@ -13,7 +13,6 @@ from .transformer_with_relative_positional_embedding_layer import (
     TransformerWithRelativePositionalEmbeddingEncoderLayerBase,
 )
 
-
 __all__ = [
     "BahdanauAttention",
     "ConvBNReLU",

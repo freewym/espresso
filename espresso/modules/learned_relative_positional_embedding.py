@@ -6,8 +6,8 @@
 from typing import Dict, Optional
 
 import torch
-from torch import nn, Tensor
 import torch.nn.functional as F
+from torch import Tensor, nn
 
 
 class LearnedRelativePositionalEmbedding(nn.Embedding):
@@ -18,7 +18,12 @@ class LearnedRelativePositionalEmbedding(nn.Embedding):
     position ids are passed to the forward function.
     """
 
-    def __init__(self, embedding_dim: int, padding_idx: Optional[int] = None, max_size: int = 1024):
+    def __init__(
+        self,
+        embedding_dim: int,
+        padding_idx: Optional[int] = None,
+        max_size: int = 1024,
+    ):
         num_embeddings = 2 * max_size - 1
         if padding_idx is not None:
             num_embeddings += padding_idx + 1
@@ -61,7 +66,9 @@ class LearnedRelativePositionalEmbedding(nn.Embedding):
             bsz, seq_len = input.size(0), input.size(1)
             start = self.max_positions // 2 - seq_len + 1
             end = self.max_positions // 2 + seq_len
-            positions = torch.arange(start, end, device=self.weight.device).expand(bsz, -1)
+            positions = torch.arange(start, end, device=self.weight.device).expand(
+                bsz, -1
+            )
             if seq_len > self.max_size:
                 positions = positions.clamp(min=0, max=self.max_positions - 1)
             if self.padding_idx is not None:

@@ -3,31 +3,24 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from argparse import Namespace
-from collections import OrderedDict
 import itertools
 import json
 import logging
 import os
+from argparse import Namespace
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
 import torch
+from omegaconf import II, DictConfig
 
+from espresso.data import AsrDataset, AsrDictionary, AsrTextDataset, AudioFeatDataset
 from fairseq import utils
 from fairseq.data import BaseWrapperDataset, ConcatDataset
 from fairseq.dataclass import FairseqDataclass
 from fairseq.logging import metrics
 from fairseq.tasks import FairseqTask, register_task
-from omegaconf import DictConfig, II
-
-from espresso.data import (
-    AsrDataset,
-    AsrDictionary,
-    AsrTextDataset,
-    AudioFeatDataset,
-)
-
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +30,9 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
     data: Optional[str] = field(
         default=None, metadata={"help": "path to data directory"}
     )
-    dict: Optional[str] = field(default=None, metadata={"help": "path to the dictionary"})
+    dict: Optional[str] = field(
+        default=None, metadata={"help": "path to the dictionary"}
+    )
     non_lang_syms: Optional[str] = field(
         default=None,
         metadata={
@@ -60,7 +55,8 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
         default=1024, metadata={"help": "max number of tokens in the target sequence"}
     )
     upsample_primary: int = field(
-        default=1, metadata={"help": "amount to upsample primary dataset"},
+        default=1,
+        metadata={"help": "amount to upsample primary dataset"},
     )
     num_batch_buckets: Optional[int] = field(
         default=0,
@@ -70,7 +66,9 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
             "to minimize the number of compilations"
         },
     )
-    feat_in_channels: int = field(default=1, metadata={"help": "feature input channels"})
+    feat_in_channels: int = field(
+        default=1, metadata={"help": "feature input channels"}
+    )
     specaugment_config: Optional[str] = field(
         default=None,
         metadata={
@@ -83,7 +81,9 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
     )
     global_cmvn_stats_path: Optional[str] = field(
         default=None,
-        metadata={"help": "If not None, apply global cmvn using this global cmvn stats file (.npz)."},
+        metadata={
+            "help": "If not None, apply global cmvn using this global cmvn stats file (.npz)."
+        },
     )
     # TODO common vars below add to parent
     seed: int = II("common.seed")
@@ -134,9 +134,7 @@ def get_asr_dataset_from_json(
             if k > 0:
                 break
             else:
-                raise FileNotFoundError(
-                    "Dataset not found: {}".format(data_json_path)
-                )
+                raise FileNotFoundError("Dataset not found: {}".format(data_json_path))
 
         with open(data_json_path, "rb") as f:
             loaded_json = json.load(f, object_pairs_hook=OrderedDict)
@@ -168,14 +166,19 @@ def get_asr_dataset_from_json(
             if global_cmvn_stats_path is not None:
                 feature_transforms_config = {
                     "transforms": ["global_cmvn"],
-                    "global_cmvn": {"stats_npz_path": global_cmvn_stats_path}
+                    "global_cmvn": {"stats_npz_path": global_cmvn_stats_path},
                 }
                 extra_kwargs["feature_transforms_config"] = feature_transforms_config
-        src_datasets.append(AudioFeatDataset(
-            utt_ids, audios, utt2num_frames=utt2num_frames, seed=seed,
-            specaugment_config=specaugment_config if split == "train" else None,
-            **extra_kwargs
-        ))
+        src_datasets.append(
+            AudioFeatDataset(
+                utt_ids,
+                audios,
+                utt2num_frames=utt2num_frames,
+                seed=seed,
+                specaugment_config=specaugment_config if split == "train" else None,
+                **extra_kwargs,
+            )
+        )
         if len(texts) > 0:
             assert len(utt_ids) == len(texts)
             assert tgt_dict is not None
@@ -253,17 +256,20 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             enable_bos (bool, optional): optionally enable bos symbol
             non_lang_syms (str, optional): non_lang_syms filename
         """
-        return AsrDictionary.load(filename, enable_bos=enable_bos, f_non_lang_syms=non_lang_syms)
+        return AsrDictionary.load(
+            filename, enable_bos=enable_bos, f_non_lang_syms=non_lang_syms
+        )
 
     @classmethod
     def build_dictionary(
         cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8
     ):
-        """Disable this method
-        """
+        """Disable this method"""
         raise NotImplementedError
 
-    def __init__(self, cfg: SpeechRecognitionEspressoConfig, tgt_dict, feat_dim, word_dict=None):
+    def __init__(
+        self, cfg: SpeechRecognitionEspressoConfig, tgt_dict, feat_dim, word_dict=None
+    ):
         super().__init__(cfg)
         self.tgt_dict = tgt_dict
         self.word_dict = word_dict
@@ -284,19 +290,29 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         # load dictionaries
         dict_path = os.path.join(cfg.data, "dict.txt") if cfg.dict is None else cfg.dict
-        tgt_dict = cls.load_dictionary(dict_path, enable_bos=False, non_lang_syms=cfg.non_lang_syms)
+        tgt_dict = cls.load_dictionary(
+            dict_path, enable_bos=False, non_lang_syms=cfg.non_lang_syms
+        )
         logger.info("dictionary: {} types".format(len(tgt_dict)))
 
         # minimum code for loading data in order to obtain feat_dim
         paths = utils.split_paths(cfg.data)
         assert len(paths) > 0
         data_path = paths[0]
-        split = cfg.valid_subset.split(",")[0]  # valid set is usually much smaller than train set, so it's faster
+        split = cfg.valid_subset.split(",")[
+            0
+        ]  # valid set is usually much smaller than train set, so it's faster
         try:
-            src_dataset = get_asr_dataset_from_json(data_path, split, tgt_dict, combine=False).src
+            src_dataset = get_asr_dataset_from_json(
+                data_path, split, tgt_dict, combine=False
+            ).src
         except FileNotFoundError:
-            logger.warning(f"'{split}' set not found. Try to obtain feat_dim from '{cfg.gen_subset}'")
-            src_dataset = get_asr_dataset_from_json(data_path, cfg.gen_subset, tgt_dict, combine=False).src
+            logger.warning(
+                f"'{split}' set not found. Try to obtain feat_dim from '{cfg.gen_subset}'"
+            )
+            src_dataset = get_asr_dataset_from_json(
+                data_path, cfg.gen_subset, tgt_dict, combine=False
+            ).src
         if isinstance(src_dataset, ConcatDataset):
             feat_dim = src_dataset.datasets[0].feat_dim
         elif isinstance(src_dataset, BaseWrapperDataset):
@@ -357,7 +373,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             self.tgt_dict.count[self.tgt_dict.eos()] = len(tgt_dataset)
             unk_count = 0
             for i in range(len(tgt_dataset)):
-                unk_count += (tgt_dataset[i][0] == self.tgt_dict.unk()).int().sum().item()
+                unk_count += (
+                    (tgt_dataset[i][0] == self.tgt_dict.unk()).int().sum().item()
+                )
             self.tgt_dict.count[self.tgt_dict.unk()] = unk_count
 
     def build_dataset_for_inference(self, src_tokens, src_lengths, constraints=None):
@@ -374,7 +392,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
 
         self.decoder_for_validation = SimpleGreedyDecoder(
-            [model], self.target_dictionary, for_validation=True,
+            [model],
+            self.target_dictionary,
+            for_validation=True,
         )
         return model
 
@@ -387,8 +407,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
         (
-            logging_output["word_error"], logging_output["word_count"],
-            logging_output["char_error"], logging_output["char_count"],
+            logging_output["word_error"],
+            logging_output["word_count"],
+            logging_output["char_error"],
+            logging_output["char_count"],
         ) = self._inference_with_wer(self.decoder_for_validation, sample, model)
         return loss, sample_size, logging_output
 
@@ -406,9 +428,13 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         char_error = sum(log.get("char_error", 0) for log in logging_outputs)
         char_count = sum(log.get("char_count", 0) for log in logging_outputs)
         if word_count > 0:
-            metrics.log_scalar("wer", float(word_error) / word_count * 100, word_count, round=4)
+            metrics.log_scalar(
+                "wer", float(word_error) / word_count * 100, word_count, round=4
+            )
         if char_count > 0:
-            metrics.log_scalar("cer", float(char_error) / char_count * 100, char_count, round=4)
+            metrics.log_scalar(
+                "cer", float(char_error) / char_count * 100, char_count, round=4
+            )
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""
@@ -445,7 +471,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
     def _inference_with_wer(self, decoder, sample, model):
         from espresso.tools import wer
 
-        scorer = wer.Scorer(self.target_dictionary, wer_output_filter=self.cfg.wer_output_filter)
+        scorer = wer.Scorer(
+            self.target_dictionary, wer_output_filter=self.cfg.wer_output_filter
+        )
         tokens, lprobs, _ = decoder.decode([model], sample)
         pred = tokens[:, 1:].data.cpu()  # bsz x len
         target = sample["target"]
@@ -458,6 +486,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             pred_tokens = self.target_dictionary.string(pred.data[i])
             scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
         return (
-            scorer.tot_word_error(), scorer.tot_word_count(),
-            scorer.tot_char_error(), scorer.tot_char_count(),
+            scorer.tot_word_error(),
+            scorer.tot_word_count(),
+            scorer.tot_char_error(),
+            scorer.tot_char_count(),
         )

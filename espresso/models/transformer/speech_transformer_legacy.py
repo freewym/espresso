@@ -5,11 +5,6 @@
 
 import logging
 
-from fairseq.dataclass.utils import gen_parser_from_dataclass
-from fairseq.models import (
-    register_model,
-    register_model_architecture,
-)
 from espresso.models.transformer import (
     DEFAULT_MAX_SOURCE_POSITIONS,
     DEFAULT_MAX_TARGET_POSITIONS,
@@ -17,9 +12,10 @@ from espresso.models.transformer import (
     SpeechTransformerConfig,
 )
 from espresso.models.transformer.speech_transformer_base import (
-    SpeechTransformerModelBase
+    SpeechTransformerModelBase,
 )
-
+from fairseq.dataclass.utils import gen_parser_from_dataclass
+from fairseq.models import register_model, register_model_architecture
 
 logger = logging.getLogger(__name__)
 
@@ -82,15 +78,20 @@ class SpeechTransformerModel(SpeechTransformerModelBase):
         )
 
     @classmethod
-    def build_encoder(cls, args, conv_layers_before=None, input_size=83, transformer_context=None):
+    def build_encoder(
+        cls, args, conv_layers_before=None, input_size=83, transformer_context=None
+    ):
         return super().build_encoder(
             SpeechTransformerConfig.from_namespace(args),
-            conv_layers_before=conv_layers_before, input_size=input_size,
+            conv_layers_before=conv_layers_before,
+            input_size=input_size,
             transformer_context=transformer_context,
         )
 
     @classmethod
-    def build_decoder(cls, args, tgt_dict, embed_tokens, scheduled_sampling_rate_scheduler=None):
+    def build_decoder(
+        cls, args, tgt_dict, embed_tokens, scheduled_sampling_rate_scheduler=None
+    ):
         return super().build_decoder(
             SpeechTransformerConfig.from_namespace(args),
             tgt_dict,
@@ -104,13 +105,19 @@ class SpeechTransformerModel(SpeechTransformerModelBase):
 
 def base_architecture(args):
     args.encoder_conv_channels = getattr(
-        args, "encoder_conv_channels", "[64, 64, 128, 128]",
+        args,
+        "encoder_conv_channels",
+        "[64, 64, 128, 128]",
     )
     args.encoder_conv_kernel_sizes = getattr(
-        args, "encoder_conv_kernel_sizes", "[(3, 3), (3, 3), (3, 3), (3, 3)]",
+        args,
+        "encoder_conv_kernel_sizes",
+        "[(3, 3), (3, 3), (3, 3), (3, 3)]",
     )
     args.encoder_conv_strides = getattr(
-        args, "encoder_conv_strides", "[(1, 1), (2, 2), (1, 1), (2, 2)]",
+        args,
+        "encoder_conv_strides",
+        "[(1, 1), (2, 2), (1, 1), (2, 2)]",
     )
     args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 256)
     args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 1024)
@@ -118,8 +125,12 @@ def base_architecture(args):
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", True)
     args.encoder_learned_pos = getattr(args, "encoder_learned_pos", False)
-    args.encoder_relative_positional_embeddings = getattr(args, "encoder_relative_positional_embeddings", False)
-    args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
+    args.encoder_relative_positional_embeddings = getattr(
+        args, "encoder_relative_positional_embeddings", False
+    )
+    args.encoder_transformer_context = getattr(
+        args, "encoder_transformer_context", None
+    )
     args.decoder_embed_path = getattr(args, "decoder_embed_path", None)
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
     args.decoder_ffn_embed_dim = getattr(
@@ -129,7 +140,9 @@ def base_architecture(args):
     args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 4)
     args.decoder_normalize_before = getattr(args, "decoder_normalize_before", True)
     args.decoder_learned_pos = getattr(args, "decoder_learned_pos", False)
-    args.decoder_relative_positional_embeddings = getattr(args, "decoder_relative_positional_embeddings", False)
+    args.decoder_relative_positional_embeddings = getattr(
+        args, "decoder_relative_positional_embeddings", False
+    )
     args.attention_dropout = getattr(args, "attention_dropout", 0.2)
     args.activation_dropout = getattr(args, "activation_dropout", 0.2)
     args.activation_fn = getattr(args, "activation_fn", "relu")
@@ -178,7 +191,9 @@ def speech_transformer_librispeech(args):
     args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 2048)
     args.encoder_layers = getattr(args, "encoder_layers", 12)
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 8)
-    args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
+    args.encoder_transformer_context = getattr(
+        args, "encoder_transformer_context", None
+    )
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
     args.decoder_ffn_embed_dim = getattr(
         args, "decoder_ffn_embed_dim", args.encoder_ffn_embed_dim
@@ -201,7 +216,9 @@ def speech_transformer_swbd(args):
     args.encoder_ffn_embed_dim = getattr(args, "encoder_ffn_embed_dim", 2048)
     args.encoder_layers = getattr(args, "encoder_layers", 12)
     args.encoder_attention_heads = getattr(args, "encoder_attention_heads", 4)
-    args.encoder_transformer_context = getattr(args, "encoder_transformer_context", None)
+    args.encoder_transformer_context = getattr(
+        args, "encoder_transformer_context", None
+    )
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
     args.decoder_ffn_embed_dim = getattr(
         args, "decoder_ffn_embed_dim", args.encoder_ffn_embed_dim

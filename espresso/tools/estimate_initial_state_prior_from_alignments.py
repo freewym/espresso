@@ -22,12 +22,15 @@ logging.basicConfig(
     level=logging.INFO,
     stream=sys.stdout,
 )
-logger = logging.getLogger("espresso.tools.estimate_initial_state_prior_from_alignments")
+logger = logging.getLogger(
+    "espresso.tools.estimate_initial_state_prior_from_alignments"
+)
 
 
 def get_parser():
     parser = argparse.ArgumentParser(
-        description="Obtain initial state prior from alignments")
+        description="Obtain initial state prior from alignments"
+    )
     # fmt: off
     parser.add_argument("--alignment-files", nargs="+", required=True,
                         help="path(s) to alignment file(s)")
@@ -55,7 +58,9 @@ def main(args):
                 assert ali is not None and isinstance(ali, np.ndarray)
                 for id in ali:
                     prior[id] += 1
-    prior = np.maximum(prior / float(np.sum(prior)), args.prior_floor)  # normalize and floor
+    prior = np.maximum(
+        prior / float(np.sum(prior)), args.prior_floor
+    )  # normalize and floor
     prior = prior / float(np.sum(prior))  # normalize again
     kaldi_io.write_vec_flt(args.output, prior)
 

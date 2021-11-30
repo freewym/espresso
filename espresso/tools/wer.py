@@ -3,14 +3,12 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from collections import Counter, OrderedDict
 import logging
 import re
-
-from fairseq.file_io import PathManager
+from collections import Counter, OrderedDict
 
 import espresso.tools.utils as speech_utils
-
+from fairseq.file_io import PathManager
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +30,9 @@ class Scorer(object):
 
     def parse_wer_output_filter(self, wer_output_filter):
         if wer_output_filter:
-            with open(PathManager.get_local_path(wer_output_filter), "r", encoding="utf-8") as f:
+            with open(
+                PathManager.get_local_path(wer_output_filter), "r", encoding="utf-8"
+            ) as f:
                 for line in f:
                     line = line.strip()
                     if line.startswith("#!") or line == "":
@@ -46,7 +46,9 @@ class Scorer(object):
                         assert m is not None
                         self.word_filters.append([m.group(1), m.group(2)])
                     else:
-                        logger.warning("Unsupported pattern: '{}'. Ignoring it".format(line))
+                        logger.warning(
+                            "Unsupported pattern: '{}'. Ignoring it".format(line)
+                        )
 
     def add_prediction(self, utt_id, pred):
         if not isinstance(utt_id, str):
@@ -83,7 +85,8 @@ class Scorer(object):
 
         # char level counts
         _, _, counter = speech_utils.edit_distance(
-            ref.strip().split(), pred.strip().split(),
+            ref.strip().split(),
+            pred.strip().split(),
         )
         self.char_counter += counter
 
@@ -98,21 +101,30 @@ class Scorer(object):
 
         ref_word_list, pred_word_list = ref_words.split(), pred_words.split()
         _, steps, counter = speech_utils.edit_distance(
-            ref_word_list, pred_word_list,
+            ref_word_list,
+            pred_word_list,
         )
         self.word_counter += counter
         assert (
             utt_id not in self.aligned_results
         ), "Duplicated utterance id detected: {}".format(utt_id)
         self.aligned_results[utt_id] = speech_utils.aligned_print(
-            ref_word_list, pred_word_list, steps,
+            ref_word_list,
+            pred_word_list,
+            steps,
         )
 
     def cer(self):
         assert self.char_counter["words"] > 0
-        cer = float(
-            self.char_counter["sub"] + self.char_counter["ins"] + self.char_counter["del"]
-        ) / self.char_counter["words"] * 100
+        cer = (
+            float(
+                self.char_counter["sub"]
+                + self.char_counter["ins"]
+                + self.char_counter["del"]
+            )
+            / self.char_counter["words"]
+            * 100
+        )
         sub = float(self.char_counter["sub"]) / self.char_counter["words"] * 100
         ins = float(self.char_counter["ins"]) / self.char_counter["words"] * 100
         dlt = float(self.char_counter["del"]) / self.char_counter["words"] * 100
@@ -120,9 +132,15 @@ class Scorer(object):
 
     def wer(self):
         assert self.word_counter["words"] > 0
-        wer = float(
-            self.word_counter["sub"] + self.word_counter["ins"] + self.word_counter["del"]
-        ) / self.word_counter["words"] * 100
+        wer = (
+            float(
+                self.word_counter["sub"]
+                + self.word_counter["ins"]
+                + self.word_counter["del"]
+            )
+            / self.word_counter["words"]
+            * 100
+        )
         sub = float(self.word_counter["sub"]) / self.word_counter["words"] * 100
         ins = float(self.word_counter["ins"]) / self.word_counter["words"] * 100
         dlt = float(self.word_counter["del"]) / self.word_counter["words"] * 100
@@ -130,7 +148,9 @@ class Scorer(object):
 
     def tot_word_error(self):
         return (
-            self.word_counter["sub"] + self.word_counter["ins"] + self.word_counter["del"]
+            self.word_counter["sub"]
+            + self.word_counter["ins"]
+            + self.word_counter["del"]
         )
 
     def tot_word_count(self):
@@ -138,19 +158,25 @@ class Scorer(object):
 
     def tot_char_error(self):
         return (
-            self.char_counter["sub"] + self.char_counter["ins"] + self.char_counter["del"]
+            self.char_counter["sub"]
+            + self.char_counter["ins"]
+            + self.char_counter["del"]
         )
 
     def tot_char_count(self):
         return self.char_counter["words"]
 
     def add_ordered_utt_list(self, *args):
-        if len(args) == 1 and isinstance(args[0], list):  # aleady a list of utterance ids
+        if len(args) == 1 and isinstance(
+            args[0], list
+        ):  # aleady a list of utterance ids
             self.ordered_utt_list = args[0]
             return
         self.ordered_utt_list = []
         for text_file in args:
-            with open(PathManager.get_local_path(text_file), "r", encoding="utf-8") as f:
+            with open(
+                PathManager.get_local_path(text_file), "r", encoding="utf-8"
+            ) as f:
                 one_utt_list = [line.strip().split()[0] for line in f]
                 self.ordered_utt_list.extend(one_utt_list)
         if len(self.char_results):

@@ -7,7 +7,6 @@ from typing import List
 
 
 class ScheduledSamplingRateScheduler(object):
-
     def __init__(
         self,
         scheduled_sampling_probs: List[float] = [1.0],
@@ -28,15 +27,14 @@ class ScheduledSamplingRateScheduler(object):
 
     def step(self, epoch: int) -> float:
         if (
-            (
-                len(self.scheduled_sampling_probs) > 1
-                or self.scheduled_sampling_probs[0] < 1.0
-            )
-            and epoch >= self.start_scheduled_sampling_epoch
-        ):
+            len(self.scheduled_sampling_probs) > 1
+            or self.scheduled_sampling_probs[0] < 1.0
+        ) and epoch >= self.start_scheduled_sampling_epoch:
             prob = self.scheduled_sampling_probs[
-                min(epoch - self.start_scheduled_sampling_epoch,
-                    len(self.scheduled_sampling_probs) - 1)
+                min(
+                    epoch - self.start_scheduled_sampling_epoch,
+                    len(self.scheduled_sampling_probs) - 1,
+                )
             ]
             return prob
         else:

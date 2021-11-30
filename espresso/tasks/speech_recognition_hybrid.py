@@ -3,32 +3,31 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from collections import OrderedDict
 import itertools
 import json
 import logging
 import os
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from typing import Optional
 
 import torch
+from omegaconf import II, DictConfig
 
+from espresso.data import (
+    AliScpCachedDataset,
+    AsrChainDataset,
+    AsrDictionary,
+    AsrTextDataset,
+    AsrXentDataset,
+    AudioFeatCachedDataset,
+    NumeratorGraphDataset,
+)
 from fairseq import utils
 from fairseq.data import BaseWrapperDataset, ConcatDataset
 from fairseq.dataclass import FairseqDataclass
 from fairseq.dataclass.configs import GenerationConfig
 from fairseq.tasks import FairseqTask, register_task
-from omegaconf import DictConfig, II
-
-from espresso.data import (
-    AliScpCachedDataset,
-    AsrChainDataset,
-    AsrXentDataset,
-    AsrDictionary,
-    AsrTextDataset,
-    AudioFeatCachedDataset,
-    NumeratorGraphDataset,
-)
 
 try:
     import kaldi_io
@@ -44,7 +43,9 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
     data: Optional[str] = field(
         default=None, metadata={"help": "path to data directory"}
     )
-    dict: Optional[str] = field(default=None, metadata={"help": "path to the dictionary"})
+    dict: Optional[str] = field(
+        default=None, metadata={"help": "path to the dictionary"}
+    )
     non_lang_syms: Optional[str] = field(
         default=None,
         metadata={
@@ -63,7 +64,8 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
         default=1024, metadata={"help": "max number of tokens in the target sequence"}
     )
     upsample_primary: int = field(
-        default=1, metadata={"help": "amount to upsample primary dataset"},
+        default=1,
+        metadata={"help": "amount to upsample primary dataset"},
     )
     num_batch_buckets: Optional[int] = field(
         default=0,
@@ -73,10 +75,14 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
             "to minimize the number of compilations"
         },
     )
-    feat_in_channels: int = field(default=1, metadata={"help": "feature input channels"})
+    feat_in_channels: int = field(
+        default=1, metadata={"help": "feature input channels"}
+    )
     global_cmvn_stats_path: Optional[str] = field(
         default=None,
-        metadata={"help": "If not None, apply global cmvn using this global cmvn stats file (.npz)."},
+        metadata={
+            "help": "If not None, apply global cmvn using this global cmvn stats file (.npz)."
+        },
     )
     specaugment_config: Optional[str] = field(
         default=None,
@@ -147,7 +153,9 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
     gen_subset: str = II("dataset.gen_subset")
     required_seq_len_multiple: int = II("dataset.required_seq_len_multiple")
     criterion_name: str = II("criterion._name")
-    max_epoch: int = II("optimization.max_epoch")  # to determine whether in trainig stage
+    max_epoch: int = II(
+        "optimization.max_epoch"
+    )  # to determine whether in trainig stage
 
 
 def get_asr_dataset_from_json(
@@ -198,14 +206,19 @@ def get_asr_dataset_from_json(
             if k > 0:
                 break
             else:
-                raise FileNotFoundError(
-                    "Dataset not found: {}".format(data_json_path)
-                )
+                raise FileNotFoundError("Dataset not found: {}".format(data_json_path))
 
         with open(data_json_path, "rb") as f:
             loaded_json = json.load(f, object_pairs_hook=OrderedDict)
 
-        utt_ids, audios, numerator_fsts, alignments, text, utt2num_frames = [], [], [], [], [], []
+        utt_ids, audios, numerator_fsts, alignments, text, utt2num_frames = (
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+        )
         for utt_id, val in loaded_json.items():
             utt_ids.append(utt_id)
             if "feat" in val:
@@ -236,14 +249,20 @@ def get_asr_dataset_from_json(
             if global_cmvn_stats_path is not None:
                 feature_transforms_config = {
                     "transforms": ["global_cmvn"],
-                    "global_cmvn": {"stats_npz_path": global_cmvn_stats_path}
+                    "global_cmvn": {"stats_npz_path": global_cmvn_stats_path},
                 }
                 extra_kwargs["feature_transforms_config"] = feature_transforms_config
-        src_datasets.append(AudioFeatCachedDataset(
-            utt_ids, audios, utt2num_frames=utt2num_frames, seed=seed,
-            specaugment_config=specaugment_config if split == "train" else None,
-            ordered_prefetch=True, **extra_kwargs
-        ))
+        src_datasets.append(
+            AudioFeatCachedDataset(
+                utt_ids,
+                audios,
+                utt2num_frames=utt2num_frames,
+                seed=seed,
+                specaugment_config=specaugment_config if split == "train" else None,
+                ordered_prefetch=True,
+                **extra_kwargs,
+            )
+        )
         if lf_mmi:
             if len(numerator_fsts) > 0:
                 assert len(utt_ids) == len(numerator_fsts)
@@ -253,14 +272,18 @@ def get_asr_dataset_from_json(
                 assert len(utt_ids) == len(alignments)
                 tgt_datasets.append(
                     AliScpCachedDataset(
-                        utt_ids, alignments, utt2num_frames=utt2num_frames,
+                        utt_ids,
+                        alignments,
+                        utt2num_frames=utt2num_frames,
                         ordered_prefetch=True,
                     )
                 )
 
         if len(text) > 0:
             assert len(utt_ids) == len(text)
-            text_datasets.append(AsrTextDataset(utt_ids, text, dictionary, append_eos=False))
+            text_datasets.append(
+                AsrTextDataset(utt_ids, text, dictionary, append_eos=False)
+            )
 
         logger.info("{} {} examples".format(data_json_path, len(src_datasets[-1])))
 
@@ -361,9 +384,10 @@ class SpeechRecognitionHybridTask(FairseqTask):
         return AsrDictionary.load(filename, f_non_lang_syms=non_lang_syms)
 
     @classmethod
-    def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8):
-        """Disable this method
-        """
+    def build_dictionary(
+        cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8
+    ):
+        """Disable this method"""
         raise NotImplementedError
 
     def __init__(self, cfg: SpeechRecognitionHybridConfig, dictionary, feat_dim):
@@ -372,12 +396,16 @@ class SpeechRecognitionHybridTask(FairseqTask):
         self.feat_dim = feat_dim
         self.feat_in_channels = cfg.feat_in_channels
         self.num_targets = cfg.num_targets
-        self.training_stage = (cfg.max_epoch > 0)  # a hack
+        self.training_stage = cfg.max_epoch > 0  # a hack
 
         # the following attributes are related to state_prior estimate
         self.initial_state_prior = None
-        if cfg.initial_state_prior_file is not None:  # only relevant for Xent training, used in models
-            self.initial_state_prior = kaldi_io.read_vec_flt(cfg.initial_state_prior_file)
+        if (
+            cfg.initial_state_prior_file is not None
+        ):  # only relevant for Xent training, used in models
+            self.initial_state_prior = kaldi_io.read_vec_flt(
+                cfg.initial_state_prior_file
+            )
             self.initial_state_prior = torch.from_numpy(self.initial_state_prior)
             assert (
                 self.initial_state_prior.size(0) == self.num_targets
@@ -385,10 +413,15 @@ class SpeechRecognitionHybridTask(FairseqTask):
                 self.initial_state_prior.size(0), self.num_targets
             )
         self.state_prior_update_interval = cfg.state_prior_update_interval
-        if self.state_prior_update_interval is None and self.initial_state_prior is not None:
+        if (
+            self.state_prior_update_interval is None
+            and self.initial_state_prior is not None
+        ):
             logger.info("state prior will not be updated during training")
         self.state_prior_update_smoothing = cfg.state_prior_update_smoothing
-        self.averaged_state_post = None  # state poterior will be saved here before commited as new state prior
+        self.averaged_state_post = (
+            None  # state poterior will be saved here before commited as new state prior
+        )
 
         # the following 4 options are for chunk-wise training/test (including Xent and LF-MMI)
         self.chunk_width = cfg.chunk_width
@@ -419,12 +452,20 @@ class SpeechRecognitionHybridTask(FairseqTask):
         paths = utils.split_paths(cfg.data)
         assert len(paths) > 0
         data_path = paths[0]
-        split = cfg.valid_subset.split(",")[0]  # valid set is usually much smaller than train set, so it's faster
+        split = cfg.valid_subset.split(",")[
+            0
+        ]  # valid set is usually much smaller than train set, so it's faster
         try:
-            src_dataset = get_asr_dataset_from_json(data_path, split, dictionary, combine=False).src
+            src_dataset = get_asr_dataset_from_json(
+                data_path, split, dictionary, combine=False
+            ).src
         except FileNotFoundError:
-            logger.warning(f"'{split}' set not found. Try to obtain feat_dim from '{cfg.gen_subset}'")
-            src_dataset = get_asr_dataset_from_json(data_path, cfg.gen_subset, dictionary, combine=False).src
+            logger.warning(
+                f"'{split}' set not found. Try to obtain feat_dim from '{cfg.gen_subset}'"
+            )
+            src_dataset = get_asr_dataset_from_json(
+                data_path, cfg.gen_subset, dictionary, combine=False
+            ).src
         if isinstance(src_dataset, ConcatDataset):
             feat_dim = src_dataset.datasets[0].feat_dim
         elif isinstance(src_dataset, BaseWrapperDataset):
@@ -472,8 +513,8 @@ class SpeechRecognitionHybridTask(FairseqTask):
             seed=self.cfg.seed,
             global_cmvn_stats_path=self.cfg.global_cmvn_stats_path,
             specaugment_config=self.cfg.specaugment_config,
-            chunk_width=None if self.training_stage
-            and split in self.cfg.valid_subset.split(",")
+            chunk_width=None
+            if self.training_stage and split in self.cfg.valid_subset.split(",")
             else self.chunk_width,
             chunk_left_context=self.chunk_left_context,
             chunk_right_context=self.chunk_right_context,
@@ -492,7 +533,9 @@ class SpeechRecognitionHybridTask(FairseqTask):
             logger.warning(
                 "--score-reference is not applicable to speech recognition, ignoring it."
             )
-        from espresso.tools.generate_log_probs_for_decoding import GenerateLogProbsForDecoding
+        from espresso.tools.generate_log_probs_for_decoding import (
+            GenerateLogProbsForDecoding,
+        )
 
         apply_log_softmax = getattr(cfg, "apply_log_softmax", False)
         return GenerateLogProbsForDecoding(models, apply_log_softmax=apply_log_softmax)
@@ -524,7 +567,9 @@ class SpeechRecognitionHybridTask(FairseqTask):
                 state_post.append(post)
         if len(state_post) > 0:
             # collect state priors from all workers and do weighted average
-            weights = state_post[0].new([log.get("ntokens", 0) for log in logging_outputs])
+            weights = state_post[0].new(
+                [log.get("ntokens", 0) for log in logging_outputs]
+            )
             weights = weights / weights.sum()  # N
             with torch.no_grad():
                 stacked_state_post = torch.stack(state_post, dim=1)  # V x N
@@ -537,7 +582,9 @@ class SpeechRecognitionHybridTask(FairseqTask):
             # in case model is a wrapped model (e.g. of class DistributedDataParallel or LegacyDistributedDataParallel)
             model = model.module if hasattr(model, "module") else model
             assert hasattr(model, "update_state_prior")
-            model.update_state_prior(self.averaged_state_post, self.state_prior_update_smoothing)
+            model.update_state_prior(
+                self.averaged_state_post, self.state_prior_update_smoothing
+            )
 
     def max_positions(self):
         """Return the max sentence length allowed by the task."""

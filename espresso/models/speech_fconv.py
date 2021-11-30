@@ -10,29 +10,24 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import espresso.tools.utils as speech_utils
+from espresso.modules.speech_convolutions import ConvBNReLU
 from fairseq import utils
-from fairseq.models import (
-    register_model,
-    register_model_architecture,
-)
+from fairseq.models import register_model, register_model_architecture
 from fairseq.models.fconv import (
     ConvTBC,
-    FConvModel,
-    FConvEncoder,
     FConvDecoder,
+    FConvEncoder,
+    FConvModel,
     Linear,
     extend_conv_spec,
 )
 from fairseq.modules import GradMultiply
 
-from espresso.modules.speech_convolutions import ConvBNReLU
-import espresso.tools.utils as speech_utils
-
-
 logger = logging.getLogger(__name__)
 
 
-@register_model('speech_fconv')
+@register_model("speech_fconv")
 class SpeechFConvModel(FConvModel):
     """
     A fully convolutional model, i.e. a convolutional encoder and a
@@ -85,14 +80,31 @@ class SpeechFConvModel(FConvModel):
             decoder_embed_dict = utils.parse_embedding(args.decoder_embed_path)
             utils.print_embed_overlap(decoder_embed_dict, task.target_dictionary)
 
-        out_channels = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_channels, type=int)
-        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_kernel_sizes, type=int)
-        strides = speech_utils.eval_str_nested_list_or_tuple(args.encoder_conv_strides, type=int)
-        logger.info('input feature dimension: {}, channels: {}'.format(task.feat_dim, task.feat_in_channels))
+        out_channels = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_channels, type=int
+        )
+        kernel_sizes = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_kernel_sizes, type=int
+        )
+        strides = speech_utils.eval_str_nested_list_or_tuple(
+            args.encoder_conv_strides, type=int
+        )
+        logger.info(
+            "input feature dimension: {}, channels: {}".format(
+                task.feat_dim, task.feat_in_channels
+            )
+        )
         assert task.feat_dim % task.feat_in_channels == 0
-        conv_layers = ConvBNReLU(
-            out_channels, kernel_sizes, strides, in_channels=task.feat_in_channels,
-        ) if out_channels is not None else None
+        conv_layers = (
+            ConvBNReLU(
+                out_channels,
+                kernel_sizes,
+                strides,
+                in_channels=task.feat_in_channels,
+            )
+            if out_channels is not None
+            else None
+        )
 
         fconv_encoder_input_size = task.feat_dim // task.feat_in_channels
         if conv_layers is not None:
@@ -152,16 +164,23 @@ class SpeechFConvEncoder(FConvEncoder):
     """
 
     def __init__(
-        self, conv_layers_before=None, input_size=83, embed_dim=512,
-        convolutions=((512, 3),) * 20, dropout=0.1,
+        self,
+        conv_layers_before=None,
+        input_size=83,
+        embed_dim=512,
+        convolutions=((512, 3),) * 20,
+        dropout=0.1,
     ):
         super(FConvEncoder, self).__init__(None)  # no src dictionary
         self.dropout = dropout
         self.num_attention_layers = None
 
         self.conv_layers_before = conv_layers_before
-        self.fc0 = Linear(input_size, embed_dim, dropout=dropout) \
-            if input_size != embed_dim else None
+        self.fc0 = (
+            Linear(input_size, embed_dim, dropout=dropout)
+            if input_size != embed_dim
+            else None
+        )
 
         convolutions = extend_conv_spec(convolutions)
         in_channels = convolutions[0][0]
@@ -176,15 +195,23 @@ class SpeechFConvEncoder(FConvEncoder):
                 residual_dim = out_channels
             else:
                 residual_dim = layer_in_channels[-residual]
-            self.projections.append(Linear(residual_dim, out_channels)
-                                    if residual_dim != out_channels else None)
+            self.projections.append(
+                Linear(residual_dim, out_channels)
+                if residual_dim != out_channels
+                else None
+            )
             if kernel_size % 2 == 1:
                 padding = kernel_size // 2
             else:
                 padding = 0
             self.convolutions.append(
-                ConvTBC(in_channels, out_channels * 2, kernel_size,
-                        dropout=dropout, padding=padding)
+                ConvTBC(
+                    in_channels,
+                    out_channels * 2,
+                    kernel_size,
+                    dropout=dropout,
+                    padding=padding,
+                )
             )
             self.residuals.append(residual)
             in_channels = out_channels
@@ -192,8 +219,11 @@ class SpeechFConvEncoder(FConvEncoder):
         self.fc2 = Linear(in_channels, embed_dim)
 
     def output_lengths(self, in_lengths):
-        return in_lengths if self.conv_layers_before is None \
+        return (
+            in_lengths
+            if self.conv_layers_before is None
             else self.conv_layers_before.output_lengths(in_lengths)
+        )
 
     def forward(self, src_tokens, src_lengths):
         """
@@ -214,10 +244,13 @@ class SpeechFConvEncoder(FConvEncoder):
                   padding elements of shape `(batch, src_len)`
         """
         if self.conv_layers_before is not None:
-            x, src_lengths, encoder_padding_mask = self.conv_layers_before(src_tokens, src_lengths)
+            x, src_lengths, encoder_padding_mask = self.conv_layers_before(
+                src_tokens, src_lengths
+            )
         else:
-            x, encoder_padding_mask = src_tokens, \
-                ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1))
+            x, encoder_padding_mask = src_tokens, ~speech_utils.sequence_mask(
+                src_lengths, src_tokens.size(1)
+            )
 
         x = F.dropout(x, p=self.dropout, training=self.training)
         if self.fc0 is not None:
@@ -237,7 +270,9 @@ class SpeechFConvEncoder(FConvEncoder):
 
         residuals = [x]
         # temporal convolutions
-        for proj, conv, res_layer in zip(self.projections, self.convolutions, self.residuals):
+        for proj, conv, res_layer in zip(
+            self.projections, self.convolutions, self.residuals
+        ):
             if res_layer > 0:
                 residual = residuals[-res_layer]
                 residual = residual if proj is None else proj(residual)
@@ -279,8 +314,8 @@ class SpeechFConvEncoder(FConvEncoder):
         y = (x + input_embedding) * math.sqrt(0.5)
 
         return {
-            'encoder_out': (x, y),
-            'encoder_padding_mask': encoder_padding_mask,  # B x T
+            "encoder_out": (x, y),
+            "encoder_padding_mask": encoder_padding_mask,  # B x T
         }
 
     def max_positions(self):
@@ -290,21 +325,26 @@ class SpeechFConvEncoder(FConvEncoder):
 
 class SpeechFConvDecoder(FConvDecoder):
     def masked_copy_incremental_state(self, incremental_state, another_state, mask):
-        state = utils.get_incremental_state(self, incremental_state, 'encoder_out')
+        state = utils.get_incremental_state(self, incremental_state, "encoder_out")
         if state is None:
             assert another_state is None
             return
 
         def mask_copy_state(state, another_state):
             if isinstance(state, list):
-                assert isinstance(another_state, list) and len(state) == len(another_state)
+                assert isinstance(another_state, list) and len(state) == len(
+                    another_state
+                )
                 return [
                     mask_copy_state(state_i, another_state_i)
                     for state_i, another_state_i in zip(state, another_state)
                 ]
             if state is not None:
-                assert state.size(0) == mask.size(0) and another_state is not None and \
-                    state.size() == another_state.size()
+                assert (
+                    state.size(0) == mask.size(0)
+                    and another_state is not None
+                    and state.size() == another_state.size()
+                )
                 for _ in range(1, len(state.size())):
                     mask_unsqueezed = mask.unsqueeze(-1)
                 return torch.where(mask_unsqueezed, state, another_state)
@@ -313,37 +353,43 @@ class SpeechFConvDecoder(FConvDecoder):
                 return None
 
         new_state = tuple(map(mask_copy_state, state, another_state))
-        utils.set_incremental_state(self, incremental_state, 'encoder_out', new_state)
+        utils.set_incremental_state(self, incremental_state, "encoder_out", new_state)
 
 
-@register_model_architecture('speech_fconv', 'speech_fconv')
+@register_model_architecture("speech_fconv", "speech_fconv")
 def base_architecture(args):
     args.encoder_conv_channels = getattr(
-        args, 'encoder_conv_channels', '[64, 64, 128, 128]',
+        args,
+        "encoder_conv_channels",
+        "[64, 64, 128, 128]",
     )
     args.encoder_conv_kernel_sizes = getattr(
-        args, 'encoder_conv_kernel_sizes', '[(3, 3), (3, 3), (3, 3), (3, 3)]',
+        args,
+        "encoder_conv_kernel_sizes",
+        "[(3, 3), (3, 3), (3, 3), (3, 3)]",
     )
     args.encoder_conv_strides = getattr(
-        args, 'encoder_conv_strides', '[(1, 1), (2, 2), (1, 1), (2, 2)]',
+        args,
+        "encoder_conv_strides",
+        "[(1, 1), (2, 2), (1, 1), (2, 2)]",
     )
-    args.dropout = getattr(args, 'dropout', 0.1)
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 512)
-    args.encoder_layers = getattr(args, 'encoder_layers', '[(512, 3)] * 20')
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 512)
-    args.decoder_embed_path = getattr(args, 'decoder_embed_path', None)
-    args.decoder_layers = getattr(args, 'decoder_layers', '[(512, 3)] * 20')
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 256)
-    args.decoder_attention = getattr(args, 'decoder_attention', 'True')
-    args.share_input_output_embed = getattr(args, 'share_input_output_embed', False)
-    args.decoder_positional_embed = getattr(args, 'decoder_positional_embed', False)
+    args.dropout = getattr(args, "dropout", 0.1)
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 512)
+    args.encoder_layers = getattr(args, "encoder_layers", "[(512, 3)] * 20")
+    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 512)
+    args.decoder_embed_path = getattr(args, "decoder_embed_path", None)
+    args.decoder_layers = getattr(args, "decoder_layers", "[(512, 3)] * 20")
+    args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 256)
+    args.decoder_attention = getattr(args, "decoder_attention", "True")
+    args.share_input_output_embed = getattr(args, "share_input_output_embed", False)
+    args.decoder_positional_embed = getattr(args, "decoder_positional_embed", False)
 
 
-@register_model_architecture('speech_fconv', 'speech_fconv_librispeech')
+@register_model_architecture("speech_fconv", "speech_fconv_librispeech")
 def speech_fconv_librispeech(args):
-    args.encoder_embed_dim = getattr(args, 'encoder_embed_dim', 256)
-    args.encoder_layers = getattr(args, 'encoder_layers', '[(256, 3)] * 4')
-    args.decoder_embed_dim = getattr(args, 'decoder_embed_dim', 256)
-    args.decoder_layers = getattr(args, 'decoder_layers', '[(256, 3)] * 3')
-    args.decoder_out_embed_dim = getattr(args, 'decoder_out_embed_dim', 256)
+    args.encoder_embed_dim = getattr(args, "encoder_embed_dim", 256)
+    args.encoder_layers = getattr(args, "encoder_layers", "[(256, 3)] * 4")
+    args.decoder_embed_dim = getattr(args, "decoder_embed_dim", 256)
+    args.decoder_layers = getattr(args, "decoder_layers", "[(256, 3)] * 3")
+    args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 256)
     base_architecture(args)
