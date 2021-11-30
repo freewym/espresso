@@ -11,7 +11,7 @@ from espresso.data import AsrDictionary
 def lexical_prefix_tree(
     word_dict: AsrDictionary,
     subword_dict: AsrDictionary,
-    subword_tokenizer: Callable[[str], List[str]] = None
+    subword_tokenizer: Callable[[str], List[str]] = None,
 ):
     """Build a lexical prefix tree for words.
 
@@ -59,7 +59,7 @@ def lexical_prefix_tree(
                 else:
                     children[sidx].word_set = (
                         min(children[sidx].word_set[0], widx - 1),
-                        max(children[sidx].word_set[1], widx)
+                        max(children[sidx].word_set[1], widx),
                     )
                 if i == len(subwords) - 1:  # if word end, set word_idx
                     children[sidx].word_idx = widx

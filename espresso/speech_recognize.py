@@ -9,26 +9,28 @@ Recognize pre-processed speech with a trained model.
 """
 
 import ast
-from itertools import chain
 import logging
 import math
 import os
 import sys
 from argparse import Namespace
+from itertools import chain
 
 import numpy as np
 import torch
+from omegaconf import DictConfig
+
+from espresso.models.external_language_model import MultiLevelLanguageModel
+from espresso.models.tensorized_lookahead_language_model import (
+    TensorizedLookaheadLanguageModel,
+)
+from espresso.tools import wer
+from espresso.tools.utils import plot_attention, sequence_mask
 from fairseq import checkpoint_utils, options, tasks, utils
 from fairseq.dataclass.utils import convert_namespace_to_omegaconf
 from fairseq.logging import progress_bar
 from fairseq.logging.meters import StopwatchMeter, TimeMeter
 from fairseq.models import FairseqLanguageModel
-from omegaconf import DictConfig
-
-from espresso.models.external_language_model import MultiLevelLanguageModel
-from espresso.models.tensorized_lookahead_language_model import TensorizedLookaheadLanguageModel
-from espresso.tools import wer
-from espresso.tools.utils import plot_attention, sequence_mask
 
 
 def main(cfg: DictConfig):
@@ -109,9 +111,13 @@ def _main(cfg, output_file):
         overrides["data"] = cfg.task.data
 
         try:
-            logger.info("loading language model(s) from {}".format(cfg.generation.lm_path))
+            logger.info(
+                "loading language model(s) from {}".format(cfg.generation.lm_path)
+            )
             lms, _ = checkpoint_utils.load_model_ensemble(
-                utils.split_paths(cfg.generation.lm_path), arg_overrides=overrides, task=None,
+                utils.split_paths(cfg.generation.lm_path),
+                arg_overrides=overrides,
+                task=None,
             )
         except:
             logger.warning(
@@ -131,7 +137,8 @@ def _main(cfg, output_file):
             # assume subword LM comes before word LM
             if i > 0 and isinstance(lms[i - 1], FairseqLanguageModel):
                 lms[i - 1] = MultiLevelLanguageModel(
-                    m, lms[i - 1],
+                    m,
+                    lms[i - 1],
                     subwordlm_weight=cfg.generation.subwordlm_weight,
                     oov_penalty=cfg.generation.oov_penalty,
                     open_vocab=not cfg.generation.disable_open_vocab,
@@ -140,7 +147,8 @@ def _main(cfg, output_file):
                 logger.info("LM shallow fusion with Multi-level LM")
             else:
                 lms[i] = TensorizedLookaheadLanguageModel(
-                    m, dictionary,
+                    m,
+                    dictionary,
                     oov_penalty=cfg.generation.oov_penalty,
                     open_vocab=not cfg.generation.disable_open_vocab,
                 )
@@ -149,7 +157,11 @@ def _main(cfg, output_file):
             assert isinstance(m, FairseqLanguageModel)
             logger.info("LM fusion with Subword LM")
     if cfg.generation.lm_weight != 0.0:
-        logger.info("using LM shallow fusion with lm-weight={:.2f}".format(cfg.generation.lm_weight))
+        logger.info(
+            "using LM shallow fusion with lm-weight={:.2f}".format(
+                cfg.generation.lm_weight
+            )
+        )
 
     # Optimize ensemble for generation
     for model in chain(models, lms):
@@ -248,7 +260,9 @@ def _main(cfg, output_file):
             net_input = sample["net_input"]
             src_tokens = net_input["src_tokens"]
             output_lengths = models[0].encoder.output_lengths(net_input["src_lengths"])
-            nonpad_idxs = sequence_mask(output_lengths, models[0].encoder.output_lengths(src_tokens.size(1)))
+            nonpad_idxs = sequence_mask(
+                output_lengths, models[0].encoder.output_lengths(src_tokens.size(1))
+            )
 
         for i in range(len(sample["id"])):
             has_target = sample["target"] is not None
@@ -258,7 +272,9 @@ def _main(cfg, output_file):
             if has_target:
                 target_str = dictionary.wordpiece_encode(sample["text"][i])
                 if not cfg.common_eval.quiet:
-                    print("T-{}\t{}".format(utt_id, sample["text"][i]), file=output_file)
+                    print(
+                        "T-{}\t{}".format(utt_id, sample["text"][i]), file=output_file
+                    )
 
             # Process top predictions
             for j, hypo in enumerate(hypos[i][: cfg.generation.nbest]):
@@ -270,15 +286,23 @@ def _main(cfg, output_file):
                 detok_hypo_str = decode_fn(hypo_str)
                 if not cfg.common_eval.quiet:
                     score = hypo["score"] / math.log(2)  # convert to base 2
-                    print("H-{}\t{}\t{}".format(utt_id, detok_hypo_str, score), file=output_file)
+                    print(
+                        "H-{}\t{}\t{}".format(utt_id, detok_hypo_str, score),
+                        file=output_file,
+                    )
 
                 # Score and obtain attention only the top hypothesis
                 if j == 0:
                     # src_len x tgt_len
-                    attention = hypo["attention"][nonpad_idxs[i]].float().cpu() \
-                        if save_attention_plot and hypo["attention"] is not None else None
+                    attention = (
+                        hypo["attention"][nonpad_idxs[i]].float().cpu()
+                        if save_attention_plot and hypo["attention"] is not None
+                        else None
+                    )
                     if save_attention_plot and attention is not None:
-                        save_dir = os.path.join(cfg.common_eval.results_path, "attn_plots")
+                        save_dir = os.path.join(
+                            cfg.common_eval.results_path, "attn_plots"
+                        )
                         os.makedirs(save_dir, exist_ok=True)
                         plot_attention(attention, detok_hypo_str, utt_id, save_dir)
                     scorer.add_prediction(utt_id, hypo_str)
@@ -287,11 +311,20 @@ def _main(cfg, output_file):
 
         wps_meter.update(num_generated_tokens)
         progress.log({"wps": round(wps_meter.avg)})
-        num_sentences += sample["nsentences"] if "nsentences" in sample else sample["id"].numel()
+        num_sentences += (
+            sample["nsentences"] if "nsentences" in sample else sample["id"].numel()
+        )
 
     logger.info("NOTE: hypothesis and token scores are output in base 2")
-    logger.info("Recognized {:,} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)".format(
-        num_sentences, gen_timer.n, gen_timer.sum, num_sentences / gen_timer.sum, 1. / gen_timer.avg))
+    logger.info(
+        "Recognized {:,} utterances ({} tokens) in {:.1f}s ({:.2f} sentences/s, {:.2f} tokens/s)".format(
+            num_sentences,
+            gen_timer.n,
+            gen_timer.sum,
+            num_sentences / gen_timer.sum,
+            1.0 / gen_timer.avg,
+        )
+    )
     if save_attention_plot:
         logger.info("Saved attention plots in " + save_dir)
 
@@ -299,35 +332,49 @@ def _main(cfg, output_file):
         scorer.add_ordered_utt_list(task.datasets[cfg.dataset.gen_subset].tgt.utt_ids)
 
     fn = "decoded_char_results.txt"
-    with open(os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8") as f:
+    with open(
+        os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8"
+    ) as f:
         f.write(scorer.print_char_results())
         logger.info("Decoded char results saved as " + f.name)
 
     fn = "decoded_results.txt"
-    with open(os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8") as f:
+    with open(
+        os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8"
+    ) as f:
         f.write(scorer.print_results())
         logger.info("Decoded results saved as " + f.name)
 
     if has_target:
-        header = "Recognize {} with beam={}: ".format(cfg.dataset.gen_subset, cfg.generation.beam)
+        header = "Recognize {} with beam={}: ".format(
+            cfg.dataset.gen_subset, cfg.generation.beam
+        )
         fn = "wer"
-        with open(os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8"
+        ) as f:
             res = "WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%".format(
-                *(scorer.wer()))
+                *(scorer.wer())
+            )
             logger.info(header + res)
             f.write(res + "\n")
             logger.info("WER saved in " + f.name)
 
         fn = "cer"
-        with open(os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8"
+        ) as f:
             res = "CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%".format(
-                *(scorer.cer()))
+                *(scorer.cer())
+            )
             logger.info(" " * len(header) + res)
             f.write(res + "\n")
             logger.info("CER saved in " + f.name)
 
         fn = "aligned_results.txt"
-        with open(os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8") as f:
+        with open(
+            os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8"
+        ) as f:
             f.write(scorer.print_aligned_results())
             logger.info("Aligned results saved as " + f.name)
     return scorer

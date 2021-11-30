@@ -3,11 +3,11 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import unittest
-import string
-import numpy as np
 import os
+import string
+import unittest
 
+import numpy as np
 import torch
 
 from espresso.data import (
@@ -25,7 +25,6 @@ except ImportError:
 
 
 class TestAsrDataset(unittest.TestCase):
-
     @staticmethod
     def make_dictionary():
         """construct dictionary."""
@@ -70,9 +69,7 @@ class TestAsrDataset(unittest.TestCase):
         for i in np.random.permutation(range(num)):
             utt_id = "utt_id_" + str(i)
             length = np.random.randint(10, 100)
-            tokens = [
-                vocab[np.random.randint(0, len(vocab))] for _ in range(length)
-            ]
+            tokens = [vocab[np.random.randint(0, len(vocab))] for _ in range(length)]
             if tokens[0] == space:
                 tokens[0] = vocab[np.random.randint(0, len(vocab) - 1)]
             if tokens[-1] == space:
@@ -91,16 +88,22 @@ class TestAsrDataset(unittest.TestCase):
         self.cache_size = 16
         self.dictionary = self.make_dictionary()
         (
-            self.expected_feats, self.feats_utt_ids, self.rxfiles, self.utt2num_frames
+            self.expected_feats,
+            self.feats_utt_ids,
+            self.rxfiles,
+            self.utt2num_frames,
         ) = self.generate_feats(self.test_dir, num=self.num_audios, seed=0)
-        (
-            self.expected_texts, self.text_utt_ids, self.texts
-        ) = self.generate_text(self.test_dir, num=self.num_transripts, seed=1)
+        (self.expected_texts, self.text_utt_ids, self.texts) = self.generate_text(
+            self.test_dir, num=self.num_transripts, seed=1
+        )
 
         self.cuda = torch.cuda.is_available()
 
     def _asr_dataset_helper(
-        self, all_in_memory=False, ordered_prefetch=False, has_utt2num_frames=False,
+        self,
+        all_in_memory=False,
+        ordered_prefetch=False,
+        has_utt2num_frames=False,
     ):
         if not all_in_memory:
             src_dataset = AudioFeatCachedDataset(
@@ -123,8 +126,11 @@ class TestAsrDataset(unittest.TestCase):
         )
 
         dataset = AsrDataset(
-            src_dataset, src_dataset.sizes,
-            tgt_dataset, tgt_dataset.sizes, self.dictionary,
+            src_dataset,
+            src_dataset.sizes,
+            tgt_dataset,
+            tgt_dataset.sizes,
+            self.dictionary,
             left_pad_source=False,
             left_pad_target=False,
         )
@@ -137,7 +143,7 @@ class TestAsrDataset(unittest.TestCase):
         indices = list(range(expected_dataset_size))
         batch_sampler = []
         for i in range(0, expected_dataset_size, self.batch_size):
-            batch_sampler.append(indices[i:i+self.batch_size])
+            batch_sampler.append(indices[i : i + self.batch_size])
 
         if not all_in_memory:
             dataset.prefetch(indices)
@@ -163,7 +169,7 @@ class TestAsrDataset(unittest.TestCase):
             for j, utt_id in enumerate(batch["utt_id"]):
                 self.assertTensorEqual(
                     torch.from_numpy(self.expected_feats[utt_id]).float(),
-                    src_frames[j, :src_lengths[j], :]
+                    src_frames[j, : src_lengths[j], :],
                 )
                 self.assertEqual(
                     self.expected_texts[utt_id],
@@ -185,10 +191,9 @@ class TestAsrDataset(unittest.TestCase):
     def assertTensorEqual(self, t1, t2):
         self.assertEqual(t1.size(), t2.size(), "size mismatch")
         if (
-            (t1.dtype == torch.short or t1.dtype == torch.int or
-             t1.dtype == torch.long) and
-            (t2.dtype == torch.short or t2.dtype == torch.int or
-             t2.dtype == torch.long)
+            t1.dtype == torch.short or t1.dtype == torch.int or t1.dtype == torch.long
+        ) and (
+            t2.dtype == torch.short or t2.dtype == torch.int or t2.dtype == torch.long
         ):
             self.assertEqual(t1.ne(t2).long().sum(), 0)
         else:

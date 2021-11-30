@@ -170,7 +170,9 @@ class MultiheadAttention(FairseqIncrementalDecoder):
             from espresso.modules import RelativePositionalEmbedding
 
             self.positional_embedding = RelativePositionalEmbedding(
-                embed_dim, padding_idx=None, max_size=max_relative_pos,
+                embed_dim,
+                padding_idx=None,
+                max_size=max_relative_pos,
                 learned=(relative_pos_embedding_type == "learned"),
             )
 
@@ -718,19 +720,29 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         if self.positional_embedding is not None:
             assert src_len >= tgt_len, f"{src_len} vs {tgt_len}"
             if key_padding_mask is not None:
-                pe = self.positional_embedding(~(key_padding_mask.bool()))  # bsz x (2*src_len-1) x embed_dim
+                pe = self.positional_embedding(
+                    ~(key_padding_mask.bool())
+                )  # bsz x (2*src_len-1) x embed_dim
             else:
-                pe = self.positional_embedding(k.new_ones([bsz, src_len], dtype=torch.bool))
-            pe = pe.view(bsz, -1, self.num_heads, self.head_dim).transpose(1, 2)  # bsz x num_heads x (2*src_len-1) x head_dim
+                pe = self.positional_embedding(
+                    k.new_ones([bsz, src_len], dtype=torch.bool)
+                )
+            pe = pe.view(bsz, -1, self.num_heads, self.head_dim).transpose(
+                1, 2
+            )  # bsz x num_heads x (2*src_len-1) x head_dim
             pe = pe.reshape(bsz * self.num_heads, -1, self.head_dim)
             positional_logits = torch.bmm(q, pe.transpose(1, 2))
-            assert list(positional_logits.size()) == [bsz * self.num_heads, tgt_len, 2 * src_len - 1]
+            assert list(positional_logits.size()) == [
+                bsz * self.num_heads,
+                tgt_len,
+                2 * src_len - 1,
+            ]
             batch_head_stride, tgt_stride, src_stride = positional_logits.stride()
             # assume src (key) and tgt (query) sequences are right-aligned
             positional_logits = positional_logits.as_strided(
                 (bsz * self.num_heads, tgt_len, src_len),
                 (batch_head_stride, tgt_stride - src_stride, src_stride),
-                storage_offset=src_stride * (tgt_len - 1)
+                storage_offset=src_stride * (tgt_len - 1),
             )
             attn_weights = attn_weights + positional_logits
 

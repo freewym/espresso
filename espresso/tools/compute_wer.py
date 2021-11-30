@@ -12,7 +12,6 @@ from collections import Counter
 
 from espresso.tools.utils import edit_distance
 
-
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
@@ -23,8 +22,7 @@ logger = logging.getLogger("espresso.tools.compute_wer")
 
 
 def get_parser():
-    parser = argparse.ArgumentParser(
-        description="Compute WER from text")
+    parser = argparse.ArgumentParser(description="Compute WER from text")
     # fmt: off
     parser.add_argument("--non-lang-syms", default=None, type=str,
                         help="path to a file listing non-linguistic symbols, "
@@ -63,7 +61,9 @@ def main(args):
                     assert m is not None
                     word_filters.append([m.group(1), m.group(2)])
                 else:
-                    logger.warning("Unsupported pattern: '{}'. Ignoring it.".format(line))
+                    logger.warning(
+                        "Unsupported pattern: '{}'. Ignoring it.".format(line)
+                    )
 
     refs = {}
     with open(args.ref_text, "r", encoding="utf-8") as f:
@@ -92,15 +92,20 @@ def main(args):
             wer_counter += counter
 
     assert wer_counter["words"] > 0
-    wer = float(
-        wer_counter["sub"] + wer_counter["ins"] + wer_counter["del"]
-    ) / wer_counter["words"] * 100
+    wer = (
+        float(wer_counter["sub"] + wer_counter["ins"] + wer_counter["del"])
+        / wer_counter["words"]
+        * 100
+    )
     sub = float(wer_counter["sub"]) / wer_counter["words"] * 100
     ins = float(wer_counter["ins"]) / wer_counter["words"] * 100
     dlt = float(wer_counter["del"]) / wer_counter["words"] * 100
 
-    print("WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%, #words={:d}".format(
-        wer, sub, ins, dlt, wer_counter["words"]))
+    print(
+        "WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%, #words={:d}".format(
+            wer, sub, ins, dlt, wer_counter["words"]
+        )
+    )
 
 
 if __name__ == "__main__":

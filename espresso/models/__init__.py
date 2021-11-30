@@ -7,7 +7,6 @@ import os
 
 from fairseq.models import import_models
 
-
 # automatically import any Python files in the models/ directory
 models_dir = os.path.dirname(__file__)
 import_models(models_dir, "espresso.models")

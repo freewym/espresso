@@ -6,10 +6,9 @@
 from dataclasses import dataclass
 from typing import List, Optional
 
+from espresso.tools.utils import tokenize
 from fairseq.data.encoders import register_bpe
 from fairseq.dataclass import FairseqDataclass
-
-from espresso.tools.utils import tokenize
 
 
 @dataclass
@@ -20,7 +19,10 @@ class CharactersAsrConfig(FairseqDataclass):
 @register_bpe("characters_asr", dataclass=CharactersAsrConfig)
 class CharactersAsr(object):
     def __init__(
-        self, cfg: CharactersAsrConfig, space_symbol="<space>", ends_with_space=True,
+        self,
+        cfg: CharactersAsrConfig,
+        space_symbol="<space>",
+        ends_with_space=True,
         non_lang_syms: Optional[List[str]] = None,
     ):
         self.space_symbol = space_symbol
