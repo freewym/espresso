@@ -26,7 +26,9 @@ class ReduceLROnPlateauLRScheduleV2Config(ReduceLROnPlateauLRScheduleConfig):
     )
 
 
-@register_lr_scheduler("reduce_lr_on_plateau_v2", dataclass=ReduceLROnPlateauLRScheduleV2Config)
+@register_lr_scheduler(
+    "reduce_lr_on_plateau_v2", dataclass=ReduceLROnPlateauLRScheduleV2Config
+)
 class ReduceLROnPlateauLRScheduleV2(ReduceLROnPlateauLRSchedule):
     """Decay the LR by a factor every time the validation loss plateaus, starting
     from the epoch specified as cfg.start_reduce_lr_epoch.

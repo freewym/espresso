@@ -3,24 +3,22 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from argparse import Namespace
 import logging
-import unittest
 import string
-import numpy as np
+import unittest
+from argparse import Namespace
 from collections import Counter
 
+import numpy as np
 import torch
 
-from espresso.data import AsrDictionary
 import espresso.tools.utils as utils
-
+from espresso.data import AsrDictionary
 
 logger = logging.getLogger(__name__)
 
 
 class TestSpeechUtils(unittest.TestCase):
-
     @staticmethod
     def make_dictionary(vocab, non_lang_syms=[]):
         """construct dictionary."""
@@ -41,8 +39,11 @@ class TestSpeechUtils(unittest.TestCase):
     @staticmethod
     def generate_text(vocab, oovs=[], non_lang_syms=[], seed=0):
         """generate text of one synthetic sentence."""
-        assert isinstance(vocab, list) and isinstance(oovs, list) and \
-            isinstance(non_lang_syms, list)
+        assert (
+            isinstance(vocab, list)
+            and isinstance(oovs, list)
+            and isinstance(non_lang_syms, list)
+        )
         np.random.seed(seed)
         sent_len = np.random.randint(2, 30)
         sent = ""
@@ -71,9 +72,15 @@ class TestSpeechUtils(unittest.TestCase):
             self.vocab,
             non_lang_syms=self.non_lang_syms,
         )
-        self.text = [self.generate_text(
-            self.vocab, self.oovs, self.non_lang_syms, seed=i,
-        ) for i in range(self.num_sentences)]
+        self.text = [
+            self.generate_text(
+                self.vocab,
+                self.oovs,
+                self.non_lang_syms,
+                seed=i,
+            )
+            for i in range(self.num_sentences)
+        ]
 
     def test_speech_tokenizer(self):
         for i, sent in enumerate(self.text):
@@ -84,14 +91,17 @@ class TestSpeechUtils(unittest.TestCase):
             # test :func:`~AsrDictionary.wordpiece_encode` with
             # :func:`~AsrDictionary.encode_line`
             tensor = self.dictionary.encode_line(
-                tokens, add_if_not_exist=False, append_eos=True,
+                tokens,
+                add_if_not_exist=False,
+                append_eos=True,
             )
             reconstructed_tokens = self.dictionary.string(
                 tensor, extra_symbols_to_ignore={self.dictionary.pad()}
             )
             expected_tokens = " ".join(
                 [
-                    token if self.dictionary.index(token) != self.dictionary.unk()
+                    token
+                    if self.dictionary.index(token) != self.dictionary.unk()
                     else self.dictionary.unk_word
                     for token in tokens.split(" ")
                 ]
@@ -119,17 +129,32 @@ class TestSpeechUtils(unittest.TestCase):
             torch.tensor([4.5, 2.3, 1.2]).unsqueeze(-1).expand(-1, 10),
             torch.tensor([6.7, 9.8]).unsqueeze(-1).expand(-1, 10),
             torch.tensor([7.7, 5.4, 6.2, 8.0]).unsqueeze(-1).expand(-1, 10),
-            torch.tensor([1.5]).unsqueeze(-1).expand(-1, 10)]
-        expected_res1 = torch.tensor([
-            [4.5, 2.3, 1.2, 0.0],
-            [6.7, 9.8, 0.0, 0.0],
-            [7.7, 5.4, 6.2, 8.0],
-            [1.5, 0.0, 0.0, 0.0]]).unsqueeze(-1).expand(-1, -1, 10)
-        expected_res2 = torch.tensor([
-            [0.0, 4.5, 2.3, 1.2],
-            [0.0, 0.0, 6.7, 9.8],
-            [7.7, 5.4, 6.2, 8.0],
-            [0.0, 0.0, 0.0, 1.5]]).unsqueeze(-1).expand(-1, -1, 10)
+            torch.tensor([1.5]).unsqueeze(-1).expand(-1, 10),
+        ]
+        expected_res1 = (
+            torch.tensor(
+                [
+                    [4.5, 2.3, 1.2, 0.0],
+                    [6.7, 9.8, 0.0, 0.0],
+                    [7.7, 5.4, 6.2, 8.0],
+                    [1.5, 0.0, 0.0, 0.0],
+                ]
+            )
+            .unsqueeze(-1)
+            .expand(-1, -1, 10)
+        )
+        expected_res2 = (
+            torch.tensor(
+                [
+                    [0.0, 4.5, 2.3, 1.2],
+                    [0.0, 0.0, 6.7, 9.8],
+                    [7.7, 5.4, 6.2, 8.0],
+                    [0.0, 0.0, 0.0, 1.5],
+                ]
+            )
+            .unsqueeze(-1)
+            .expand(-1, -1, 10)
+        )
 
         res = utils.collate_frames(vals, pad_value=0.0, left_pad=False)
         self.assertTensorEqual(res, expected_res1)
@@ -139,16 +164,12 @@ class TestSpeechUtils(unittest.TestCase):
 
     def test_sequence_mask(self):
         seq_len = torch.tensor([1, 4, 0, 3]).int()
-        expected_mask = torch.tensor([
-            [1, 0, 0, 0],
-            [1, 1, 1, 1],
-            [0, 0, 0, 0],
-            [1, 1, 1, 0]]).bool()
-        expected_mask2 = torch.tensor([
-            [1, 0, 0, 0, 0],
-            [1, 1, 1, 1, 0],
-            [0, 0, 0, 0, 0],
-            [1, 1, 1, 0, 0]]).bool()
+        expected_mask = torch.tensor(
+            [[1, 0, 0, 0], [1, 1, 1, 1], [0, 0, 0, 0], [1, 1, 1, 0]]
+        ).bool()
+        expected_mask2 = torch.tensor(
+            [[1, 0, 0, 0, 0], [1, 1, 1, 1, 0], [0, 0, 0, 0, 0], [1, 1, 1, 0, 0]]
+        ).bool()
 
         generated_mask = utils.sequence_mask(seq_len)
         generated_mask2 = utils.sequence_mask(seq_len, max_len=5)
@@ -157,25 +178,43 @@ class TestSpeechUtils(unittest.TestCase):
         self.assertTensorEqual(generated_mask2, expected_mask2)
 
     def test_convert_padding_direction(self):
-        t1 = torch.tensor([
-            [4.5, 2.3, 1.2, 0.0],
-            [6.7, 9.8, 0.0, 0.0],
-            [7.7, 5.4, 6.2, 8.0],
-            [1.5, 0.0, 0.0, 0.0]]).unsqueeze(-1).expand(-1, -1, 10)
-        t2 = torch.tensor([
-            [0.0, 4.5, 2.3, 1.2],
-            [0.0, 0.0, 6.7, 9.8],
-            [7.7, 5.4, 6.2, 8.0],
-            [0.0, 0.0, 0.0, 1.5]]).unsqueeze(-1).expand(-1, -1, 10)
+        t1 = (
+            torch.tensor(
+                [
+                    [4.5, 2.3, 1.2, 0.0],
+                    [6.7, 9.8, 0.0, 0.0],
+                    [7.7, 5.4, 6.2, 8.0],
+                    [1.5, 0.0, 0.0, 0.0],
+                ]
+            )
+            .unsqueeze(-1)
+            .expand(-1, -1, 10)
+        )
+        t2 = (
+            torch.tensor(
+                [
+                    [0.0, 4.5, 2.3, 1.2],
+                    [0.0, 0.0, 6.7, 9.8],
+                    [7.7, 5.4, 6.2, 8.0],
+                    [0.0, 0.0, 0.0, 1.5],
+                ]
+            )
+            .unsqueeze(-1)
+            .expand(-1, -1, 10)
+        )
         seq_len = torch.tensor([3, 2, 4, 1]).int()
 
         t1_to_t2 = utils.convert_padding_direction(
-            t1, seq_len, right_to_left=True,
+            t1,
+            seq_len,
+            right_to_left=True,
         )
         self.assertTensorEqual(t1_to_t2, t2)
 
         t2_to_t1 = utils.convert_padding_direction(
-            t2, seq_len, left_to_right=True,
+            t2,
+            seq_len,
+            left_to_right=True,
         )
         self.assertTensorEqual(t2_to_t1, t1)
 
@@ -225,12 +264,19 @@ class TestSpeechUtils(unittest.TestCase):
 
     def assertTensorEqual(self, t1, t2):
         self.assertEqual(t1.size(), t2.size(), "size mismatch")
-        if (t1.dtype == torch.short or t1.dtype == torch.int or
-            t1.dtype == torch.long or t1.dtype == torch.uint8 or
-            t1.dtype == torch.bool) and \
-            (t2.dtype == torch.short or t2.dtype == torch.int or
-             t2.dtype == torch.long or t2.dtype == torch.uint8 or
-             t2.dtype == torch.bool):
+        if (
+            t1.dtype == torch.short
+            or t1.dtype == torch.int
+            or t1.dtype == torch.long
+            or t1.dtype == torch.uint8
+            or t1.dtype == torch.bool
+        ) and (
+            t2.dtype == torch.short
+            or t2.dtype == torch.int
+            or t2.dtype == torch.long
+            or t2.dtype == torch.uint8
+            or t2.dtype == torch.bool
+        ):
             self.assertEqual(t1.ne(t2).long().sum(), 0)
         else:
             self.assertEqual(t1.allclose(t2, rtol=1e-05, atol=1e-08), True)

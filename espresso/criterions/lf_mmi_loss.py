@@ -3,19 +3,18 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from dataclasses import dataclass, field
 import logging
 import math
-from omegaconf import II
+from dataclasses import dataclass, field
 
 import torch
+from omegaconf import II
 
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.dataclass import FairseqDataclass
-from fairseq.tasks import FairseqTask
 from fairseq.logging import metrics
-
+from fairseq.tasks import FairseqTask
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +41,9 @@ class LatticeFreeMMICriterionConfig(FairseqDataclass):
 
 class ChainLossFunction(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, input, input_lengths, num_graphs, den_graphs, leaky_coefficient=1e-5):
+    def forward(
+        ctx, input, input_lengths, num_graphs, den_graphs, leaky_coefficient=1e-5
+    ):
         try:
             import pychain_C
         except ImportError:
@@ -51,16 +52,21 @@ class ChainLossFunction(torch.autograd.Function):
                 "after entering espresso/tools"
             )
 
-        input = input.contiguous().clamp(-30, 30)  # clamp for both the denominator and the numerator
+        input = input.contiguous().clamp(
+            -30, 30
+        )  # clamp for both the denominator and the numerator
         B = input.size(0)
         if B != num_graphs.batch_size or B != den_graphs.batch_size:
             raise ValueError(
                 "input batch size ({}) does not equal to num graph batch size ({}) "
-                "or den graph batch size ({})"
-                .format(B, num_graphs.batch_size, den_graphs.batch_size)
+                "or den graph batch size ({})".format(
+                    B, num_graphs.batch_size, den_graphs.batch_size
+                )
             )
         packed_data = torch.nn.utils.rnn.pack_padded_sequence(
-            input, input_lengths.cpu(), batch_first=True,
+            input,
+            input_lengths.cpu(),
+            batch_first=True,
         )
         batch_sizes = packed_data.batch_sizes
         input_lengths = input_lengths.cpu()
@@ -124,7 +130,7 @@ class ChainLossFunction(torch.autograd.Function):
 
     @staticmethod
     def backward(ctx, objf_grad):
-        input_grad, = ctx.saved_tensors
+        (input_grad,) = ctx.saved_tensors
         input_grad = torch.mul(input_grad, objf_grad)
 
         return input_grad, None, None, None, None
@@ -135,8 +141,8 @@ class LatticeFreeMMICriterion(FairseqCriterion):
     def __init__(self, cfg: LatticeFreeMMICriterionConfig, task: FairseqTask):
         super().__init__(task)
         try:
-            from pychain.graph import ChainGraph
             import simplefst
+            from pychain.graph import ChainGraph
         except ImportError:
             raise ImportError(
                 "Please install OpenFST and PyChain by `make openfst pychain` "
@@ -178,15 +184,21 @@ class LatticeFreeMMICriterion(FairseqCriterion):
             from pychain.graph import ChainGraphBatch
             from pychain.loss import ChainFunction
         except ImportError:
-            raise ImportError("Please install OpenFST and PyChain by `make openfst pychain` after entering espresso/tools")
+            raise ImportError(
+                "Please install OpenFST and PyChain by `make openfst pychain` after entering espresso/tools"
+            )
 
-        encoder_out = net_output["encoder_out"][0].transpose(0, 1)  # T x B x V -> B x T x V
+        encoder_out = net_output["encoder_out"][0].transpose(
+            0, 1
+        )  # T x B x V -> B x T x V
         out_lengths = net_output["src_lengths"][0].long()  # B
         den_graphs = ChainGraphBatch(self.den_graph, sample["nsentences"])
         if self.xent_regularize > 0.0:
-            den_objf = ChainFunction.apply(encoder_out, out_lengths, den_graphs, self.leaky_hmm_coefficient)
+            den_objf = ChainFunction.apply(
+                encoder_out, out_lengths, den_graphs, self.leaky_hmm_coefficient
+            )
             num_objf = ChainFunction.apply(encoder_out, out_lengths, sample["target"])
-            loss = - num_objf + den_objf  # negative log-probs
+            loss = -num_objf + den_objf  # negative log-probs
             nll_loss = loss.clone().detach()
             loss -= self.xent_regularize * num_objf
         else:
@@ -194,18 +206,25 @@ class LatticeFreeMMICriterion(FairseqCriterion):
             # the first three lines in the above "if" block, but also supports throwing away
             # batches with the NaN loss by setting their gradients to 0.
             loss = ChainLossFunction.apply(
-                encoder_out, out_lengths, sample["target"], den_graphs, self.leaky_hmm_coefficient
+                encoder_out,
+                out_lengths,
+                sample["target"],
+                den_graphs,
+                self.leaky_hmm_coefficient,
             )
             nll_loss = loss.clone().detach()
 
         if self.output_l2_regularize > 0.0:
             encoder_padding_mask = (
-                net_output["encoder_padding_mask"][0] if len(net_output["encoder_padding_mask"]) > 0
+                net_output["encoder_padding_mask"][0]
+                if len(net_output["encoder_padding_mask"]) > 0
                 else None
             )
             encoder_out_squared = encoder_out.pow(2.0)
             if encoder_padding_mask is not None:
-                pad_mask = encoder_padding_mask.transpose(0, 1).unsqueeze(-1)  # T x B -> B x T x 1
+                pad_mask = encoder_padding_mask.transpose(0, 1).unsqueeze(
+                    -1
+                )  # T x B -> B x T x 1
                 encoder_out_squared.masked_fill_(pad_mask, 0.0)
             loss += 0.5 * self.output_l2_regularize * encoder_out_squared.sum()
 

@@ -8,13 +8,11 @@ import os
 from typing import List, Optional
 
 import numpy as np
-
 import torch
 import torch.nn.functional as F
 
-from fairseq.data import FairseqDataset, data_utils
-
 import espresso.tools.utils as speech_utils
+from fairseq.data import FairseqDataset, data_utils
 
 try:
     import kaldi_io
@@ -45,15 +43,18 @@ def collate(
     def merge(key, pad_to_length=None):
         if key == "source":
             return speech_utils.collate_frames(
-                [s[key] for s in samples], 0.0,
+                [s[key] for s in samples],
+                0.0,
                 pad_to_length=pad_to_length,
                 pad_to_multiple=pad_to_multiple,
             )
         elif key == "target":
             return data_utils.collate_tokens(
                 [s[key] for s in samples],
-                pad_idx=pad_idx, eos_idx=None,
-                left_pad=False, move_eos_to_beginning=False,
+                pad_idx=pad_idx,
+                eos_idx=None,
+                left_pad=False,
+                move_eos_to_beginning=False,
                 pad_to_length=pad_to_length,
                 pad_to_multiple=pad_to_multiple,
             )
@@ -68,11 +69,17 @@ def collate(
         # replication pad if necessary
         left_pad = max(0, chunk_left_context - tgt_start - label_delay)
         right_pad = max(0, end_src - src_item.size(0))
-        src_item = src_item[begin_src: end_src]
+        src_item = src_item[begin_src:end_src]
         if left_pad > 0 or right_pad > 0:
-            src_item = F.pad(
-                src_item.t().unsqueeze(0), (left_pad, right_pad), mode="replicate",
-            ).squeeze(0).t()
+            src_item = (
+                F.pad(
+                    src_item.t().unsqueeze(0),
+                    (left_pad, right_pad),
+                    mode="replicate",
+                )
+                .squeeze(0)
+                .t()
+            )
 
         if tgt_item is not None:
             # make a tgt chunk in the range [begin_tgt, end_tgt)
@@ -80,7 +87,7 @@ def collate(
             end_tgt = tgt_start + chunk_width  # ok if past the end of utterance
             # replication pad if necessary
             right_pad = max(0, end_tgt - tgt_item.size(0))
-            tgt_item = tgt_item[begin_tgt: end_tgt]
+            tgt_item = tgt_item[begin_tgt:end_tgt]
             if right_pad > 0:
                 tgt_item = torch.cat(
                     (tgt_item, tgt_item.new_full((right_pad,), pad_idx)), 0
@@ -102,13 +109,19 @@ def collate(
                 left_pad, right_pad = -label_delay, 0
             for s in samples:
                 src_item = s["source"]
-                src_item = F.pad(
-                    src_item.t().unsqueeze(0), (left_pad, right_pad), mode="replicate",
-                ).squeeze(0).t()
+                src_item = (
+                    F.pad(
+                        src_item.t().unsqueeze(0),
+                        (left_pad, right_pad),
+                        mode="replicate",
+                    )
+                    .squeeze(0)
+                    .t()
+                )
                 if label_delay > 0:
                     s["source"] = src_item[label_delay:]
                 else:
-                    s["source"] = src_item[: label_delay]
+                    s["source"] = src_item[:label_delay]
 
         if pad_to_length is not None or src_bucketed:
             src_lengths = torch.IntTensor(
@@ -120,7 +133,9 @@ def collate(
         utt_id = [s["utt_id"] for s in samples]
         src_frames = merge(
             "source",
-            pad_to_length=pad_to_length["source"] if pad_to_length is not None else None,
+            pad_to_length=pad_to_length["source"]
+            if pad_to_length is not None
+            else None,
         )
 
         target = None
@@ -155,16 +170,19 @@ def collate(
             "utt_id": utt_id,
             "nsentences": len(samples),
             "ntokens": ntokens,
-            "net_input": {"src_tokens": src_frames, "src_lengths": src_lengths},
+            "net_input": {
+                "src_tokens": src_frames,
+                "src_lengths": src_lengths,
+            },
             "target": target,
             "text": text,
         }
         return batch
     else:  # sequential chunking, usually for chunk-wise test data
         if pad_to_length is not None or src_bucketed:
-            src_lengths = torch.IntTensor([
-                s["source"].ne(0.0).any(dim=1).int().sum() for s in samples
-            ])
+            src_lengths = torch.IntTensor(
+                [s["source"].ne(0.0).any(dim=1).int().sum() for s in samples]
+            )
         else:
             src_lengths = torch.IntTensor([s["source"].size(0) for s in samples])
         id = torch.LongTensor([s["id"] for s in samples])
@@ -184,7 +202,8 @@ def collate(
                     s["source"], s["target"] = chunking(ori_source[i], ori_target[i], f)
                 else:
                     s["source"] = ori_source[i].new_zeros(
-                        chunk_width + chunk_left_context + chunk_right_context, ori_source[i].size(1)
+                        chunk_width + chunk_left_context + chunk_right_context,
+                        ori_source[i].size(1),
                     )
                     s["target"] = (
                         ori_target[i].new_full((chunk_width,), pad_idx)
@@ -193,7 +212,9 @@ def collate(
                     )
             src_frames = merge(
                 "source",
-                pad_to_length=pad_to_length["source"] if pad_to_length is not None else None,
+                pad_to_length=pad_to_length["source"]
+                if pad_to_length is not None
+                else None,
             )
             src_chunk_lengths = torch.IntTensor([s["source"].size(0) for s in samples])
 
@@ -205,7 +226,9 @@ def collate(
                     if pad_to_length is not None
                     else None,
                 )
-                ntokens = sum(s["target"].ne(pad_idx).int().sum().item() for s in samples)
+                ntokens = sum(
+                    s["target"].ne(pad_idx).int().sum().item() for s in samples
+                )
             else:
                 ntokens = src_lengths.sum().item()
 
@@ -214,7 +237,10 @@ def collate(
                 "utt_id": utt_id,
                 "nsentences": len(samples) if k == 0 else 0,
                 "ntokens": ntokens,
-                "net_input": {"src_tokens": src_frames, "src_lengths": src_chunk_lengths},
+                "net_input": {
+                    "src_tokens": src_frames,
+                    "src_lengths": src_chunk_lengths,
+                },
                 "target": target,
                 "text": text,
             }
@@ -304,12 +330,13 @@ class AliScpCachedDataset(torch.utils.data.Dataset):
     def __getitem__(self, i):
         self.check_index(i)
         if i not in self.cache_index:
-            assert (
-                self.start_pos_for_next_cache < len(self.ordered_indices)
+            assert self.start_pos_for_next_cache < len(
+                self.ordered_indices
             ), "Position for next cache starting beyond the end of ordered_indices."
             try:
                 pos_start = self.ordered_indices.index(
-                    i, self.start_pos_for_next_cache,
+                    i,
+                    self.start_pos_for_next_cache,
                 )
             except ValueError:
                 raise ValueError(
@@ -318,24 +345,25 @@ class AliScpCachedDataset(torch.utils.data.Dataset):
                     "with the full list of indices, and then try again.".format(i)
                 )
             pos_end = min(
-                pos_start + self.cache_size, len(self.ordered_indices),
+                pos_start + self.cache_size,
+                len(self.ordered_indices),
             )
             self.start_pos_for_next_cache = pos_end if self.ordered_prefetch else 0
             total_size = 0
-            for idx in self.ordered_indices[pos_start: pos_end]:
+            for idx in self.ordered_indices[pos_start:pos_end]:
                 total_size += self.sizes[idx]
             self.cache = np.empty(total_size, dtype=self.dtype)
             ptx = 0
             self.cache_index.clear()
-            for idx in self.ordered_indices[pos_start: pos_end]:
+            for idx in self.ordered_indices[pos_start:pos_end]:
                 self.cache_index[idx] = ptx
                 length = self.sizes[idx]
-                dst = self.cache[ptx: ptx + length]
+                dst = self.cache[ptx : ptx + length]
                 np.copyto(dst, kaldi_io.read_vec_int(self.rxfiles[idx]))
                 ptx += length
 
         ptx = self.cache_index[i]
-        a = self.cache[ptx: ptx + self.sizes[i]].copy()
+        a = self.cache[ptx : ptx + self.sizes[i]].copy()
         return torch.from_numpy(a).long()
 
     def __len__(self):
@@ -402,9 +430,8 @@ class AsrXentDataset(FairseqDataset):
         assert chunk_left_context >= 0 and chunk_right_context >= 0
         self.chunk_left_context = chunk_left_context
         self.chunk_right_context = chunk_right_context
-        assert (
-            (label_delay < 0 and -label_delay <= chunk_right_context)
-            or (label_delay >= 0 and (chunk_width is None or label_delay < chunk_width))
+        assert (label_delay < 0 and -label_delay <= chunk_right_context) or (
+            label_delay >= 0 and (chunk_width is None or label_delay < chunk_width)
         )
         self.label_delay = label_delay
         self.random_chunking = random_chunking
@@ -434,11 +461,13 @@ class AsrXentDataset(FairseqDataset):
                     self.tgt.filter_and_reorder(indices)
                 if self.text is not None:
                     self.text.filter_and_reorder(indices)
-                logger.warning("Done removal. {} examples remaining".format(len(indices)))
+                logger.warning(
+                    "Done removal. {} examples remaining".format(len(indices))
+                )
 
         if num_buckets > 0:
-            from fairseq.data import BucketPadLengthDataset
             from espresso.data import FeatBucketPadLengthDataset
+            from fairseq.data import BucketPadLengthDataset
 
             self.src = FeatBucketPadLengthDataset(
                 self.src,
@@ -458,7 +487,9 @@ class AsrXentDataset(FairseqDataset):
                     left_pad=False,
                 )
                 self.tgt_sizes = self.tgt.sizes
-                logger.info("bucketing target lengths: {}".format(list(self.tgt.buckets)))
+                logger.info(
+                    "bucketing target lengths: {}".format(list(self.tgt.buckets))
+                )
 
             # determine bucket sizes using self.num_tokens, which will return
             # the padded lengths (thanks to FeatBucketPadLengthDataset)
@@ -476,7 +507,9 @@ class AsrXentDataset(FairseqDataset):
         their utt_ids. Removes those that are only present in one of them."""
         assert self.tgt is not None
         if self.src.utt_ids == self.tgt.utt_ids:
-            assert np.all(self.src.sizes == self.tgt.sizes), "frame and alignment lengths mismatch"
+            assert np.all(
+                self.src.sizes == self.tgt.sizes
+            ), "frame and alignment lengths mismatch"
             return
         tgt_utt_ids_set = set(self.tgt.utt_ids)
         src_indices = [
@@ -494,7 +527,9 @@ class AsrXentDataset(FairseqDataset):
         self.tgt.filter_and_reorder(tgt_indices)
         self.tgt_sizes = np.array(self.tgt.sizes)
         assert self.src.utt_ids == self.tgt.utt_ids
-        assert np.all(self.src.sizes == self.tgt.sizes), "frame and alignment lengths mismatch"
+        assert np.all(
+            self.src.sizes == self.tgt.sizes
+        ), "frame and alignment lengths mismatch"
 
     def _match_src_text(self):
         """Makes utterances in src and text the same order in terms of
@@ -598,7 +633,10 @@ class AsrXentDataset(FairseqDataset):
     def size(self, index):
         """Return an example's size as a float or tuple. This value is used when
         filtering a dataset with ``--max-positions``."""
-        return (self.src_sizes[index], self.tgt_sizes[index] if self.tgt_sizes is not None else 0)
+        return (
+            self.src_sizes[index],
+            self.tgt_sizes[index] if self.tgt_sizes is not None else 0,
+        )
 
     def ordered_indices(self):
         """Return an ordered list of indices. Batches will be constructed based
@@ -641,7 +679,10 @@ class AsrXentDataset(FairseqDataset):
             list: list of removed indices
         """
         return data_utils.filter_paired_dataset_indices_by_size(
-            self.src_sizes, self.tgt_sizes, indices, max_sizes,
+            self.src_sizes,
+            self.tgt_sizes,
+            indices,
+            max_sizes,
         )
 
     @property

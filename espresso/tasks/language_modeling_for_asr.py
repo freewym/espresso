@@ -10,20 +10,20 @@ from typing import Optional
 
 import torch
 
+from espresso.data import AsrDictionary
 from fairseq import tokenizer, utils
 from fairseq.data import TruncatedDictionary
 from fairseq.tasks import register_task
-from fairseq.tasks.language_modeling import LanguageModelingTask, LanguageModelingConfig
-
-from espresso.data import AsrDictionary
-
+from fairseq.tasks.language_modeling import LanguageModelingConfig, LanguageModelingTask
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class LanguageModelingForASRConfig(LanguageModelingConfig):
-    dict: Optional[str] = field(default=None, metadata={"help": "path to the dictionary"})
+    dict: Optional[str] = field(
+        default=None, metadata={"help": "path to the dictionary"}
+    )
 
 
 @register_task("language_modeling_for_asr", dataclass=LanguageModelingForASRConfig)
@@ -74,7 +74,9 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         return AsrDictionary.load(filename)
 
     @classmethod
-    def build_dictionary(cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8):
+    def build_dictionary(
+        cls, filenames, workers=1, threshold=-1, nwords=-1, padding_factor=8
+    ):
         """Build the dictionary
 
         Args:
@@ -89,7 +91,9 @@ class LanguageModelingForASRTask(LanguageModelingTask):
         """
         d = AsrDictionary()
         for filename in filenames:
-            AsrDictionary.add_file_to_dictionary(filename, d, tokenizer.tokenize_line, workers)
+            AsrDictionary.add_file_to_dictionary(
+                filename, d, tokenizer.tokenize_line, workers
+            )
         d.finalize(threshold=threshold, nwords=nwords, padding_factor=padding_factor)
         return d
 
@@ -101,8 +105,7 @@ class LanguageModelingForASRTask(LanguageModelingTask):
             paths = utils.split_paths(args.data)
             assert len(paths) > 0
             dict_path = (
-                os.path.join(paths[0], "dict.txt") if args.dict is None
-                else args.dict
+                os.path.join(paths[0], "dict.txt") if args.dict is None else args.dict
             )
             dictionary = AsrDictionary.load(dict_path)
             logger.info("dictionary: {} types".format(len(dictionary)))

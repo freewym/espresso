@@ -6,7 +6,6 @@
 import importlib
 import os
 
-
 # automatically import any Python files in the optim/lr_scheduler/ directory
 for file in sorted(os.listdir(os.path.dirname(__file__))):
     if not file.startswith("_") and not file.startswith(".") and file.endswith(".py"):

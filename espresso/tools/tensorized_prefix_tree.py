@@ -3,9 +3,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import numpy as np
 from typing import Callable, List
 
+import numpy as np
 import torch
 
 from espresso.data import AsrDictionary
@@ -17,12 +17,13 @@ class TensorizedPrefixTree:
     A tensorized lexical prefix tree designed for maximum parallelism in ASR decoding.
     """
 
-    def __init__(self,
-                 children: np.ndarray,  # NodeId[NodeId, NumChildren]
-                 prev_subword_idx: np.ndarray,  # SubWordId[NodeId]
-                 word_idx: np.ndarray,  # WordId[NodeId]; -1 means non-terminal node
-                 word_set_idx: np.ndarray  # WordId[NodeId, 2 = (first-1, last)]
-                 ):
+    def __init__(
+        self,
+        children: np.ndarray,  # NodeId[NodeId, NumChildren]
+        prev_subword_idx: np.ndarray,  # SubWordId[NodeId]
+        word_idx: np.ndarray,  # WordId[NodeId]; -1 means non-terminal node
+        word_set_idx: np.ndarray,  # WordId[NodeId, 2 = (first-1, last)]
+    ):
         self.children = children
         self.prev_subword_idx = prev_subword_idx
         self.word_idx = word_idx
@@ -42,9 +43,9 @@ class TensorizedPrefixTree:
 
     @staticmethod
     def build(
-            word_dict: AsrDictionary,
-            subword_dict: AsrDictionary,
-            subword_tokenizer: Callable[[str], List[str]] = None
+        word_dict: AsrDictionary,
+        subword_dict: AsrDictionary,
+        subword_tokenizer: Callable[[str], List[str]] = None,
     ):
         """
         Builds a tensorized lexical prefix tree for words.
@@ -53,7 +54,7 @@ class TensorizedPrefixTree:
         root = lexical_prefix_tree(
             word_dict=word_dict,
             subword_dict=subword_dict,
-            subword_tokenizer=subword_tokenizer
+            subword_tokenizer=subword_tokenizer,
         )  # build traditional tree data structure by reusing existing routines
 
         # Performs pre-order traversal of this tree to assign an index for each node
@@ -71,7 +72,9 @@ class TensorizedPrefixTree:
                 max_num_children = len(curr.children)
 
             # Guarantee that the children are traversed ascendingly according to the subword index
-            for _, next_node in sorted(curr.children.items(), key=lambda t: t[0], reverse=True):
+            for _, next_node in sorted(
+                curr.children.items(), key=lambda t: t[0], reverse=True
+            ):
                 stack.append(next_node)
 
         # Construct the tree
@@ -84,7 +87,9 @@ class TensorizedPrefixTree:
         for node_id in range(1, len(nodes)):  # skip 0, which is `None`
             node = nodes[node_id]
             # Guarantee that the children are traversed ascendingly according to the subword index
-            for i, (subword_id, child) in enumerate(sorted(node.children.items(), key=lambda t: t[0])):
+            for i, (subword_id, child) in enumerate(
+                sorted(node.children.items(), key=lambda t: t[0])
+            ):
                 child_node_id = node_to_id_dict[child]
                 children[node_id, i] = child_node_id
                 prev_subword_idx[child_node_id] = subword_id
@@ -99,5 +104,5 @@ class TensorizedPrefixTree:
             children=torch.from_numpy(children),
             prev_subword_idx=torch.from_numpy(prev_subword_idx),
             word_idx=torch.from_numpy(word_idx),
-            word_set_idx=torch.from_numpy(word_set_idx)
+            word_set_idx=torch.from_numpy(word_set_idx),
         )
