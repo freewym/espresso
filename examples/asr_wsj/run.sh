@@ -282,7 +282,7 @@ if [ ${stage} -le 9 ]; then
   [ -f $dir/checkpoint_last.pt ] && log_file="-a $log_file"
   update_freq=$(((2+ngpus-1)/ngpus))
   if $use_transformer; then
-    opts="$opts --arch speech_transformer_wsj --max-epoch 100 --lr-scheduler tri_stage"
+    opts="$opts --arch speech_transformer_wsj --max-epoch 100 --decoder-relaxed-attention 0.35 --lr-scheduler tri_stage"
     opts="$opts --warmup-steps $((25000/ngpus/update_freq)) --hold-steps $((60000/ngpus/update_freq)) --decay-steps $((100000/ngpus/update_freq))"
   else
     opts="$opts --arch speech_conv_lstm_wsj --max-epoch 35 --lr-scheduler reduce_lr_on_plateau_v2"
@@ -297,7 +297,7 @@ if [ ${stage} -le 9 ]; then
     --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
-    --criterion label_smoothed_cross_entropy_v2 --relaxed-attention 0.35 --label-smoothing 0.05 --smoothing-type temporal \
+    --criterion label_smoothed_cross_entropy_v2 --label-smoothing 0.05 --smoothing-type temporal \
     --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
     --max-source-positions 3000 --max-target-positions 300 $opts 2>&1 | tee $log_file
 fi

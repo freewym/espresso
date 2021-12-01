@@ -139,7 +139,6 @@ class MultiheadAttention(nn.Module):
         attn_mask: Optional[Tensor] = None,
         before_softmax: bool = False,
         need_head_weights: bool = False,
-        encoder_attn_relaxation: float = None,                           
     ) -> Tuple[Tensor, Optional[Tensor]]:
         """Input shape: Time x Batch x Channel
 
@@ -409,11 +408,9 @@ class MultiheadAttention(nn.Module):
         )
         attn_weights = attn_weights_float.type_as(attn_weights)
 
-        if self.training and self.relaxed_attention_weight is not None:
-            attn_weights = attn_weights \
-                .mul(1 - self.relaxed_attention_weight) \
-                .add(self.relaxed_attention_weight * (1 / src_len))
-                
+        if self.training and self.relaxed_attention_weight > 0.0:
+            attn_weights = (1.0 - self.relaxed_attention_weight) * attn_weights + self.relaxed_attention_weight / src_len
+
         attn_probs = self.dropout_module(attn_weights)
 
         assert v is not None

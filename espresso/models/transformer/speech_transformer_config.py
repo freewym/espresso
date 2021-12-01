@@ -74,11 +74,11 @@ class SpeechDecoderConfig(SpeechEncDecBaseConfig):
             "help": "decoder output dimension (extra linear layer if different from decoder embed dim)"
         },
     )
-    relaxed_attention: float = field(
+    relaxed_attention_weight: float = field(
         default=0.0,
         metadata={
             "help": "relaxed attention weight appplied to source attention",
-            "alias": "--relaxed-attention",
+            "alias": "--decoder-relaxed-attention-weight",
         },
     )   
 
