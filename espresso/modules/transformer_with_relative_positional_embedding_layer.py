@@ -95,6 +95,18 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
             max_relative_pos=max_relative_pos,
         )
 
+    def build_encoder_attention(self, embed_dim, cfg):
+        return MultiheadAttention(
+            embed_dim,
+            cfg.decoder.attention_heads,
+            kdim=cfg.encoder.embed_dim,
+            vdim=cfg.encoder.embed_dim,
+            dropout=cfg.attention_dropout,
+            encoder_decoder_attention=True,
+            relaxed_attention_weight=cfg.decoder.relaxed_attention_weight,
+            q_noise=self.quant_noise,
+            qn_block_size=self.quant_noise_block_size,
+        )
 
 # backward compatible with the legacy argparse format
 class TransformerWithRelativePositionalEmbeddingDecoderLayer(
