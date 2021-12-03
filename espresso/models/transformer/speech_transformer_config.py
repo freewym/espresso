@@ -74,6 +74,13 @@ class SpeechDecoderConfig(SpeechEncDecBaseConfig):
             "help": "decoder output dimension (extra linear layer if different from decoder embed dim)"
         },
     )
+    relaxed_attention_weight: float = field(
+        default=0.0,
+        metadata={
+            "help": "relaxed attention weight appplied to source attention",
+            "alias": "--decoder-relaxed-attention-weight",
+        },
+    )   
 
     def __post_init__(self):
         #  II doesn't work if we are just creating the object outside of hydra so fix that
