@@ -79,7 +79,7 @@ class MultiheadAttention(nn.Module):
         add_zero_attn=False,
         self_attention=False,
         encoder_decoder_attention=False,
-        relaxed_attention_weight=0.0,                          
+        relaxed_attention_weight=0.0,
         q_noise=0.0,
         qn_block_size=8,
         # TODO: pass in config rather than string.
@@ -118,7 +118,7 @@ class MultiheadAttention(nn.Module):
 
         self.self_attention = self_attention
         self.encoder_decoder_attention = encoder_decoder_attention
-        self.relaxed_attention_weight = relaxed_attention_weight                                                      
+        self.relaxed_attention_weight = relaxed_attention_weight
 
         assert not self.self_attention or self.qkv_same_dim, (
             "Self-attention requires query, key and " "value to be of the same size"
@@ -784,7 +784,9 @@ class MultiheadAttention(nn.Module):
         attn_weights = attn_weights_float.type_as(attn_weights)
 
         if self.training and self.relaxed_attention_weight > 0.0:
-            attn_weights = (1.0 - self.relaxed_attention_weight) * attn_weights + self.relaxed_attention_weight / src_len
+            attn_weights = (
+                1.0 - self.relaxed_attention_weight
+            ) * attn_weights + self.relaxed_attention_weight / src_len
 
         attn_probs = self.dropout_module(attn_weights)
 
