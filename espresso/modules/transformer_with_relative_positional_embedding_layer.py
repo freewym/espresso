@@ -108,6 +108,7 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
             qn_block_size=self.quant_noise_block_size,
         )
 
+
 # backward compatible with the legacy argparse format
 class TransformerWithRelativePositionalEmbeddingDecoderLayer(
     TransformerWithRelativePositionalEmbeddingDecoderLayerBase
