@@ -3,7 +3,11 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Union
+
+import torch
 import torch.nn.functional as F
+from packaging import version
 from torch import nn
 
 import espresso.tools.utils as speech_utils
@@ -35,7 +39,7 @@ class ConvBNReLU(nn.Module):
             )
             self.batchnorms.append(nn.BatchNorm2d(out_channels[i]))
 
-    def output_lengths(self, in_lengths):
+    def output_lengths(self, in_lengths: Union[torch.Tensor, int]):
         out_lengths = in_lengths
         for stride in self.strides:
             if isinstance(stride, (list, tuple)):
@@ -44,7 +48,12 @@ class ConvBNReLU(nn.Module):
             else:
                 assert isinstance(stride, int)
                 s = stride
-            out_lengths = (out_lengths + s - 1) // s
+            if version.parse(torch.__version__) >= version.parse(
+                "1.8.0"
+            ) and isinstance(in_lengths, torch.Tensor):
+                out_lengths = torch.div(out_lengths + s - 1, s, rounding_mode="floor")
+            else:
+                out_lengths = (out_lengths + s - 1) // s
         return out_lengths
 
     def forward(self, src, src_lengths):
