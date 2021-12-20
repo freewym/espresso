@@ -11,7 +11,6 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from espresso.models.external_language_model import RawOutExternalLanguageModelBase
 from fairseq import search, utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder
@@ -385,12 +384,9 @@ class SequenceGenerator(nn.Module):
                 lm_out = self.lm_model(
                     tokens[:, : step + 1], incremental_state=lm_incremental_state
                 )
-                if isinstance(self.lm_model, RawOutExternalLanguageModelBase):
-                    probs = lm_out[0]
-                else:
-                    probs = self.lm_model.get_normalized_probs(
-                        lm_out, log_probs=True, sample=None
-                    )
+                probs = self.lm_model.get_normalized_probs(
+                    lm_out, log_probs=True, sample=None
+                )
                 probs = probs[:, -1, :] * self.lm_weight
                 lprobs += probs
 
