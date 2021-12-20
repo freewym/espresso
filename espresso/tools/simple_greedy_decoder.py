@@ -23,6 +23,7 @@ class SimpleGreedyDecoder(nn.Module):
         eos=None,
         symbols_to_strip_from_output=None,
         for_validation=True,
+        **kwargs,
     ):
         """Decode given speech audios with the simple greedy search.
 
@@ -161,4 +162,4 @@ class SimpleGreedyDecoder(nn.Module):
                     )
                 attn[:, :, step + 1].copy_(avg_attn_scores)
 
-        return tokens, lprobs, attn
+        return tokens[:, 1:], lprobs, attn

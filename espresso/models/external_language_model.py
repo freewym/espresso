@@ -9,20 +9,8 @@ import torch
 
 from espresso.data import AsrDictionary
 from espresso.tools.lexical_prefix_tree import lexical_prefix_tree
-from espresso.tools.utils import tokenize
+from espresso.tools.utils import clone_cached_state, tokenize
 from fairseq.models import FairseqIncrementalDecoder, FairseqLanguageModel
-
-
-def _clone_cached_state(cached_state):
-    if cached_state is None:
-        return None
-
-    def clone_state(state):
-        if isinstance(state, list):
-            return [clone_state(state_i) for state_i in state]
-        return state.clone() if state is not None else None
-
-    return tuple(map(clone_state, cached_state))
 
 
 class RawOutExternalLanguageModelBase(FairseqLanguageModel):
@@ -137,7 +125,7 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             ).unsqueeze(
                 -1
             )  # B x 1
-            old_cached_state = _clone_cached_state(
+            old_cached_state = clone_cached_state(
                 self.lm_decoder.get_cached_state(incremental_state)
             )
             # recompute cumsum_probs from inter-word transition probabilities
@@ -300,6 +288,18 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
     def max_positions(self):
         return int(1e5)  # an arbitrary large number
 
+    def extract_features(
+        self, prev_output_tokens, encoder_out=None, incremental_state=None, **kwargs
+    ):
+        return self.forward(
+            prev_output_tokens,
+            encoder_out=encoder_out,
+            incremental_state=incremental_state,
+        )
+
+    def output_layer(self, features, **kwargs):
+        return features
+
 
 class MultiLevelLanguageModel(RawOutExternalLanguageModelBase):
     """A :class:`fairseq.external_language_model.RawOutExternalLanguageModelBase`
@@ -434,7 +434,7 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
             ).unsqueeze(
                 -1
             )  # B x 1
-            old_wordlm_cached_state = _clone_cached_state(
+            old_wordlm_cached_state = clone_cached_state(
                 self.wordlm_decoder.get_cached_state(incremental_state)
             )
 
@@ -572,3 +572,15 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
 
     def max_positions(self):
         return int(1e5)  # an arbitrary large number
+
+    def extract_features(
+        self, prev_output_tokens, encoder_out=None, incremental_state=None, **kwargs
+    ):
+        return self.forward(
+            prev_output_tokens,
+            encoder_out=encoder_out,
+            incremental_state=incremental_state,
+        )
+
+    def output_layer(self, features, **kwargs):
+        return features

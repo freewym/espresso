@@ -8,6 +8,7 @@ import re
 from collections import Counter
 from io import BytesIO
 from subprocess import PIPE, run
+from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
@@ -316,6 +317,20 @@ def aligned_print(ref, hyp, steps):
     out_str += "\n"
 
     return out_str
+
+
+def clone_cached_state(
+    cached_state: Tuple[Optional[Union[List[torch.Tensor], torch.Tensor]]]
+):
+    if cached_state is None:
+        return None
+
+    def clone_state(state):
+        if isinstance(state, list):
+            return [clone_state(state_i) for state_i in state]
+        return state.clone() if state is not None else None
+
+    return tuple(map(clone_state, cached_state))
 
 
 def get_torchaudio_fbank_or_mfcc(
