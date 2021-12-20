@@ -144,6 +144,12 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
             "It can be negative. Only relevant with chunk-wise cross-entropy training"
         },
     )
+    criterion_name: Optional[str] = field(
+        default=II("criterion._name"),
+        metadata={
+            "help": "Some class instantiations rely on this value, e.g., dataset, dictionary, decoder, etc."
+        },
+    )
     # TODO common vars below add to parent
     seed: int = II("common.seed")
     data_buffer_size: int = II("dataset.data_buffer_size")
@@ -152,7 +158,6 @@ class SpeechRecognitionHybridConfig(FairseqDataclass):
     valid_subset: str = II("dataset.valid_subset")
     gen_subset: str = II("dataset.gen_subset")
     required_seq_len_multiple: int = II("dataset.required_seq_len_multiple")
-    criterion_name: str = II("criterion._name")
     max_epoch: int = II(
         "optimization.max_epoch"
     )  # to determine whether in trainig stage
