@@ -10,20 +10,8 @@ import torch
 from espresso.data import AsrDictionary
 from espresso.models.external_language_model import RawOutExternalLanguageModelBase
 from espresso.tools.tensorized_prefix_tree import TensorizedPrefixTree
-from espresso.tools.utils import tokenize
+from espresso.tools.utils import clone_cached_state, tokenize
 from fairseq.models import FairseqIncrementalDecoder, FairseqLanguageModel
-
-
-def _clone_cached_state(cached_state):
-    if cached_state is None:
-        return None
-
-    def clone_state(state):
-        if isinstance(state, list):
-            return [clone_state(state_i) for state_i in state]
-        return state.clone() if state is not None else None
-
-    return tuple(map(clone_state, cached_state))
 
 
 class TensorizedLookaheadLanguageModel(RawOutExternalLanguageModelBase):
@@ -143,7 +131,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
             w: torch.Tensor = self.tree.word_idx[nodes].unsqueeze(1)  # Z[Batch, Len=1]
             w[w < 0] = self.word_unk_idx
 
-            old_cached_state = _clone_cached_state(
+            old_cached_state = clone_cached_state(
                 self.lm_decoder.get_cached_state(incremental_state)
             )
             # recompute cumsum_probs from inter-word transition probabilities
@@ -304,7 +292,11 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
     def extract_features(
         self, prev_output_tokens, encoder_out=None, incremental_state=None, **kwargs
     ):
-        pass
+        return self.forward(
+            prev_output_tokens,
+            encoder_out=encoder_out,
+            incremental_state=incremental_state,
+        )
 
     def output_layer(self, features, **kwargs):
-        pass
+        return features

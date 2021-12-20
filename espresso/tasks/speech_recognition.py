@@ -475,7 +475,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             self.target_dictionary, wer_output_filter=self.cfg.wer_output_filter
         )
         tokens, lprobs, _ = decoder.decode([model], sample)
-        pred = tokens[:, 1:].data.cpu()  # bsz x len
+        pred = tokens.data.cpu()  # bsz x len
         target = sample["target"]
         assert pred.size(0) == target.size(0)
         # compute word error stats
