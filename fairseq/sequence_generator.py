@@ -10,6 +10,7 @@ import sys
 import torch
 import torch.nn as nn
 
+from espresso import models as dummy_symbol
 from fairseq import search, utils
 from fairseq.data import data_utils
 from fairseq.models import FairseqIncrementalDecoder

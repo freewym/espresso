@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
 from torch import Tensor
@@ -189,7 +189,10 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
         return x, None
 
     def masked_copy_incremental_state(
-        self, incremental_state, another_cached_state, mask
+        self,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
+        src_cached_state: Tuple[Optional[Union[List[torch.Tensor], torch.Tensor]]],
+        mask: Tensor,
     ):
         raise NotImplementedError
 
