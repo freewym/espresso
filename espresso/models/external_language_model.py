@@ -138,7 +138,7 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             self.lm_decoder.masked_copy_incremental_state(
                 incremental_state,
                 old_cached_state,
-                batch_space_mask,
+                ~batch_space_mask,
             )  # restore those not masked
             cumsum_probs[batch_space_mask] = torch.cumsum(lm_probs, dim=-1)[
                 batch_space_mask
@@ -452,7 +452,7 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
             self.wordlm_decoder.masked_copy_incremental_state(
                 incremental_state,
                 old_wordlm_cached_state,
-                batch_space_mask,
+                ~batch_space_mask,
             )  # restore those not masked
 
             tokens_list = prev_output_tokens.squeeze(-1).tolist()

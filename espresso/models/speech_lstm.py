@@ -6,7 +6,7 @@
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -960,52 +960,53 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         return
 
     def masked_copy_incremental_state(
-        self, incremental_state, another_cached_state, mask
+        self,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
+        src_cached_state: Tuple[Optional[Union[List[torch.Tensor], torch.Tensor]]],
+        mask: Tensor,
     ):
         if (
             incremental_state is None
             or self._get_full_incremental_state_key("cached_state")
             not in incremental_state
         ):
-            assert another_cached_state is None or len(another_cached_state) == 0
+            assert src_cached_state is None or len(src_cached_state) == 0
             return
         prev_hiddens, prev_cells, input_feed = self.get_cached_state(incremental_state)
-        another_prev_hiddens, another_prev_cells, another_input_feed = (
-            another_cached_state[0],
-            another_cached_state[1],
-            another_cached_state[2],
+        src_prev_hiddens, src_prev_cells, src_input_feed = (
+            src_cached_state[0],
+            src_cached_state[1],
+            src_cached_state[2],
         )
 
-        def mask_copy_state(state: Optional[Tensor], another_state: Optional[Tensor]):
+        def masked_copy_state(state: Optional[Tensor], src_state: Optional[Tensor]):
             if state is None:
-                assert another_state is None
+                assert src_state is None
                 return None
             else:
                 assert (
                     state.size(0) == mask.size(0)
-                    and another_state is not None
-                    and state.size() == another_state.size()
+                    and src_state is not None
+                    and state.size() == src_state.size()
                 )
-                mask_unsqueezed = mask
-                for _ in range(1, len(state.size())):
-                    mask_unsqueezed = mask_unsqueezed.unsqueeze(-1)
-                return torch.where(mask_unsqueezed, state, another_state)
+                state[mask, ...] = src_state[mask, ...]
+                return state
 
-        prev_hiddens_new = [
-            mask_copy_state(p, another_p)
-            for (p, another_p) in zip(prev_hiddens, another_prev_hiddens)
+        prev_hiddens = [
+            masked_copy_state(p, src_p)
+            for (p, src_p) in zip(prev_hiddens, src_prev_hiddens)
         ]
-        prev_cells_new = [
-            mask_copy_state(p, another_p)
-            for (p, another_p) in zip(prev_cells, another_prev_cells)
+        prev_cells = [
+            masked_copy_state(p, src_p)
+            for (p, src_p) in zip(prev_cells, src_prev_cells)
         ]
-        input_feed_new = mask_copy_state(input_feed, another_input_feed)
+        input_feed = masked_copy_state(input_feed, src_input_feed)
         cached_state_new = torch.jit.annotate(
             Dict[str, Optional[Tensor]],
             {
-                "prev_hiddens": torch.stack(prev_hiddens_new),
-                "prev_cells": torch.stack(prev_cells_new),
-                "input_feed": input_feed_new,
+                "prev_hiddens": torch.stack(prev_hiddens),
+                "prev_cells": torch.stack(prev_cells),
+                "input_feed": input_feed,
             },
         )
         self.set_incremental_state(incremental_state, "cached_state", cached_state_new)
