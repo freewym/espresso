@@ -464,8 +464,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             return seq_gen_cls(
                 models,
                 self.target_dictionary,
+                temperature=getattr(args, "temperature", 1.0),
                 # the arguments below are not being used in :class:`~TransducerGreedyDecoder`
                 beam_size=getattr(args, "beam", 1),
+                normalize_scores=(not getattr(args, "unnormalized", False)),
                 max_num_expansions_per_step=getattr(
                     args, "transducer_max_num_expansions_per_step", 2
                 ),

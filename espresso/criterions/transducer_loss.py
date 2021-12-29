@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class TransducerCriterionConfig(FairseqDataclass):
+class TransducerLossCriterionConfig(FairseqDataclass):
     sentence_avg: bool = II("optimization.sentence_avg")
     print_training_sample_interval: int = field(
         default=500,
@@ -31,9 +31,9 @@ class TransducerCriterionConfig(FairseqDataclass):
     )
 
 
-@register_criterion("transducer_loss", dataclass=TransducerCriterionConfig)
+@register_criterion("transducer_loss", dataclass=TransducerLossCriterionConfig)
 class TransducerLossCriterion(FairseqCriterion):
-    def __init__(self, cfg: TransducerCriterionConfig, task: FairseqTask):
+    def __init__(self, cfg: TransducerLossCriterionConfig, task: FairseqTask):
         super().__init__(task)
         self.blank_idx = (
             task.target_dictionary.index(task.blank_symbol)

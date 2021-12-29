@@ -30,7 +30,7 @@ from fairseq.models import (
     register_model_architecture,
 )
 from fairseq.models.lstm import LSTM, Embedding, Linear, LSTMCell
-from fairseq.modules import AdaptiveSoftmax, FairseqDropout, LayerNorm
+from fairseq.modules import AdaptiveSoftmax, FairseqDropout
 
 DEFAULT_MAX_SOURCE_POSITIONS = 1e5
 DEFAULT_MAX_TARGET_POSITIONS = 1e5
@@ -595,8 +595,6 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         num_layers=1,
         dropout_in=0.1,
         dropout_out=0.1,
-        layernorm_embedding=False,
-        layernorm_final=False,
         encoder_output_units=0,
         attn_type=None,
         attn_dim=0,
@@ -633,7 +631,6 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             self.embed_tokens = Embedding(num_embeddings, embed_dim, padding_idx)
         else:
             self.embed_tokens = pretrained_embed
-        self.layernorm_embedding = LayerNorm(embed_dim) if layernorm_embedding else None
 
         self.encoder_output_units = encoder_output_units
 
@@ -647,7 +644,6 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                 for layer in range(num_layers)
             ]
         )
-        self.layernorm_final = LayerNorm(hidden_size) if layernorm_final else None
 
         if attn_type is None or str(attn_type).lower() == "none":
             self.attention = None
@@ -797,8 +793,6 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
 
         # embed tokens
         x = self.embed_tokens(prev_output_tokens)
-        if self.layernorm_embedding is not None:
-            x = self.layernorm_embedding(x)
         x = self.dropout_in_module(x)
 
         # B x T x C -> T x B x C
@@ -857,8 +851,6 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
                     input = torch.cat((hidden, context), dim=1)
                 else:
                     input = hidden
-                if self.layernorm_final is not None and i == len(self.layers) - 1:
-                    input = self.layernorm_final(input)
                 input = self.dropout_out_module(input)
                 if self.residual and i > 0:
                     if encoder_out is not None:

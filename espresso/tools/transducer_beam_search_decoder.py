@@ -29,6 +29,7 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
         expansion_beta=0,
         expansion_gamma=None,
         prefix_alpha=None,
+        normalize_scores=True,
         temperature=1.0,
         eos=None,
         symbols_to_strip_from_output=None,
@@ -62,6 +63,8 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
             prefix_alpha (int, optional): maximum prefix length in prefix search.
                 Must be an integer, and is advised to keep this as 1 in order to
                 reduce expensive beam search cost later (default: 1)
+            normalize_scores (bool, optional): normalize scores by the length
+                of the output including blank (default: True)
             temperature (float, optional): temperature, where values
                 >1.0 produce more uniform samples and values <1.0 produce
                 sharper samples (default: 1.0)
@@ -95,6 +98,7 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
         assert (
             prefix_alpha is None or prefix_alpha > 0
         ), "--prefix-alpha must be None or at least 1"
+        self.normalize_scores = normalize_scores
 
     @torch.no_grad()
     def decode(self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs):
@@ -276,38 +280,34 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                     lm_lprobs = self.lm_model.get_normalized_probs(
                         (lm_logits, None), log_probs=True
                     )  # B x V'
-                    if self.no_blank_in_lm:
-                        # keep the nonblank probability mass unchanged after adding LM score
-                        lprobs_no_blank = torch.cat(
-                            (lprobs[:, : self.blank], lprobs[:, self.blank + 1 :]),
-                            dim=1,
-                        )  # B x (V - 1)
-                        probs_no_blank_sum = lprobs_no_blank.exp().sum(1)  # B
-                        lprobs_with_lm_no_blank = (
-                            lprobs_no_blank + self.lm_weight * lm_lprobs
-                        )  # B x (V - 1)
-                        probs_with_lm_no_blank_sum = lprobs_with_lm_no_blank.exp().sum(
-                            1
-                        )  # B
-                        log_scaling_factor = (
-                            probs_no_blank_sum.log() - probs_with_lm_no_blank_sum.log()
-                        ).unsqueeze(
-                            1
-                        )  # B x 1
-                        lprobs[:, : self.blank] += log_scaling_factor
-                        lprobs[:, self.blank + 1 :] += log_scaling_factor
-                        lm_lprobs = torch.cat(
-                            (
-                                lm_lprobs[:, : self.blank],
-                                lm_lprobs.new_zeros((lm_lprobs.size(0), 1)),
-                                lm_lprobs[:, self.blank :],
-                            ),
-                            dim=1,
-                        )  # B x V
-                    else:
-                        lprobs = lprobs + self.lm_weight * lm_lprobs  # B x V
+
+                    lprobs_no_blank = lprobs[:, self.vocab_nonblank_mask]  # B x (V - 1)
+                    if not self.no_blank_in_lm:
+                        lm_lprobs = lm_lprobs[
+                            :, self.vocab_nonblank_mask
+                        ]  # B x (V - 1)
+                    # keep the nonblank probability mass unchanged after adding LM score
+                    lprobs_with_lm_no_blank = (
+                        lprobs_no_blank + self.lm_weight * lm_lprobs
+                    )  # B x (V - 1)
+                    log_scaling_factor = (
+                        lprobs_no_blank.exp().sum(1).log()
+                        - lprobs_with_lm_no_blank.exp().sum(1).log()
+                    )  # B
+                    lprobs_with_lm_no_blank += log_scaling_factor.unsqueeze(
+                        1
+                    )  # B x (V - 1)
+                    lprobs[:, self.vocab_nonblank_mask] = lprobs_with_lm_no_blank
+                    lm_lprobs_padded = torch.cat(
+                        (
+                            lm_lprobs[:, : self.blank],
+                            lm_lprobs.new_zeros((lm_lprobs.size(0), 1)),
+                            lm_lprobs[:, self.blank :],
+                        ),
+                        dim=1,
+                    )  # B x V
                 else:
-                    lm_lprobs = None
+                    lm_lprobs_padded = None
 
                 # compute k expansions for all the current hypotheses
                 k_expanded_hyps = select_k_expansions(
@@ -318,9 +318,10 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                     expansion_idx,
                     self.blank,
                     pad_idx=self.pad,
-                    lm_lprobs_padded=lm_lprobs,
+                    lm_lprobs_padded=lm_lprobs_padded,
                     gamma=self.expansion_gamma,
                     beta=self.expansion_beta,
+                    normalize_by_length=self.normalize_scores,
                 )
                 blank_mask = k_expanded_hyps.prev_tokens == self.blank
                 if expansion_idx == 0:
@@ -333,7 +334,9 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
 
                 if k_expanded_hyps_nonblank.size() == 0:  # all expanded with blank
                     # early exit of expansions
-                    next_step_hyps = k_expanded_hyps_blank.keep_top_k_(self.beam_size)
+                    next_step_hyps = k_expanded_hyps_blank.keep_top_k_(
+                        self.beam_size, normalize_by_length=self.normalize_scores
+                    )
                     break
                 else:
                     # forward the decoder with `k_expanded_hyps_nonblank`
@@ -382,7 +385,7 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                     else:
                         lm_dec_out = None
 
-                    k_expanded_hyps_nonblank.append_dec_out_(
+                    k_expanded_hyps_nonblank.update_dec_out_(
                         dec_out, lm_dec_out=lm_dec_out
                     )  # update `dec_out` and `lm_dec_out`
 
@@ -415,9 +418,13 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                         next_step_hyps = k_expanded_hyps_blank.combine(
                             k_expanded_hyps_nonblank, pad_idx=self.pad
                         )
-                        next_step_hyps.keep_top_k_(self.beam_size)
+                        next_step_hyps.keep_top_k_(
+                            self.beam_size, normalize_by_length=self.normalize_scores
+                        )
 
-        next_step_hyps.sort_by_score_(normalize_by_length=True, descending=True)
+        next_step_hyps.sort_by_score_(
+            descending=True, normalize_by_length=self.normalize_scores
+        )
         # get the N-best hypotheses, and exclude the leading EOS token from the sequences
         sequences = next_step_hyps.sequences[:, 1:]  # B x U
         scores = next_step_hyps.scores / (next_step_hyps.sequence_lengths - 1)  # B
@@ -473,8 +480,11 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                     )  # 1 x 1 x 1 x V -> 1 x V
                     lprobs = self.model.get_normalized_probs(
                         (logits.div_(self.temperature), None), log_probs=True
-                    )  # 1 x V
-                    score = hyps.scores[i] + lprobs[0][hyps.sequences[j][len_i]]
+                    ).squeeze(
+                        0
+                    )  # 1 x V -> V
+                    token_index = hyps.sequences[j][len_i]
+                    score = hyps.scores[i] + lprobs[token_index]
 
                     if self.lm_model is not None:
                         lm_logits = self.lm_model.output_layer(
@@ -484,13 +494,28 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                         )  # 1 x 1 x V' -> 1 x V'
                         lm_lprobs = self.lm_model.get_normalized_probs(
                             (lm_logits, None), log_probs=True
-                        )  # 1 x V'
-                        lm_token_index = hyps.sequences[j][len_i]
-                        if self.no_blank_in_lm and lm_token_index > self.blank:
-                            lm_token_index -= 1
-                        local_lm_score = lm_lprobs[0][lm_token_index]
+                        ).squeeze(
+                            0
+                        )  # 1 x V' -> V'
+                        if self.no_blank_in_lm and token_index > self.blank:
+                            lm_token_index = token_index - 1
+                        else:
+                            lm_token_index = token_index
+                        local_lm_score = lm_lprobs[lm_token_index]
                         lm_score = hyps.lm_scores[i] + local_lm_score
                         score += self.lm_weight * local_lm_score
+
+                        lprobs_no_blank = lprobs[self.vocab_nonblank_mask]  # V - 1
+                        if not self.no_blank_in_lm:
+                            lm_lprobs = lm_lprobs[self.vocab_nonblank_mask]  # V - 1
+                        lprobs_with_lm_no_blank = (
+                            lprobs_no_blank + self.lm_weight * lm_lprobs
+                        )  # V - 1
+                        log_scaling_factor = (
+                            lprobs_no_blank.exp().sum().log()
+                            - lprobs_with_lm_no_blank.exp().sum().log()
+                        )
+                        score += log_scaling_factor
 
                     for k in range(len_i, len_j - 1):
                         logits = (
@@ -504,8 +529,11 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                         )  # 1 x 1 x 1 x V -> 1 x V
                         lprobs = self.model.get_normalized_probs(
                             (logits.div_(self.temperature), None), log_probs=True
-                        )  # 1 x V
-                        score += lprobs[0][hyps.sequences[j][k + 1]]
+                        ).squeeze(
+                            0
+                        )  # 1 x V -> V
+                        token_index = hyps.sequences[j][k + 1]
+                        score += lprobs[token_index]
 
                         if self.lm_model is not None:
                             lm_logits = self.lm_model.output_layer(
@@ -515,13 +543,28 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                             )  # 1 x 1 x V' -> 1 x V'
                             lm_lprobs = self.lm_model.get_normalized_probs(
                                 (lm_logits, None), log_probs=True
-                            )  # 1 x V'
-                            lm_token_index = hyps.sequences[j][k + 1]
-                            if self.no_blank_in_lm and lm_token_index > self.blank:
-                                lm_token_index -= 1
-                            local_lm_score = lm_lprobs[0][lm_token_index]
+                            ).squeeze(
+                                0
+                            )  # 1 x V' -> V'
+                            if self.no_blank_in_lm and token_index > self.blank:
+                                lm_token_index = token_index - 1
+                            else:
+                                lm_token_index = token_index
+                            local_lm_score = lm_lprobs[lm_token_index]
                             lm_score += local_lm_score
                             score += self.lm_weight * local_lm_score
+
+                            lprobs_no_blank = lprobs[self.vocab_nonblank_mask]  # V - 1
+                            if not self.no_blank_in_lm:
+                                lm_lprobs = lm_lprobs[self.vocab_nonblank_mask]  # V - 1
+                            lprobs_with_lm_no_blank = (
+                                lprobs_no_blank + self.lm_weight * lm_lprobs
+                            )  # V - 1
+                            log_scaling_factor = (
+                                lprobs_no_blank.exp().sum().log()
+                                - lprobs_with_lm_no_blank.exp().sum().log()
+                            )
+                            score += log_scaling_factor
 
                     hyps.scores[j] = torch.logaddexp(hyps.scores[j], score)
 

@@ -86,7 +86,6 @@ model:
   dropout: 0.1
   activation_fn: relu
   layernorm_embedding: true
-  no_decoder_final_norm: false
 
 bpe:
   _name: sentencepiece

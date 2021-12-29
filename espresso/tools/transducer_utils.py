@@ -82,8 +82,6 @@ class Hypotheses:
             for k, v in self.cached_state.items():
                 if v is not None:
                     self.cached_state[k] = self.cached_state[k].index_select(1, index)
-                else:
-                    self.cached_state[k] = None
         if self.dec_out is not None:
             self.dec_out = self.dec_out[:, :max_length, :].index_select(0, index)
         if self.prev_tokens is not None:
@@ -98,8 +96,6 @@ class Hypotheses:
                     self.lm_cached_state[k] = self.lm_cached_state[k].index_select(
                         1, index
                     )
-                else:
-                    self.lm_cached_state[k] = None
         if self.lm_dec_out is not None:
             self.lm_dec_out = self.lm_dec_out[:, :max_length, :].index_select(0, index)
 
@@ -107,17 +103,17 @@ class Hypotheses:
 
     def sort_by_score_(
         self,
-        normalize_by_length: Optional[bool] = False,
         descending: Optional[bool] = False,
+        normalize_by_length: Optional[bool] = False,
     ) -> Hypotheses:
         """Sorts the hypotheses in ascending/descending order of their scores which are
         optionally normalized by sequence length.
         Note: this function will modify this instance.
 
         Args:
+            descending (bool, optional): whether sort in descending order of scores (default: False)
             normalize_by_length (bool, optional): if True, normalize the scores by number of
                 emissions (default: False)
-            descending (bool, optional): whether sort in descending order of scores (default: False)
 
         Returns:
             hyps (Hypotheses): this instance
@@ -190,7 +186,7 @@ class Hypotheses:
         if k > self.size():
             return (
                 self.sort_by_score_(
-                    normalize_by_length=normalize_by_length, descending=largest
+                    descending=largest, normalize_by_length=normalize_by_length
                 )
                 if sorted
                 else self
@@ -288,8 +284,8 @@ class Hypotheses:
         pad_idx: Optional[int] = 0,
     ) -> Hypotheses:
         """Appends non-blank tokens in `tokens` to `self.sequences`, allocates additional memory for
-        `self.dec_out` and `self.lm_dec_out` if needed, updates `self.prev_tokens` with `tokens`,
-        and increment `self.sequence_lengths` and `self.num_emissions`.
+        `self.dec_out` and `self.lm_dec_out` if needed (which will later be updated by :func:`~Hypotheses.update_dec_out_()`),
+        updates `self.prev_tokens` with `tokens`, and increment `self.sequence_lengths` and `self.num_emissions`.
         Note: this function will modify this instance.
 
         Args:
@@ -346,11 +342,11 @@ class Hypotheses:
 
         return self
 
-    def append_dec_out_(
+    def update_dec_out_(
         self, dec_out: Tensor, lm_dec_out: Optional[Tensor] = None
     ) -> Hypotheses:
-        """Appends `dec_out` to `self.dec_out` and optionally `lm_dec_out` to `self.lm_dec_out`,
-        along dimension 1. Memory is assumed to be allocated in :func:`~Hypotheses.append_tokens_()`.
+        """Updates `dec_out` to `self.dec_out` and optionally `lm_dec_out` to `self.lm_dec_out`,
+        along dimension 1. Memory is assumed to have been allocated in :func:`~Hypotheses.append_tokens_()`.
         Note: this function will modify this instance.
 
         Args:
@@ -653,12 +649,13 @@ def select_k_expansions(
     lm_lprobs_padded: Optional[Tensor] = None,
     gamma: Optional[float] = None,
     beta: Optional[int] = 0,
+    normalize_by_length: Optional[bool] = False,
 ) -> Hypotheses:
     """Returns K hypotheses candidates for expansions from a set of hypotheses.
     K candidates are selected according to the extended hypotheses probabilities
     and a prune-by-value method. Where K is equal to beam_size + beta.
-    Note: This function should be followed with :func:`~Hypotheses.append_dec_out_()` in the calling code
-    to also update  `k_expanded_hyps_nonblank.cached_state`, `k_expanded_hyps.dec_out`,
+    Note: This function should be followed with :func:`~Hypotheses.update_dec_out_()` in the calling code
+    to also update `k_expanded_hyps_nonblank.cached_state`, `k_expanded_hyps.dec_out`,
     `k_expanded_hyps_nonblank.lm_cached_state`, and `k_expanded_hyps.lm_dec_out` after non-blank expansions.
 
     This implementation is modified from
@@ -679,6 +676,8 @@ def select_k_expansions(
             position of blank index.
         gamma (float, optional): Allowed logp difference for prune-by-value method (default: None).
         beta (int, optional): Number of additional candidates to store (default: 0).
+        normalize_by_length (bool, optional): if True, normalize the scores by number of
+            emissions (default: False)
 
     Returns:
        k_expanded_hyps (Hypotheses): Best K expansion hypotheses candidates.
@@ -705,7 +704,7 @@ def select_k_expansions(
         if not retained_mask.all():  # prune by value
             k_expanded_hyps = k_expanded_hyps.masked_select(retained_mask.view(-1))
 
-    k_expanded_hyps.keep_top_k_(K)
+    k_expanded_hyps.keep_top_k_(K, normalize_by_length=normalize_by_length)
 
     return k_expanded_hyps
 

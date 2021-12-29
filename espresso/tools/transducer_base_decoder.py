@@ -69,16 +69,22 @@ class TransducerBaseDecoder(nn.Module):
         self.lm_model = lm_model
         self.lm_weight = lm_weight
         if self.lm_model is not None:
+            self.vocab_nonblank_mask = torch.ones(
+                (self.vocab_size,), dtype=torch.bool
+            )  # V
+            self.vocab_nonblank_mask[self.blank] = False
+
             if (
-                len(self.lm_model.decoder.dictionary) == len(dictionary) - 1
+                len(self.lm_model.decoder.dictionary) == self.vocab_size - 1
             ):  # LM doesn't have blank symbol
                 self.no_blank_in_lm = True
                 logger.info(
                     "the LM's vocabulary has 1 less symbol than that of the ASR model. Assuming it is blank symbol."
                 )
             else:  # another symbol (e.g., pad) is sharing the same index with blank in the ASR model
-                assert len(self.lm_model.decoder.dictionary) == len(dictionary)
+                assert len(self.lm_model.decoder.dictionary) == self.vocab_size
                 self.no_blank_in_lm = False
+
             self.lm_model.eval()
 
     def cuda(self):

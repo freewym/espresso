@@ -165,36 +165,32 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
                         if self.no_blank_in_lm
                         else prev_nonblank_tokens
                     )
-                    lm_logits = self.lm_model.forward_decoder(
+                    lm_out = self.lm_model(
                         lm_prev_nonblank_tokens, incremental_state=lm_incremental_state
-                    )[0].squeeze(
+                    )
+                    lm_lprobs = self.lm_model.get_normalized_probs(
+                        lm_out, log_probs=True
+                    ).squeeze(
                         1
                     )  # B x 1 x V' -> B x V'
-                    lm_lprobs = self.lm_model.get_normalized_probs(
-                        (lm_logits, None), log_probs=True
-                    )  # B x V'
-                    if self.no_blank_in_lm:
-                        # keep the nonblank probability mass unchanged after adding LM score
-                        lprobs_no_blank = torch.cat(
-                            (lprobs[:, : self.blank], lprobs[:, self.blank + 1 :]),
-                            dim=1,
-                        )  # B x (V - 1)
-                        probs_no_blank_sum = lprobs_no_blank.exp().sum(1)  # B
-                        lprobs_with_lm_no_blank = (
-                            lprobs_no_blank + self.lm_weight * lm_lprobs
-                        )  # B x (V - 1)
-                        probs_with_lm_no_blank_sum = lprobs_with_lm_no_blank.exp().sum(
-                            1
-                        )  # B
-                        log_scaling_factor = (
-                            probs_no_blank_sum.log() - probs_with_lm_no_blank_sum.log()
-                        ).unsqueeze(
-                            1
-                        )  # B x 1
-                        lprobs[:, : self.blank] += log_scaling_factor
-                        lprobs[:, self.blank + 1 :] += log_scaling_factor
-                    else:
-                        lprobs = lprobs + self.lm_weight * lm_lprobs  # B x V
+
+                    lprobs_no_blank = lprobs[:, self.vocab_nonblank_mask]  # B x (V - 1)
+                    if not self.no_blank_in_lm:
+                        lm_lprobs = lm_lprobs[
+                            :, self.vocab_nonblank_mask
+                        ]  # B x (V - 1)
+                    # keep the nonblank probability mass unchanged after adding LM score
+                    lprobs_with_lm_no_blank = (
+                        lprobs_no_blank + self.lm_weight * lm_lprobs
+                    )  # B x (V - 1)
+                    log_scaling_factor = (
+                        lprobs_no_blank.exp().sum(1).log()
+                        - lprobs_with_lm_no_blank.exp().sum(1).log()
+                    )  # B
+                    lprobs_with_lm_no_blank += log_scaling_factor.unsqueeze(
+                        1
+                    )  # B x (V - 1)
+                    lprobs[:, self.vocab_nonblank_mask] = lprobs_with_lm_no_blank
 
                 if expansion_idx < self.max_num_expansions_per_step:
                     (

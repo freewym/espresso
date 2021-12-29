@@ -126,12 +126,6 @@ class SpeechTransformerTransducerConfig(FairseqDataclass):
     max_target_positions: Optional[int] = II("task.max_target_positions")
     tpu: bool = II("common.tpu")
 
-    # copied from transformer_lm but expected in lstm_decoder:
-    no_decoder_final_norm: bool = field(
-        default=False,
-        metadata={"help": "don't add an extra layernorm after the last decoder block"},
-    )
-
     # We need to make this hierarchical dataclass like the flat namespace
     # __getattr__ and __setattr__ here allow backward compatibility
     # for subclasses of Transformer(Legacy) that depend on read/write on

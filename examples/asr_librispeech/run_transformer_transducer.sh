@@ -246,11 +246,7 @@ if [ ${stage} -le 8 ]; then
   decode_affix=
   if $lm_shallow_fusion; then
     opts="$opts --lm-path $lmdir/$lm_checkpoint"
-    opts="$opts --lm-weight 0.47"
-    if $apply_specaug; then
-      # overwrite the existing opts
-      opts="$opts --lm-weight 0.4"
-    fi
+    opts="$opts --lm-weight 0.4"
     decode_affix=shallow_fusion
   fi
   if $apply_global_cmvn; then
@@ -263,8 +259,8 @@ if [ ${stage} -le 8 ]; then
       --task speech_recognition_espresso --max-tokens 15000 --batch-size 24 \
       --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-model ${sentencepiece_model}.model \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
-      --path $path --beam 5 --criterion-name transducer_loss --transducer-expansion-beta 2 \
-      --transducer-expansion-gamma 2.3 --transducer-prefix-alpha 1 \
+      --path $path --beam 5 --temperature 1.3 --criterion-name transducer_loss \
+      --transducer-expansion-beta 2 --transducer-expansion-gamma 2.3 --transducer-prefix-alpha 1 \
       --results-path $decode_dir $opts
 
     echo "log saved in ${decode_dir}/decode.log"

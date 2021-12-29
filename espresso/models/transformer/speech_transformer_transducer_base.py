@@ -226,8 +226,6 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
             num_layers=cfg.decoder.layers,
             dropout_in=cfg.decoder.dropout_in,
             dropout_out=cfg.decoder.dropout_out,
-            layernorm_embedding=cfg.layernorm_embedding,
-            layernorm_final=(not cfg.no_decoder_final_norm),
             residual=cfg.decoder.residual,
             pretrained_embed=embed_tokens,
             share_input_output_embed=True,  # disallow fc_out in decoder
