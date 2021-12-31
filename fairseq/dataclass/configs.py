@@ -1027,6 +1027,32 @@ class GenerationConfig(FairseqDataclass):
             "pretrained external LM"
         },
     )
+    # for decoding transducer models
+    transducer_max_num_expansions_per_step: Optional[int] = field(
+        default=2,
+        metadata={
+            "help": "the maximum number of non-blank expansions in a single time step"
+        },
+    )
+    transducer_expansion_beta: Optional[int] = field(
+        default=0,
+        metadata={
+            "help": "maximum number of prefix expansions allowed, in addition to the beam size. "
+            "Effectively, the number of hypotheses = beam_size + expansion_beta"
+        },
+    )
+    transducer_expansion_gamma: Optional[float] = field(
+        default=None,
+        metadata={
+            "help": "pruning threshold used in the prune-by-value step when computing the expansions. "
+            "It performs a comparison (max_log_prob - gamma <= log_prob[v]) where v is all vocabulary "
+            'indices and max_log_prob is the "most" likely token to be predicted'
+        },
+    )
+    transducer_prefix_alpha: Optional[int] = field(
+        default=None,
+        metadata={"help": "maximum prefix length in prefix search"},
+    )
     # for espresso.dump_posteriors.py
     apply_log_softmax: Optional[bool] = field(
         default=False,

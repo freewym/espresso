@@ -163,7 +163,7 @@ class SpeechLSTMModelConfig(FairseqDataclass):
     max_source_positions: Optional[int] = II("task.max_source_positions")
     max_target_positions: Optional[int] = II("task.max_target_positions")
     tpu: bool = II("common.tpu")
-    criterion_name: str = II("criterion._name")
+    criterion_name: Optional[str] = II("criterion._name")
 
 
 @register_model("speech_lstm", dataclass=SpeechLSTMModelConfig)
@@ -915,6 +915,30 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         else:
             return features
 
+    def initialize_cached_state(
+        self,
+        prev_output_tokens,
+        encoder_out: Optional[Dict[str, List[Tensor]]] = None,
+        incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]] = None,
+    ):
+        bsz = prev_output_tokens.size(0)
+        x = self.embed_tokens(prev_output_tokens)
+        zero_states = x.new_zeros(self.num_layers, bsz, self.hidden_size)
+        input_feed = (
+            x.new_zeros(bsz, self.encoder_output_units)
+            if encoder_out is not None
+            else None
+        )
+        cache_state = torch.jit.annotate(
+            Dict[str, Optional[Tensor]],
+            {
+                "prev_hiddens": zero_states,
+                "prev_cells": zero_states,
+                "input_feed": input_feed,
+            },
+        )
+        self.set_incremental_state(incremental_state, "cached_state", cache_state)
+
     def get_cached_state(
         self,
         incremental_state: Dict[str, Dict[str, Optional[Tensor]]],
@@ -930,6 +954,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         input_feed = cached_state[
             "input_feed"
         ]  # can be None for decoder-only language models
+
         return prev_hiddens, prev_cells, input_feed
 
     def reorder_incremental_state(
@@ -959,7 +984,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
         self.set_incremental_state(incremental_state, "cached_state", cached_state_new),
         return
 
-    def masked_copy_incremental_state(
+    def masked_copy_cached_state(
         self,
         incremental_state: Optional[Dict[str, Dict[str, Optional[Tensor]]]],
         src_cached_state: Tuple[Optional[Union[List[torch.Tensor], torch.Tensor]]],
@@ -1001,6 +1026,7 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             for (p, src_p) in zip(prev_cells, src_prev_cells)
         ]
         input_feed = masked_copy_state(input_feed, src_input_feed)
+
         cached_state_new = torch.jit.annotate(
             Dict[str, Optional[Tensor]],
             {
