@@ -10,6 +10,7 @@ from .speech_transformer_config import (
     DEFAULT_MIN_PARAMS_TO_WRAP,
     SpeechTransformerConfig,
 )
+from .speech_transformer_transducer_config import SpeechTransformerTransducerConfig
 from .speech_transformer_decoder import (
     SpeechTransformerDecoder,
     SpeechTransformerDecoderBase,
@@ -23,6 +24,7 @@ from .speech_transformer_base import (
 )
 from .speech_transformer_encoder_model import SpeechTransformerEncoderModel
 from .speech_transformer_legacy import SpeechTransformerModel
+from .speech_transformer_transducer_base import SpeechTransformerTransducerModelBase
 
 
 __all__ = [
@@ -37,4 +39,6 @@ __all__ = [
     "SpeechTransformerEncoderModel",
     "SpeechTransformerModel",
     "SpeechTransformerModelBase",
+    "SpeechTransformerTransducerModelBase",
+    "SpeechTransformerTransducerConfig",
 ]

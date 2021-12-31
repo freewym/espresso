@@ -197,7 +197,7 @@ if [ ${stage} -le 6 ]; then
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((400/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 \
-    --arch speech_tdnn_wsj --criterion lattice_free_mmi --num-targets $num_targets \
+    --arch speech_tdnn_wsj --criterion lattice_free_mmi --criterion-name lattice_free_mmi --num-targets $num_targets \
     --dropout 0.2 --kernel-sizes "[3]*6" --strides "[1]*5+[3]" --dilations "[1,1,1,3,3,3]" --num-layers 6 \
     --denominator-fst-path $tree_dir/den.fst --leaky-hmm-coefficient 1e-03 \
     --max-source-positions 3000 --max-target-positions 3000 2>&1 | tee $log_file
