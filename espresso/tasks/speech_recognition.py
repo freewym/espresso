@@ -69,6 +69,13 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
     feat_in_channels: int = field(
         default=1, metadata={"help": "feature input channels"}
     )
+    max_num_expansions_per_step: int = field(
+        default=2,
+        metadata={
+            "help": "the maximum number of non-blank expansions in a single "
+            "time step of decoding; only relavant when training with transducer loss"
+        },
+    )
     specaugment_config: Optional[str] = field(
         default=None,
         metadata={
@@ -83,6 +90,12 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
         default=None,
         metadata={
             "help": "If not None, apply global cmvn using this global cmvn stats file (.npz)."
+        },
+    )
+    criterion_name: Optional[str] = field(
+        default=II("criterion._name"),
+        metadata={
+            "help": "Some class instantiations rely on this value, e.g., dataset, dictionary, decoder, etc."
         },
     )
     # TODO common vars below add to parent
@@ -275,6 +288,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         self.word_dict = word_dict
         self.feat_dim = feat_dim
         self.feat_in_channels = cfg.feat_in_channels
+        self.extra_symbols_to_ignore = {tgt_dict.pad()}  # for validation with WER
+        if cfg.criterion_name in ["transducer_loss", "ctc"]:
+            self.blank_symbol = tgt_dict.bos_word  # reserve the bos symbol for blank
+            self.extra_symbols_to_ignore.add(tgt_dict.index(self.blank_symbol))
         torch.backends.cudnn.deterministic = True
         # Compansate for the removel of :func:`torch.rand()` from
         # :func:`fairseq.distributed_utils.distributed_init()` by fairseq,
@@ -290,8 +307,11 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         # load dictionaries
         dict_path = os.path.join(cfg.data, "dict.txt") if cfg.dict is None else cfg.dict
+        enable_bos = True if cfg.criterion_name in ["transducer_loss", "ctc"] else False
         tgt_dict = cls.load_dictionary(
-            dict_path, enable_bos=False, non_lang_syms=cfg.non_lang_syms
+            dict_path,
+            enable_bos=enable_bos,
+            non_lang_syms=cfg.non_lang_syms,
         )
         logger.info("dictionary: {} types".format(len(tgt_dict)))
 
@@ -388,14 +408,26 @@ class SpeechRecognitionEspressoTask(FairseqTask):
 
     def build_model(self, model_cfg: DictConfig):
         model = super().build_model(model_cfg)
-        # build the greedy decoder for validation with WER
-        from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
+        # build a greedy decoder for validation with WER
+        if self.cfg.criterion_name == "transducer_loss":  # a transducer model
+            from espresso.tools.transducer_greedy_decoder import TransducerGreedyDecoder
 
-        self.decoder_for_validation = SimpleGreedyDecoder(
-            [model],
-            self.target_dictionary,
-            for_validation=True,
-        )
+            self.decoder_for_validation = TransducerGreedyDecoder(
+                [model],
+                self.target_dictionary,
+                max_num_expansions_per_step=self.cfg.max_num_expansions_per_step,
+            )
+        elif self.cfg.criterion_name == "ctc":  # a ctc model
+            raise NotImplementedError
+        else:  # assume it is an attention-based encoder-decoder model
+            from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
+
+            self.decoder_for_validation = SimpleGreedyDecoder(
+                [model],
+                self.target_dictionary,
+                for_validation=True,
+            )
+
         return model
 
     def build_criterion(self, cfg: DictConfig):
@@ -403,6 +435,57 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         # (to be used inside self.begin_epoch())
         self.criterion = super().build_criterion(cfg)
         return self.criterion
+
+    def build_generator(
+        self,
+        models,
+        args,
+        seq_gen_cls=None,
+        extra_gen_cls_kwargs=None,
+        prefix_allowed_tokens_fn=None,
+    ):
+        if self.cfg.criterion_name == "transducer_loss":
+            from espresso.tools.transducer_beam_search_decoder import (
+                TransducerBeamSearchDecoder,
+            )
+            from espresso.tools.transducer_greedy_decoder import TransducerGreedyDecoder
+
+            extra_gen_cls_kwargs = extra_gen_cls_kwargs or {}
+            if getattr(args, "print_alignment", False):
+                extra_gen_cls_kwargs["print_alignment"] = True
+
+            if seq_gen_cls is None:
+                seq_gen_cls = (
+                    TransducerGreedyDecoder
+                    if getattr(args, "beam", 1) == 1
+                    else TransducerBeamSearchDecoder
+                )
+
+            return seq_gen_cls(
+                models,
+                self.target_dictionary,
+                temperature=getattr(args, "temperature", 1.0),
+                # the arguments below are not being used in :class:`~TransducerGreedyDecoder`
+                beam_size=getattr(args, "beam", 1),
+                normalize_scores=(not getattr(args, "unnormalized", False)),
+                max_num_expansions_per_step=getattr(
+                    args, "transducer_max_num_expansions_per_step", 2
+                ),
+                expansion_beta=getattr(args, "transducer_expansion_beta", 0),
+                expansion_gamma=getattr(args, "transducer_expansion_gamma", None),
+                prefix_alpha=getattr(args, "transducer_prefix_alpha", None),
+                **extra_gen_cls_kwargs,
+            )
+        elif self.cfg.criterion_name == "ctc":
+            raise NotImplementedError
+
+        return super().build_generator(
+            models,
+            args,
+            seq_gen_cls=seq_gen_cls,
+            extra_gen_cls_kwargs=extra_gen_cls_kwargs,
+            prefix_allowed_tokens_fn=prefix_allowed_tokens_fn,
+        )
 
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
@@ -483,7 +566,9 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         for i in range(target.size(0)):
             utt_id = sample["utt_id"][i]
             ref_tokens = self.target_dictionary.wordpiece_encode(sample["text"][i])
-            pred_tokens = self.target_dictionary.string(pred.data[i])
+            pred_tokens = self.target_dictionary.string(
+                pred.data[i], extra_symbols_to_ignore=self.extra_symbols_to_ignore
+            )
             scorer.add_evaluation(utt_id, ref_tokens, pred_tokens)
         return (
             scorer.tot_word_error(),
