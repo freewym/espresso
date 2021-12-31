@@ -53,9 +53,9 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
         super().__init__(word_lm.decoder.dictionary)
 
         self.lm_decoder: FairseqIncrementalDecoder = word_lm.decoder
-        assert hasattr(self.lm_decoder, "masked_copy_incremental_state") and callable(
-            self.lm_decoder.masked_copy_incremental_state
-        ), "The wrapped decoder should implement masked_copy_incremental_state()"
+        assert hasattr(self.lm_decoder, "masked_copy_cached_state") and callable(
+            self.lm_decoder.masked_copy_cached_state
+        ), "The wrapped decoder should implement masked_copy_cached_state()"
 
         self.oov_penalty = oov_penalty
         self.open_vocab = open_vocab
@@ -141,7 +141,7 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
                 log_probs=False,
                 sample=None,
             )  # R[Batch, 1, Vocab]
-            self.lm_decoder.masked_copy_incremental_state(
+            self.lm_decoder.masked_copy_cached_state(
                 incremental_state,
                 old_cached_state,
                 ~batch_space_mask,
