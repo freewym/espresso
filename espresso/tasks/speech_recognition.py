@@ -117,6 +117,7 @@ def get_asr_dataset_from_json(
     num_buckets=0,
     shuffle=True,
     pad_to_multiple=1,
+    batch_based_on_both_src_tgt=False,
     seed=1,
     global_cmvn_stats_path=None,
     specaugment_config=None,
@@ -234,6 +235,7 @@ def get_asr_dataset_from_json(
         num_buckets=num_buckets,
         shuffle=shuffle,
         pad_to_multiple=pad_to_multiple,
+        batch_based_on_both_src_tgt=batch_based_on_both_src_tgt,
     )
 
 
@@ -382,6 +384,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             num_buckets=self.cfg.num_batch_buckets,
             shuffle=(split != self.cfg.gen_subset),
             pad_to_multiple=self.cfg.required_seq_len_multiple,
+            batch_based_on_both_src_tgt=(self.cfg.criterion_name == "transducer_loss"),
             seed=self.cfg.seed,
             global_cmvn_stats_path=self.cfg.global_cmvn_stats_path,
             specaugment_config=self.cfg.specaugment_config,

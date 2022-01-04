@@ -256,7 +256,7 @@ if [ ${stage} -le 8 ]; then
   for dataset in $test_set; do
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py $data_dir \
-      --task speech_recognition_espresso --max-tokens 15000 --batch-size 24 \
+      --task speech_recognition_espresso --max-tokens 1200000 --batch-size 24 \
       --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-model ${sentencepiece_model}.model \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 5 --temperature 1.3 --criterion-name transducer_loss \
