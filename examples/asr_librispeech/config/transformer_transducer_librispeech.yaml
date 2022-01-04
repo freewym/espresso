@@ -26,7 +26,7 @@ task:
 
 dataset:
   num_workers: 8
-  max_tokens: 10000
+  max_tokens: 800000
   batch_size: 16
   data_buffer_size: 100
   train_subset: train
@@ -68,7 +68,7 @@ model:
     conv_strides: "[(1, 1), (2, 2), (1, 1), (2, 2)]"
     embed_dim: 512
     ffn_embed_dim: 2048
-    layers: 12
+    layers: 16
     attention_heads: 8
     normalize_before: true
     learned_pos: false

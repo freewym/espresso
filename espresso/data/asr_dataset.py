@@ -159,6 +159,10 @@ class AsrDataset(FairseqDataset):
             will contain a field "tgt_lang_id" which indicates the target language
             of the samples.
         pad_to_multiple (int, optional): pad src/tgt lengths to a multiple of this value
+        batch_based_on_both_src_tgt (bool, optional): if True and "tgt_sizes" is not None,
+            "self.num_tokens(i)" returns "src_sizes[i] * tgt_sizes[i]". In that case,
+            the value of the config "dataset.max_tokens" should be set accordingly. It is
+            to improve memory utilization for transducer models (default: False).
     """
 
     def __init__(
@@ -177,6 +181,7 @@ class AsrDataset(FairseqDataset):
         src_lang_id=None,
         tgt_lang_id=None,
         pad_to_multiple=1,
+        batch_based_on_both_src_tgt=False,
     ):
         self.src = src
         self.tgt = tgt
@@ -237,6 +242,7 @@ class AsrDataset(FairseqDataset):
         else:
             self.buckets = None
         self.pad_to_multiple = pad_to_multiple
+        self.batch_based_on_both_src_tgt = batch_based_on_both_src_tgt
 
     def _match_src_tgt(self):
         """Makes utterances in src and tgt the same order in terms of
@@ -346,14 +352,18 @@ class AsrDataset(FairseqDataset):
         return res
 
     def num_tokens(self, index):
-        """Return the number of frames in a sample. This value is used to
+        """Return the number of tokens in a sample. This value is used to
         enforce ``--max-tokens`` during batching."""
+        if self.batch_based_on_both_src_tgt and self.tgt_sizes is not None:
+            return self.src_sizes[index] * self.tgt_sizes[index]
         return self.src_sizes[index]
 
     def num_tokens_vec(self, indices):
         """Return the number of tokens for a set of positions defined by indices.
         This value is used to enforce ``--max-tokens`` during batching."""
         sizes = self.src_sizes[indices]
+        if self.batch_based_on_both_src_tgt and self.tgt_sizes is not None:
+            return sizes * self.tgt_sizes[indices]
         return sizes
 
     def size(self, index):
