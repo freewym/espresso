@@ -34,10 +34,9 @@ class LearnedRelativePositionalEmbedding(nn.Embedding):
         else:
             self.max_positions = self.num_embeddings
         self.max_size = max_size
-        self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.xavier_uniform_(self.weight)
+        nn.init.normal_(self.weight, mean=0, std=self.embedding_dim**-0.5)
         if self.padding_idx is not None:
             nn.init.constant_(self.weight[self.padding_idx], 0.0)
 

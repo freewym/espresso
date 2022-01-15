@@ -4,13 +4,17 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+from typing import Optional
 
 import torch
 import torch.nn as nn
 
 import espresso.tools.utils as speech_utils
 from espresso.models.transformer import SpeechTransformerConfig
-from espresso.modules import TransformerWithRelativePositionalEmbeddingEncoderLayerBase
+from espresso.modules import (
+    RelativePositionalEmbedding,
+    TransformerWithRelativePositionalEmbeddingEncoderLayerBase,
+)
 from fairseq.distributed import fsdp_wrap
 from fairseq.models.transformer import Linear, TransformerEncoderBase
 from fairseq.modules import (
@@ -98,12 +102,40 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         else:
             self.quant_noise = None
 
+        if cfg.encoder.relative_positional_embeddings:
+            if cfg.encoder.learned_pos:
+                rel_pos_embed_list = [
+                    RelativePositionalEmbedding(
+                        cfg.encoder.embed_dim,
+                        padding_idx=None,
+                        max_size=self.output_lengths(cfg.max_source_positions),
+                        learned=True,
+                    )
+                    for _ in range(cfg.encoder.layers)
+                ]
+            else:
+                rel_pos_embed = RelativePositionalEmbedding(
+                    cfg.encoder.embed_dim,
+                    padding_idx=None,
+                    max_size=None,
+                    learned=False,
+                )
+                # single instance referenced across layers
+                rel_pos_embed_list = [rel_pos_embed] * cfg.encoder.layers
+        else:
+            rel_pos_embed_list = [None] * cfg.encoder.layers
+
         if self.encoder_layerdrop > 0.0:
             self.layers = LayerDropModuleList(p=self.encoder_layerdrop)
         else:
             self.layers = nn.ModuleList([])
         self.layers.extend(
-            [self.build_encoder_layer(cfg) for i in range(cfg.encoder.layers)]
+            [
+                self.build_encoder_layer(
+                    cfg, positional_embedding=rel_pos_embed_list[i]
+                )
+                for i in range(cfg.encoder.layers)
+            ]
         )
         self.num_layers = len(self.layers)
 
@@ -114,11 +146,12 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
 
         self.transformer_context = transformer_context
 
-    def build_encoder_layer(self, cfg):
-        orig_max_source_positions = cfg.max_source_positions
-        cfg.max_source_positions = self.output_lengths(cfg.max_source_positions)
-        layer = TransformerWithRelativePositionalEmbeddingEncoderLayerBase(cfg)
-        cfg.max_source_positions = orig_max_source_positions
+    def build_encoder_layer(
+        self, cfg, positional_embedding: Optional[RelativePositionalEmbedding] = None
+    ):
+        layer = TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
+            cfg, positional_embedding=positional_embedding
+        )
         checkpoint = cfg.checkpoint_activations
         if checkpoint:
             offload_to_cpu = cfg.offload_activations
@@ -311,7 +344,10 @@ class SpeechTransformerEncoder(SpeechTransformerEncoderBase):
             transformer_context=transformer_context,
         )
 
-    def build_encoder_layer(self, args):
+    def build_encoder_layer(
+        self, args, positional_embedding: Optional[RelativePositionalEmbedding] = None
+    ):
         return super().build_encoder_layer(
             SpeechTransformerConfig.from_namespace(args),
+            positional_embedding=positional_embedding,
         )
