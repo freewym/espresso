@@ -4,17 +4,29 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import math
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
 from espresso.models.transformer import SpeechTransformerConfig
-from espresso.modules import TransformerWithRelativePositionalEmbeddingDecoderLayerBase
+from espresso.modules import (
+    RelativePositionalEmbedding,
+    TransformerWithRelativePositionalEmbeddingDecoderLayerBase,
+)
 from fairseq.distributed import fsdp_wrap
-from fairseq.models.transformer import TransformerDecoderBase
+from fairseq.models.transformer import Linear, TransformerDecoderBase
+from fairseq.modules import (
+    FairseqDropout,
+    LayerDropModuleList,
+    LayerNorm,
+    PositionalEmbedding,
+)
 from fairseq.modules.checkpoint_activations import checkpoint_wrapper
+from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +59,114 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
             logger.info(
                 "disabled decoder's absolute positional embeddings as decoder_relative_positional_embeddings is True."
             )
-        super().__init__(
-            cfg,
-            dictionary,
-            embed_tokens,
-            no_encoder_attn=no_encoder_attn,
-            output_projection=output_projection,
+
+        self.cfg = cfg
+        super(TransformerDecoderBase, self).__init__(dictionary)
+        self.register_buffer("version", torch.Tensor([3]))
+        self._future_mask = torch.empty(0)
+
+        self.dropout_module = FairseqDropout(
+            cfg.dropout, module_name=module_name_fordropout(self.__class__.__name__)
         )
-        self.dropout_module.module_name = module_name_fordropout(
-            self.__class__.__name__
+        self.decoder_layerdrop = cfg.decoder.layerdrop
+        self.share_input_output_embed = cfg.share_decoder_input_output_embed
+
+        input_embed_dim = embed_tokens.embedding_dim
+        embed_dim = cfg.decoder.embed_dim
+        self.embed_dim = embed_dim
+        self.output_embed_dim = cfg.decoder.output_dim
+
+        self.padding_idx = embed_tokens.padding_idx
+        self.max_target_positions = cfg.max_target_positions
+
+        self.embed_tokens = embed_tokens
+
+        self.embed_scale = 1.0 if cfg.no_scale_embedding else math.sqrt(embed_dim)
+
+        if not cfg.adaptive_input and cfg.quant_noise.pq > 0:
+            self.quant_noise = apply_quant_noise_(
+                nn.Linear(embed_dim, embed_dim, bias=False),
+                cfg.quant_noise.pq,
+                cfg.quant_noise.pq_block_size,
+            )
+        else:
+            self.quant_noise = None
+
+        self.project_in_dim = (
+            Linear(input_embed_dim, embed_dim, bias=False)
+            if embed_dim != input_embed_dim
+            else None
         )
+        self.embed_positions = (
+            PositionalEmbedding(
+                self.max_target_positions,
+                embed_dim,
+                self.padding_idx,
+                learned=cfg.decoder.learned_pos,
+            )
+            if not cfg.no_token_positional_embeddings
+            else None
+        )
+        if cfg.layernorm_embedding:
+            self.layernorm_embedding = LayerNorm(embed_dim, export=cfg.export)
+        else:
+            self.layernorm_embedding = None
+
+        self.cross_self_attention = cfg.cross_self_attention
+
+        if cfg.decoder.relative_positional_embeddings:
+            if cfg.decoder.learned_pos:
+                rel_pos_embed_list = [
+                    RelativePositionalEmbedding(
+                        cfg.decoder.embed_dim,
+                        padding_idx=None,
+                        max_size=cfg.max_target_positions,
+                        learned=True,
+                    )
+                    for _ in range(cfg.decoder.layers)
+                ]
+            else:
+                rel_pos_embed = RelativePositionalEmbedding(
+                    cfg.decoder.embed_dim,
+                    padding_idx=None,
+                    max_size=None,
+                    learned=False,
+                )
+                # single instance referenced across layers
+                rel_pos_embed_list = [rel_pos_embed] * cfg.decoder.layers
+        else:
+            rel_pos_embed_list = [None] * cfg.decoder.layers
+
+        if self.decoder_layerdrop > 0.0:
+            self.layers = LayerDropModuleList(p=self.decoder_layerdrop)
+        else:
+            self.layers = nn.ModuleList([])
+        self.layers.extend(
+            [
+                self.build_decoder_layer(
+                    cfg, no_encoder_attn, positional_embedding=rel_pos_embed_list[i]
+                )
+                for i in range(cfg.decoder.layers)
+            ]
+        )
+        self.num_layers = len(self.layers)
+
+        if cfg.decoder.normalize_before and not cfg.no_decoder_final_norm:
+            self.layer_norm = LayerNorm(embed_dim, export=cfg.export)
+        else:
+            self.layer_norm = None
+
+        self.project_out_dim = (
+            Linear(embed_dim, self.output_embed_dim, bias=False)
+            if embed_dim != self.output_embed_dim and not cfg.tie_adaptive_weights
+            else None
+        )
+
+        self.adaptive_softmax = None
+        self.output_projection = output_projection
+        if self.output_projection is None:
+            self.build_output_projection(cfg, dictionary, embed_tokens)
+
         if is_no_token_positional_embeddings_changed:
             cfg.no_token_positional_embeddings = not cfg.no_token_positional_embeddings
 
@@ -67,9 +177,16 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
             ):
                 layer.need_attn = False  # make validation fast
 
-    def build_decoder_layer(self, cfg, no_encoder_attn=False):
+    def build_decoder_layer(
+        self,
+        cfg,
+        no_encoder_attn=False,
+        positional_embedding: Optional[RelativePositionalEmbedding] = None,
+    ):
         layer = TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
-            cfg, no_encoder_attn
+            cfg,
+            no_encoder_attn=no_encoder_attn,
+            positional_embedding=positional_embedding,
         )
         checkpoint = cfg.checkpoint_activations
         if checkpoint:
@@ -380,8 +497,14 @@ class SpeechTransformerDecoder(SpeechTransformerDecoderBase):
             SpeechTransformerConfig.from_namespace(args), dictionary, embed_tokens
         )
 
-    def build_decoder_layer(self, args, no_encoder_attn=False):
+    def build_decoder_layer(
+        self,
+        args,
+        no_encoder_attn=False,
+        positional_embedding: Optional[RelativePositionalEmbedding] = None,
+    ):
         return super().build_decoder_layer(
             SpeechTransformerConfig.from_namespace(args),
             no_encoder_attn=no_encoder_attn,
+            positional_embedding=positional_embedding,
         )
