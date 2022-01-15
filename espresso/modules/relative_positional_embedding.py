@@ -30,6 +30,6 @@ def RelativePositionalEmbedding(
             padding_idx,
             init_size=1024,
             max_size=max_size,
-            no_scale_embedding=True,
+            scale_embedding=True,
         )
     return m

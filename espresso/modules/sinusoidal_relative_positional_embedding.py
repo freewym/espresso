@@ -19,13 +19,13 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
         padding_idx: Optional[int] = None,
         init_size=1024,
         max_size: Optional[int] = None,
-        no_scale_embedding=True,
+        scale_embedding=False,
     ):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.padding_idx = padding_idx
-        self.embedding_scale = 1.0 if no_scale_embedding else math.sqrt(embedding_dim)
-        self.weights = (
+        self.embedding_scale = embedding_dim ** -0.5 if scale_embedding else 1.0
+        self.weight = (
             self.embedding_scale
             * SinusoidalRelativePositionalEmbedding.get_embedding(
                 init_size, embedding_dim, padding_idx
@@ -85,25 +85,25 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
         """
         bspair = torch.onnx.operators.shape_as_tensor(input)
         bsz, seq_len = bspair[0], bspair[1]
-        max_positions = self.weights.size(0)
+        max_positions = self.weight.size(0)
         if self.padding_idx is not None:
             max_positions -= self.padding_idx + 1
-        if self.weights is None or (
+        if self.weight is None or (
             2 * seq_len - 1 > max_positions
             and (self.max_size is None or seq_len <= self.max_size)
         ):
             # recompute/expand embeddings if needed
-            self.weights = (
+            self.weight = (
                 self.embedding_scale
                 * SinusoidalRelativePositionalEmbedding.get_embedding(
                     seq_len, self.embedding_dim, self.padding_idx
                 )
             )
-            max_positions = self.weights.size(0)
+            max_positions = self.weight.size(0)
             if self.padding_idx is not None:
                 max_positions -= self.padding_idx + 1
 
-        self.weights = self.weights.to(self._float_tensor)
+        self.weight = self.weight.to(self._float_tensor)
 
         start = max_positions // 2 - seq_len + 1
         end = max_positions // 2 + seq_len
@@ -113,8 +113,8 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
         if self.padding_idx is not None:
             positions = positions + (self.padding_idx + 1)
 
-        used_weights = self.weights[positions, :]
+        used_weight = self.weight[positions, :]
         if self.onnx_trace:
-            return used_weights.unsqueeze(0).repeat(bsz, 1, 1)
+            return used_weight.unsqueeze(0).repeat(bsz, 1, 1)
         else:
-            return used_weights.expand(bsz, -1, -1)
+            return used_weight.expand(bsz, -1, -1)

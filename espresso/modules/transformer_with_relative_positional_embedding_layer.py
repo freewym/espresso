@@ -3,6 +3,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from typing import Optional
+
+from espresso.modules import RelativePositionalEmbedding
 from fairseq.models.transformer import TransformerConfig
 from fairseq.modules import MultiheadAttention
 from fairseq.modules.transformer_layer import (
@@ -16,19 +19,15 @@ class TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
 ):
     """Encoder layer block with optional relative positional embedding."""
 
-    def __init__(self, cfg):
+    def __init__(
+        self, cfg, positional_embedding: Optional[RelativePositionalEmbedding] = None
+    ):
+        # a workaround to avoid being registered within this class
+        # `positional_embedding` will be registered in :class:`~MultiheadAttention`
+        self.positional_embedding = [positional_embedding]
         super().__init__(cfg)
 
     def build_self_attention(self, embed_dim, cfg):
-        relative_pos_embedding_type = None
-        max_relative_pos = None
-        if cfg.encoder.relative_positional_embeddings:
-            if cfg.encoder.learned_pos:
-                relative_pos_embedding_type = "learned"
-                max_relative_pos = cfg.max_source_positions
-            else:
-                relative_pos_embedding_type = "sinusoidal"
-
         return MultiheadAttention(
             embed_dim,
             cfg.encoder.attention_heads,
@@ -36,8 +35,7 @@ class TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
             self_attention=True,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
-            relative_pos_embedding_type=relative_pos_embedding_type,
-            max_relative_pos=max_relative_pos,
+            positional_embedding=self.positional_embedding[0],
         )
 
 
@@ -45,8 +43,13 @@ class TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
 class TransformerWithRelativePositionalEmbeddingEncoderLayer(
     TransformerWithRelativePositionalEmbeddingEncoderLayerBase
 ):
-    def __init__(self, args):
-        super().__init__(TransformerConfig.from_namespace(args))
+    def __init__(
+        self, args, positional_embedding: Optional[RelativePositionalEmbedding] = None
+    ):
+        super().__init__(
+            TransformerConfig.from_namespace(args),
+            positional_embedding=positional_embedding,
+        )
         self.args = args
 
     def build_self_attention(self, embed_dim, args):
@@ -61,8 +64,16 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
     """Decoder layer block with optional relative positional embedding."""
 
     def __init__(
-        self, cfg, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False
+        self,
+        cfg,
+        no_encoder_attn=False,
+        add_bias_kv=False,
+        add_zero_attn=False,
+        positional_embedding: Optional[RelativePositionalEmbedding] = None,
     ):
+        # a workaround to avoid being registered within this class.
+        # `positional_embedding` will be registered in :class:`~MultiheadAttention`
+        self.positional_embedding = [positional_embedding]
         super().__init__(
             cfg,
             no_encoder_attn=no_encoder_attn,
@@ -73,15 +84,6 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
     def build_self_attention(
         self, embed_dim, cfg, add_bias_kv=False, add_zero_attn=False
     ):
-        relative_pos_embedding_type = None
-        max_relative_pos = None
-        if cfg.decoder.relative_positional_embeddings:
-            if cfg.decoder.learned_pos:
-                relative_pos_embedding_type = "learned"
-                max_relative_pos = cfg.max_target_positions
-            else:
-                relative_pos_embedding_type = "sinusoidal"
-
         return MultiheadAttention(
             embed_dim,
             cfg.decoder.attention_heads,
@@ -91,8 +93,7 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
             self_attention=not cfg.cross_self_attention,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
-            relative_pos_embedding_type=relative_pos_embedding_type,
-            max_relative_pos=max_relative_pos,
+            positional_embedding=self.positional_embedding[0],
         )
 
     def build_encoder_attention(self, embed_dim, cfg):
@@ -114,13 +115,19 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayer(
     TransformerWithRelativePositionalEmbeddingDecoderLayerBase
 ):
     def __init__(
-        self, args, no_encoder_attn=False, add_bias_kv=False, add_zero_attn=False
+        self,
+        args,
+        no_encoder_attn=False,
+        add_bias_kv=False,
+        add_zero_attn=False,
+        positional_embedding: Optional[RelativePositionalEmbedding] = None,
     ):
         super().__init__(
             TransformerConfig.from_namespace(args),
             no_encoder_attn=no_encoder_attn,
             add_bias_kv=add_bias_kv,
             add_zero_attn=add_zero_attn,
+            positional_embedding=positional_embedding,
         )
         self.args = args
 
