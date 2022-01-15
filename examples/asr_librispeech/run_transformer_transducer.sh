@@ -220,7 +220,7 @@ if [ ${stage} -le 7 ]; then
     [ ! -f "$gcmvn_file" ] && echo "$gcmvn_file not found. Please generate it first" && exit 1;
     opts="$opts task.global_cmvn_stats_path=$(realpath $gcmvn_file)"
   fi
-  update_freq=$(((8+ngpus-1)/ngpus))
+  update_freq=$(((16+ngpus-1)/ngpus))
   config_name=transformer_transducer_librispeech
   if $apply_specaug; then
     config_name=${config_name}_specaug

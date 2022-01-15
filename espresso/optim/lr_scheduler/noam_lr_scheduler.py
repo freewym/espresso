@@ -40,7 +40,7 @@ class NoamLRScheduler(FairseqLRScheduler):
         super().__init__(cfg, optimizer)
         if len(cfg.lr) > 1:
             raise ValueError(
-                "Cannot use a fixed learning rate schedule with tri-stage lr."
+                "Cannot use a fixed learning rate schedule with noam lr."
                 " Consider --lr-scheduler=fixed instead."
             )
         self.factor = cfg.lr[0]

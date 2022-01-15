@@ -45,7 +45,7 @@ criterion:
 optimization:
   max_epoch: 100
   clip_norm: 2.0
-  update_freq: [1]
+  update_freq: [2]
   lr: [5.0]
 
 optimizer:
@@ -56,7 +56,7 @@ optimizer:
 
 lr_scheduler:
   _name: noam
-  warmup_steps: 10000
+  warmup_steps: 5000
   model_size: ${model.encoder.embed_dim}
   final_lr: 1e-6
 

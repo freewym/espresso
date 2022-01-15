@@ -72,7 +72,7 @@ model:
     layers: 12
     attention_heads: 8
     normalize_before: true
-    learned_pos: false
+    learned_pos: true
     relative_positional_embeddings: true
   decoder:
     embed_dim: 512
