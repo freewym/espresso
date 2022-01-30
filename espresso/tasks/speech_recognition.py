@@ -409,8 +409,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             constraints=constraints,
         )
 
-    def build_model(self, model_cfg: DictConfig):
-        model = super().build_model(model_cfg)
+    def build_model(self, cfg: DictConfig, from_checkpoint=False):
+        model = super().build_model(cfg, from_checkpoint)
         # build a greedy decoder for validation with WER
         if self.cfg.criterion_name == "transducer_loss":  # a transducer model
             from espresso.tools.transducer_greedy_decoder import TransducerGreedyDecoder
