@@ -86,7 +86,7 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
             self.fc_out = nn.Linear(
                 cfg.joint_dim, self.decoder.embed_tokens.num_embeddings, bias=False
             )
-            nn.init.normal_(self.fc_out.weight, mean=0, std=cfg.joint_dim ** -0.5)
+            nn.init.normal_(self.fc_out.weight, mean=0, std=cfg.joint_dim**-0.5)
             self.fc_out = nn.utils.weight_norm(self.fc_out, name="weight")
 
         self.cfg = cfg

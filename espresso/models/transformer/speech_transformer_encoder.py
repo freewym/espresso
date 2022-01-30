@@ -52,7 +52,12 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
     """
 
     def __init__(
-        self, cfg, conv_layers_before=None, input_size=83, transformer_context=None
+        self,
+        cfg,
+        return_fc=False,
+        conv_layers_before=None,
+        input_size=83,
+        transformer_context=None,
     ):
         self.cfg = cfg
         super(TransformerEncoderBase, self).__init__(None)  # no src dictionary
@@ -62,6 +67,7 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             cfg.dropout, module_name=module_name_fordropout(self.__class__.__name__)
         )
         self.encoder_layerdrop = cfg.encoder.layerdrop
+        self.return_fc = return_fc
 
         embed_dim = cfg.encoder.embed_dim
         self.max_source_positions = cfg.max_source_positions
@@ -150,7 +156,7 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         self, cfg, positional_embedding: Optional[RelativePositionalEmbedding] = None
     ):
         layer = TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
-            cfg, positional_embedding=positional_embedding
+            cfg, return_fc=self.return_fc, positional_embedding=positional_embedding
         )
         checkpoint = cfg.checkpoint_activations
         if checkpoint:
@@ -292,6 +298,7 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         x = x.transpose(0, 1)
 
         encoder_states = []
+        fc_results = []
 
         if return_all_hiddens:
             encoder_states.append(x)
@@ -300,14 +307,22 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
 
         # encoder layers
         for layer in self.layers:
-            x = layer(
+            lr = layer(
                 x,
                 encoder_padding_mask=encoder_padding_mask if has_pads else None,
                 attn_mask=attn_mask,
             )
-            if return_all_hiddens:
+
+            if isinstance(lr, tuple) and len(lr) == 2:
+                x, fc_result = lr
+            else:
+                x = lr
+                fc_result = None
+
+            if return_all_hiddens and not torch.jit.is_scripting():
                 assert encoder_states is not None
                 encoder_states.append(x)
+                fc_results.append(fc_result)
 
         if self.layer_norm is not None:
             x = self.layer_norm(x)
@@ -323,6 +338,7 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             else [],  # B x T
             "encoder_embedding": [],
             "encoder_states": encoder_states,  # List[T x B x C]
+            "fc_results": fc_results,  # List[T x B x C]
             "src_tokens": [],
             "src_lengths": [src_lengths],  # List[B]
         }
@@ -334,11 +350,17 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
 
 class SpeechTransformerEncoder(SpeechTransformerEncoderBase):
     def __init__(
-        self, args, conv_layers_before=None, input_size=83, transformer_context=None
+        self,
+        args,
+        return_fc=False,
+        conv_layers_before=None,
+        input_size=83,
+        transformer_context=None,
     ):
         self.args = args
         super().__init__(
             SpeechTransformerConfig.from_namespace(args),
+            return_fc=return_fc,
             conv_layers_before=conv_layers_before,
             input_size=input_size,
             transformer_context=transformer_context,
