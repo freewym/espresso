@@ -24,7 +24,7 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
         super().__init__()
         self.embedding_dim = embedding_dim
         self.padding_idx = padding_idx
-        self.embedding_scale = embedding_dim ** -0.5 if scale_embedding else 1.0
+        self.embedding_scale = embedding_dim**-0.5 if scale_embedding else 1.0
         self.weight = (
             self.embedding_scale
             * SinusoidalRelativePositionalEmbedding.get_embedding(
