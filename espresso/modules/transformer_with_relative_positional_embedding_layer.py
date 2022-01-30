@@ -20,12 +20,15 @@ class TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
     """Encoder layer block with optional relative positional embedding."""
 
     def __init__(
-        self, cfg, positional_embedding: Optional[RelativePositionalEmbedding] = None
+        self,
+        cfg,
+        return_fc=False,
+        positional_embedding: Optional[RelativePositionalEmbedding] = None,
     ):
         # a workaround to avoid being registered within this class
         # `positional_embedding` will be registered in :class:`~MultiheadAttention`
         self.positional_embedding = [positional_embedding]
-        super().__init__(cfg)
+        super().__init__(cfg, return_fc=return_fc)
 
     def build_self_attention(self, embed_dim, cfg):
         return MultiheadAttention(
