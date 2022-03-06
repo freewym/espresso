@@ -5,11 +5,11 @@ common:
   log_format: simple
   log_interval: 1000
   seed: 1
-  empty_cache_freq: 10
+  empty_cache_freq: 5
 
 checkpoint:
   save_dir: checkpoints
-  save_interval_updates: 750
+  save_interval_updates: 1500
   keep_interval_updates: 3
   keep_last_epochs: 5
   best_checkpoint_metric: wer
@@ -20,17 +20,18 @@ task:
   dict: ???
   max_source_positions: 3600
   max_target_positions: 200
+  max_num_expansions_per_step: 2
   global_cmvn_stats_path:
   specaugment_config:
 
 dataset:
   num_workers: 8
-  max_tokens: 26000
-  batch_size: 24
+  max_tokens: 590000
+  batch_size: 16
   data_buffer_size: 100
   train_subset: train
   valid_subset: valid
-  batch_size_valid: 48
+  batch_size_valid: 16
   curriculum: 1
 
 distributed_training:
@@ -38,56 +39,55 @@ distributed_training:
   ddp_backend: legacy_ddp
 
 criterion:
-  _name: label_smoothed_cross_entropy_v2
-  print_training_sample_interval: 500
-  label_smoothing: 0.1
-  smoothing_type: uniform
+  _name: transducer_loss
+  print_training_sample_interval: 1000
 
 optimization:
   max_epoch: 100
   clip_norm: 2.0
-  update_freq: [1]
-  lr: [0.001]
+  update_freq: [2]
+  lr: [5.0]
 
 optimizer:
   _name: adam
-  adam_betas: (0.9,0.999)
+  adam_betas: (0.9,0.98)
   adam_eps: 1e-08
   weight_decay: 0.0
 
 lr_scheduler:
-  _name: tri_stage
-  warmup_steps: 2500
-  hold_steps: 90000
-  decay_steps: 110000
+  _name: noam
+  warmup_steps: 13000
+  model_size: ${model.encoder.embed_dim}
+  final_lr: 1e-6
 
 model:
-  _name: speech_transformer_base
+  _name: speech_transformer_transducer_base
   encoder:
     conv_channels: "[64, 64, 128, 128]"
     conv_kernel_sizes: "[(3, 3), (3, 3), (3, 3), (3, 3)]"
     conv_strides: "[(1, 1), (2, 2), (1, 1), (2, 2)]"
     embed_dim: 512
     ffn_embed_dim: 2048
-    layers: 12
-    attention_heads: 8
-    normalize_before: true
-    learned_pos: true
-    relative_positional_embeddings: true
-  decoder:
-    embed_dim: 512
-    ffn_embed_dim: 2048
-    layers: 6
+    layers: 16
     attention_heads: 8
     normalize_before: true
     learned_pos: false
-    relative_positional_embeddings: false
-    input_dim: 512
-    output_dim: 512
+    relative_positional_embeddings: true
+    layer_type: conformer
+    depthwise_conv_kernel_size: 31
+  decoder:
+    embed_dim: 512
+    hidden_size: 512
+    layers: 2
+    dropout_in: 0.1
+    dropout_out: 0.1
+  joint_dim: 512
+  share_decoder_input_output_embed: false
   attention_dropout: 0.1
   activation_dropout: 0.1
   dropout: 0.1
   activation_fn: relu
+  layernorm_embedding: true
 
 bpe:
   _name: sentencepiece

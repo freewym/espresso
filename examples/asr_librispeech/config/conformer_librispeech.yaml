@@ -47,7 +47,7 @@ optimization:
   max_epoch: 100
   clip_norm: 2.0
   update_freq: [1]
-  lr: [0.001]
+  lr: [0.0005]
 
 optimizer:
   _name: adam
@@ -57,7 +57,7 @@ optimizer:
 
 lr_scheduler:
   _name: tri_stage
-  warmup_steps: 2500
+  warmup_steps: 5000
   hold_steps: 90000
   decay_steps: 110000
 
@@ -74,6 +74,8 @@ model:
     normalize_before: true
     learned_pos: true
     relative_positional_embeddings: true
+    layer_type: conformer
+    depthwise_conv_kernel_size: 31
   decoder:
     embed_dim: 512
     ffn_embed_dim: 2048

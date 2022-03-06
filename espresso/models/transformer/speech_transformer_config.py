@@ -22,6 +22,7 @@ from fairseq.utils import safe_getattr, safe_hasattr
 
 DEFAULT_MAX_SOURCE_POSITIONS = 10240
 DEFAULT_MAX_TARGET_POSITIONS = 1024
+LAYER_TYPE_CHOICES = ChoiceEnum(["transformer", "conformer"])
 
 _NAME_PARSER = r"(decoder|encoder|quant_noise)_(.*)"
 
@@ -56,6 +57,16 @@ class SpeechEncoderConfig(SpeechEncDecBaseConfig):
         metadata={
             "help": "left/right context for time-restricted self-attention; "
             "can be None or a tuple of two non-negative integers/None"
+        },
+    )
+    layer_type: LAYER_TYPE_CHOICES = field(
+        default="transformer", metadata={"help": "layer type in encoder"}
+    )
+    # config specific to Conformer
+    depthwise_conv_kernel_size: int = field(
+        default=31,
+        metadata={
+            "help": "depthwise-conv-kernel-size for convolution in conformer layer"
         },
     )
 

@@ -90,6 +90,9 @@ class SpeechTransformerTransducerConfig(FairseqDataclass):
     layernorm_embedding: bool = field(
         default=True, metadata={"help": "add layernorm to embedding"}
     )
+    no_scale_embedding: bool = field(
+        default=False, metadata={"help": "if True, dont scale embeddings"}
+    )
     checkpoint_activations: bool = field(
         default=False,
         metadata={

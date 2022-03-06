@@ -228,9 +228,9 @@ if [ ${stage} -le 7 ]; then
   if $use_transformer; then
     update_freq=$(((8+ngpus-1)/ngpus))
     config_name=transformer_librispeech
-    opts="$opts lr_scheduler.warmup_steps=$((25000/ngpus/update_freq))"
-    opts="$opts lr_scheduler.hold_steps=$((900000/ngpus/update_freq))"
-    opts="$opts lr_scheduler.decay_steps=$((1550000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.warmup_steps=$((20000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.hold_steps=$((720000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.decay_steps=$((880000/ngpus/update_freq))"
   else
     update_freq=$(((2+ngpus-1)/ngpus))
     config_name=lstm_librispeech
