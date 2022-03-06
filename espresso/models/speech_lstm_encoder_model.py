@@ -129,7 +129,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
             )
 
         encoder = SpeechChunkLSTMEncoder(
-            conv_layers_before=conv_layers,
+            pre_encoder=conv_layers,
             input_size=rnn_encoder_input_size,
             hidden_size=args.encoder_rnn_hidden_size,
             num_layers=args.encoder_rnn_layers,
@@ -196,7 +196,7 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
 
     def __init__(
         self,
-        conv_layers_before=None,
+        pre_encoder=None,
         input_size=83,
         hidden_size=512,
         num_layers=1,
@@ -214,7 +214,7 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
         max_source_positions=DEFAULT_MAX_SOURCE_POSITIONS,
     ):
         super().__init__(
-            conv_layers_before=conv_layers_before,
+            pre_encoder=pre_encoder,
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
@@ -228,14 +228,13 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
             max_source_positions=max_source_positions,
         )
         receptive_field_radius = (
-            sum(conv.padding[0] for conv in conv_layers_before.convolutions)
-            if conv_layers_before is not None
+            sum(conv.padding[0] for conv in pre_encoder.convolutions)
+            if pre_encoder is not None
             else 0
         )
         assert chunk_width is None or chunk_width > 0
-        assert (conv_layers_before is None and chunk_left_context >= 0) or (
-            conv_layers_before is not None
-            and chunk_left_context >= receptive_field_radius
+        assert (pre_encoder is None and chunk_left_context >= 0) or (
+            pre_encoder is not None and chunk_left_context >= receptive_field_radius
         )
         self.out_chunk_begin = self.output_lengths(chunk_left_context + 1) - 1
         self.out_chunk_end = (

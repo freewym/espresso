@@ -72,6 +72,10 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
         parser.add_argument("--encoder-transformer-context", type=str, metavar="EXPR",
                             help="left/right context for time-restricted self-attention; "
                                  "can be None or a tuple of two non-negative integers/None")
+        parser.add_argument("--encoder-layer-type", type=str, metavar="TYPE",
+                            help="layer type in encoder ('transformer' or 'conformer')")
+        parser.add_argument("--encoder-depthwise-conv-kernel-size", type=int, metavar="N",
+                            help="depthwise-conv-kernel-size for convolution in conformer layer")
         parser.add_argument("--no-token-positional-embeddings", action="store_true",
                             help="if set, disables positional embeddings (outside self attention)")
         parser.add_argument("--layernorm-embedding", action="store_true",
@@ -179,7 +183,7 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
 
         encoder = cls.build_encoder(
             args,
-            conv_layers_before=conv_layers,
+            pre_encoder=conv_layers,
             input_size=transformer_encoder_input_size,
             transformer_context=encoder_transformer_context,
             num_targets=getattr(
@@ -203,7 +207,7 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
     def build_encoder(
         cls,
         args,
-        conv_layers_before=None,
+        pre_encoder=None,
         input_size=83,
         transformer_context=None,
         num_targets=None,
@@ -213,7 +217,7 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
     ):
         return SpeechChunkTransformerEncoder(
             args,
-            conv_layers_before=conv_layers_before,
+            pre_encoder=pre_encoder,
             input_size=input_size,
             transformer_context=transformer_context,
             num_targets=num_targets,
@@ -270,7 +274,7 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
     def __init__(
         self,
         args,
-        conv_layers_before=None,
+        pre_encoder=None,
         input_size=83,
         transformer_context=None,
         num_targets=None,
@@ -280,19 +284,18 @@ class SpeechChunkTransformerEncoder(SpeechTransformerEncoder):
     ):
         super().__init__(
             args,
-            conv_layers_before=conv_layers_before,
+            pre_encoder=pre_encoder,
             input_size=input_size,
             transformer_context=transformer_context,
         )
         receptive_field_radius = (
-            sum(conv.padding[0] for conv in conv_layers_before.convolutions)
-            if conv_layers_before is not None
+            sum(conv.padding[0] for conv in pre_encoder.convolutions)
+            if pre_encoder is not None
             else 0
         )
         assert chunk_width is None or chunk_width > 0
-        assert (conv_layers_before is None and chunk_left_context >= 0) or (
-            conv_layers_before is not None
-            and chunk_left_context >= receptive_field_radius
+        assert (pre_encoder is None and chunk_left_context >= 0) or (
+            pre_encoder is not None and chunk_left_context >= receptive_field_radius
         )
         self.out_chunk_begin = self.output_lengths(chunk_left_context + 1) - 1
         self.out_chunk_end = (
@@ -454,6 +457,10 @@ def base_architecture(args):
     )
     args.encoder_transformer_context = getattr(
         args, "encoder_transformer_context", None
+    )
+    args.encoder_layer_type = getattr(args, "encoder_layer_type", "transformer")
+    args.encoder_depthwise_conv_kernel_size = getattr(
+        args, "encoder_depthwise_conv_kernel_size", 31
     )
     args.attention_dropout = getattr(args, "attention_dropout", 0.2)
     args.activation_dropout = getattr(args, "activation_dropout", 0.2)

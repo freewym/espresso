@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
+import math
 from typing import Optional
 
 import torch
@@ -12,6 +13,7 @@ import torch.nn as nn
 import espresso.tools.utils as speech_utils
 from espresso.models.transformer import SpeechTransformerConfig
 from espresso.modules import (
+    ConformerWithRelativePositionalEmbeddingEncoderLayerBase,
     RelativePositionalEmbedding,
     TransformerWithRelativePositionalEmbeddingEncoderLayerBase,
 )
@@ -45,7 +47,7 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
 
     Args:
         cfg (FairseqDataclass): model configuration
-        conv_layers_before (~espresso.modules.ConvBNReLU): convolutions before
+        pre_encoder (~espresso.modules.ConvBNReLU): convolutions before
             transformer layers
         input_size (int, optional): dimension of the input to the transformer
             before being projected to cfg.encoder.embed_dim
@@ -55,7 +57,7 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         self,
         cfg,
         return_fc=False,
-        conv_layers_before=None,
+        pre_encoder=None,
         input_size=83,
         transformer_context=None,
     ):
@@ -72,8 +74,15 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         embed_dim = cfg.encoder.embed_dim
         self.max_source_positions = cfg.max_source_positions
 
-        self.conv_layers_before = conv_layers_before
+        self.pre_encoder = pre_encoder
         self.fc0 = Linear(input_size, embed_dim) if input_size != embed_dim else None
+
+        self.embed_scale = (
+            1.0
+            if cfg.no_scale_embedding
+            or self.fc0 is not None  # always diable scaling if fc0 is present
+            else math.sqrt(embed_dim)
+        )
 
         if (
             not cfg.no_token_positional_embeddings
@@ -145,7 +154,7 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         )
         self.num_layers = len(self.layers)
 
-        if cfg.encoder.normalize_before:
+        if cfg.encoder.normalize_before and cfg.encoder.layer_type != "conformer":
             self.layer_norm = LayerNorm(embed_dim, export=cfg.export)
         else:
             self.layer_norm = None
@@ -155,7 +164,13 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
     def build_encoder_layer(
         self, cfg, positional_embedding: Optional[RelativePositionalEmbedding] = None
     ):
-        layer = TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
+        if cfg.encoder.layer_type == "transformer":
+            layer_cls = TransformerWithRelativePositionalEmbeddingEncoderLayerBase
+        elif cfg.encoder.layer_type == "conformer":
+            layer_cls = ConformerWithRelativePositionalEmbeddingEncoderLayerBase
+        else:
+            raise NotImplementedError
+        layer = layer_cls(
             cfg, return_fc=self.return_fc, positional_embedding=positional_embedding
         )
         checkpoint = cfg.checkpoint_activations
@@ -171,8 +186,8 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
     def output_lengths(self, in_lengths):
         return (
             in_lengths
-            if self.conv_layers_before is None
-            else self.conv_layers_before.output_lengths(in_lengths)
+            if self.pre_encoder is None
+            else self.pre_encoder.output_lengths(in_lengths)
         )
 
     def get_attn_mask(self, in_lengths):
@@ -264,8 +279,8 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
                   hidden states of shape `(src_len, batch, embed_dim)`.
                   Only populated if *return_all_hiddens* is True.
         """
-        if self.conv_layers_before is not None:
-            x, src_lengths, encoder_padding_mask = self.conv_layers_before(
+        if self.pre_encoder is not None:
+            x, src_lengths, encoder_padding_mask = self.pre_encoder(
                 src_tokens, src_lengths
             )
         else:
@@ -275,20 +290,18 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             )
         has_pads = src_tokens.device.type == "xla" or encoder_padding_mask.any()
 
-        x = self.dropout_module(x)
         if self.fc0 is not None:
-            x = self.fc0(x)
-            if self.embed_positions is not None:
-                # 0s in `~encoder_padding_mask` are used as pad_idx for positional embeddings
-                x = x + self.embed_positions((~encoder_padding_mask).int())
-            if self.layernorm_embedding is not None:
-                x = self.layernorm_embedding(x)
             x = self.dropout_module(x)
-        elif self.embed_positions is not None:
+            x = self.fc0(x)
+        x = self.embed_scale * x
+        if self.embed_positions is not None:
             # 0s in `~encoder_padding_mask` are used as pad_idx for positional embeddings
             x = x + self.embed_positions((~encoder_padding_mask).int())
-            if self.layernorm_embedding is not None:
-                x = self.layernorm_embedding(x)
+        if self.layernorm_embedding is not None:
+            x = self.layernorm_embedding(x)
+        x = self.dropout_module(x)
+        if self.quant_noise is not None:
+            x = self.quant_noise(x)
 
         # account for padding while computing the representation
         if has_pads:
@@ -347,13 +360,28 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         """Maximum input length supported by the encoder."""
         return self.max_source_positions
 
+    def upgrade_state_dict_named(self, state_dict, name):
+        super().upgrade_state_dict_named(state_dict, name)
+        if len(name) > 0:
+            name += "."
+        old_pattern = "{}conv_layers_before".format(name)
+        new_pattern = "{}pre_encoder".format(name)
+        old_keys = []
+        for k in state_dict:
+            if k.startswith(old_pattern):
+                old_keys.append(k)
+        for old_key in old_keys:
+            new_key = old_key.replace(old_pattern, new_pattern, 1)
+            state_dict[new_key] = state_dict.pop(old_key)
+        return state_dict
+
 
 class SpeechTransformerEncoder(SpeechTransformerEncoderBase):
     def __init__(
         self,
         args,
         return_fc=False,
-        conv_layers_before=None,
+        pre_encoder=None,
         input_size=83,
         transformer_context=None,
     ):
@@ -361,7 +389,7 @@ class SpeechTransformerEncoder(SpeechTransformerEncoderBase):
         super().__init__(
             SpeechTransformerConfig.from_namespace(args),
             return_fc=return_fc,
-            conv_layers_before=conv_layers_before,
+            pre_encoder=pre_encoder,
             input_size=input_size,
             transformer_context=transformer_context,
         )

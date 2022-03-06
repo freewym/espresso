@@ -179,7 +179,7 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
 
         encoder = cls.build_encoder(
             cfg,
-            conv_layers_before=conv_layers,
+            pre_encoder=conv_layers,
             input_size=transformer_encoder_input_size,
             transformer_context=encoder_transformer_context,
         )
@@ -207,11 +207,11 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
 
     @classmethod
     def build_encoder(
-        cls, cfg, conv_layers_before=None, input_size=83, transformer_context=None
+        cls, cfg, pre_encoder=None, input_size=83, transformer_context=None
     ):
         return SpeechTransformerEncoderBase(
             cfg,
-            conv_layers_before=conv_layers_before,
+            pre_encoder=pre_encoder,
             input_size=input_size,
             transformer_context=transformer_context,
         )
