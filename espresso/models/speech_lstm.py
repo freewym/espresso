@@ -266,7 +266,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
         )
 
         encoder = SpeechLSTMEncoder(
-            conv_layers_before=conv_layers,
+            pre_encoder=conv_layers,
             input_size=rnn_encoder_input_size,
             hidden_size=args.encoder_rnn_hidden_size,
             num_layers=args.encoder_rnn_layers,
@@ -359,7 +359,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
 
     def __init__(
         self,
-        conv_layers_before=None,
+        pre_encoder=None,
         input_size=83,
         hidden_size=512,
         num_layers=1,
@@ -374,7 +374,7 @@ class SpeechLSTMEncoder(FairseqEncoder):
         multilayer_rnn_as_single_module=False,
     ):
         super().__init__(None)  # no src dictionary
-        self.conv_layers_before = conv_layers_before
+        self.pre_encoder = pre_encoder
         self.num_layers = num_layers
         self.dropout_in_module = FairseqDropout(
             dropout_in * 1.0, module_name=self.__class__.__name__
@@ -424,8 +424,8 @@ class SpeechLSTMEncoder(FairseqEncoder):
     def output_lengths(self, in_lengths):
         return (
             in_lengths
-            if self.conv_layers_before is None
-            else self.conv_layers_before.output_lengths(in_lengths)
+            if self.pre_encoder is None
+            else self.pre_encoder.output_lengths(in_lengths)
         )
 
     def forward(
@@ -455,10 +455,8 @@ class SpeechLSTMEncoder(FairseqEncoder):
                 left_to_right=True,
             )
 
-        if self.conv_layers_before is not None:
-            x, src_lengths, padding_mask = self.conv_layers_before(
-                src_tokens, src_lengths
-            )
+        if self.pre_encoder is not None:
+            x, src_lengths, padding_mask = self.pre_encoder(src_tokens, src_lengths)
         else:
             x, padding_mask = (
                 src_tokens,
@@ -581,6 +579,21 @@ class SpeechLSTMEncoder(FairseqEncoder):
     def max_positions(self):
         """Maximum input length supported by the encoder."""
         return self.max_source_positions
+
+    def upgrade_state_dict_named(self, state_dict, name):
+        super().upgrade_state_dict_named(state_dict, name)
+        if len(name) > 0:
+            name += "."
+        old_pattern = "{}conv_layers_before".format(name)
+        new_pattern = "{}pre_encoder".format(name)
+        old_keys = []
+        for k in state_dict:
+            if k.startswith(old_pattern):
+                old_keys.append(k)
+        for old_key in old_keys:
+            new_key = old_key.replace(old_pattern, new_pattern, 1)
+            state_dict[new_key] = state_dict.pop(old_key)
+        return state_dict
 
 
 class SpeechLSTMDecoder(FairseqIncrementalDecoder):

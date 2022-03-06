@@ -5,7 +5,7 @@
 
 from typing import Optional
 
-from espresso.modules import RelativePositionalEmbedding
+from espresso.modules.relative_positional_embedding import RelativePositionalEmbedding
 from fairseq.models.transformer import TransformerConfig
 from fairseq.modules import MultiheadAttention
 from fairseq.modules.transformer_layer import (

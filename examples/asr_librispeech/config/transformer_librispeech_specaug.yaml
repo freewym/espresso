@@ -25,7 +25,7 @@ task:
 
 dataset:
   num_workers: 8
-  max_tokens: 22000
+  max_tokens: 26000
   batch_size: 24
   data_buffer_size: 100
   train_subset: train
@@ -57,9 +57,9 @@ optimizer:
 
 lr_scheduler:
   _name: tri_stage
-  warmup_steps: 3125
-  hold_steps: 112500
-  decay_steps: 193750
+  warmup_steps: 2500
+  hold_steps: 90000
+  decay_steps: 110000
 
 model:
   _name: speech_transformer_base
