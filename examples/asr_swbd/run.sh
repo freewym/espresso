@@ -277,7 +277,7 @@ if [ $stage -le 7 ]; then
     opts="$opts --arch speech_transformer_swbd --max-epoch 100 --lr-scheduler tri_stage"
     opts="$opts --warmup-steps $((25000/ngpus/update_freq)) --hold-steps $((180000/ngpus/update_freq)) --decay-steps $((320000/ngpus/update_freq))"
     if $apply_specaug; then
-      specaug_config="{'W': 40, 'F': 18, 'T': 70, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 0.2}"
+      specaug_config="{'time_warp_W': 0, 'freq_mask_F': 18, 'time_mask_T': 70, 'freq_mask_N': 2, 'time_mask_N': 2, 'time_mask_p': 0.2}"
     fi
   else
     opts="$opts --arch speech_conv_lstm_swbd --scheduled-sampling-probs 0.9,0.8,0.7,0.6 --start-scheduled-sampling-epoch 6"
@@ -285,7 +285,7 @@ if [ $stage -le 7 ]; then
       opts="$opts --max-epoch 100 --lr-scheduler tri_stage --warmup-steps $((1000/ngpus/update_freq)) --hold-steps $((180000/ngpus/update_freq)) --decay-steps $((360000/ngpus/update_freq))"
       opts="$opts --encoder-rnn-hidden-size 1024 --encoder-rnn-layers 5 --decoder-embed-dim 512 --decoder-hidden-size 1024"
       opts="$opts --decoder-out-embed-dim 3072 --attention-dim 512 --dropout 0.4"
-      specaug_config="{'W': 40, 'F': 18, 'T': 70, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 0.2}"
+      specaug_config="{'time_warp_W': 0, 'freq_mask_F': 18, 'time_mask_T': 70, 'freq_mask_N': 2, 'time_mask_N': 2, 'time_mask_p': 0.2}"
     else
       opts="$opts --max-epoch 35 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 14"
     fi

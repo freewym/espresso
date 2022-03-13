@@ -235,7 +235,7 @@ if [ ${stage} -le 8 ]; then
     opts="$opts --arch speech_transformer_librispeech --max-tokens 22000 --max-epoch 100 --lr-scheduler tri_stage --encoder-relative-positional-embeddings"
     opts="$opts --warmup-steps $((25000/ngpus/update_freq)) --hold-steps $((900000/ngpus/update_freq)) --decay-steps $((1550000/ngpus/update_freq))"
     if $apply_specaug; then
-      specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
+      specaug_config="{'time_warp_W': 0, 'freq_mask_F': 27, 'time_mask_T': 100, 'freq_mask_N': 2, 'time_mask_N': 2, 'time_mask_p': 1.0}"
     fi
   else
     update_freq=$(((2+ngpus-1)/ngpus))
@@ -244,7 +244,7 @@ if [ ${stage} -le 8 ]; then
       opts="$opts --max-epoch 95 --lr-scheduler tri_stage"
       opts="$opts --warmup-steps $((2000/ngpus/update_freq)) --hold-steps $((600000/ngpus/update_freq)) --decay-steps $((1040000/ngpus/update_freq))"
       opts="$opts --encoder-rnn-layers 5"
-      specaug_config="{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
+      specaug_config="{'time_warp_W': 0, 'freq_mask_F': 27, 'time_mask_T': 100, 'freq_mask_N': 2, 'time_mask_N': 2, 'time_mask_p': 1.0}"
     else
       opts="$opts --max-epoch 30 --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 --start-reduce-lr-epoch 10"
     fi

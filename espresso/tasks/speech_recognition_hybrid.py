@@ -172,6 +172,7 @@ def get_asr_dataset_from_json(
     num_buckets=0,
     shuffle=True,
     pad_to_multiple=1,
+    is_training_set=False,
     lf_mmi=True,
     seed=1,
     global_cmvn_stats_path=None,
@@ -251,19 +252,26 @@ def get_asr_dataset_from_json(
             extra_kwargs = {}
         else:
             extra_kwargs = {"feat_dim": 40, "feature_type": "mfcc"}
-            if global_cmvn_stats_path is not None:
-                feature_transforms_config = {
-                    "transforms": ["global_cmvn"],
-                    "global_cmvn": {"stats_npz_path": global_cmvn_stats_path},
-                }
-                extra_kwargs["feature_transforms_config"] = feature_transforms_config
+
+        feature_transforms_config = {"transforms": []}
+        if global_cmvn_stats_path is not None:
+            feature_transforms_config["transforms"].append("global_cmvn")
+            feature_transforms_config["global_cmvn"] = {
+                "stats_npz_path": global_cmvn_stats_path
+            }
+        if is_training_set:
+            feature_transforms_config["transforms"].append("specaugment")
+            feature_transforms_config["specaugment"] = (
+                eval(specaugment_config) if specaugment_config is not None else None
+            )
+        extra_kwargs["feature_transforms_config"] = feature_transforms_config
+
         src_datasets.append(
             AudioFeatCachedDataset(
                 utt_ids,
                 audios,
                 utt2num_frames=utt2num_frames,
                 seed=seed,
-                specaugment_config=specaugment_config if split == "train" else None,
                 ordered_prefetch=True,
                 **extra_kwargs,
             )
@@ -348,7 +356,7 @@ def get_asr_dataset_from_json(
             chunk_left_context=chunk_left_context,
             chunk_right_context=chunk_right_context,
             label_delay=label_delay,
-            random_chunking=(split == "train" and chunk_width is not None),
+            random_chunking=(is_training_set and chunk_width is not None),
         )
 
 
@@ -514,6 +522,7 @@ class SpeechRecognitionHybridTask(FairseqTask):
             num_buckets=self.cfg.num_batch_buckets,
             shuffle=(split != self.cfg.gen_subset),
             pad_to_multiple=self.cfg.required_seq_len_multiple,
+            is_training_set=(split == self.cfg.train_subset),
             lf_mmi=(self.cfg.criterion_name == "lattice_free_mmi"),
             seed=self.cfg.seed,
             global_cmvn_stats_path=self.cfg.global_cmvn_stats_path,

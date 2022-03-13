@@ -15,7 +15,6 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
-from espresso.tools.specaug_interpolate import specaug
 from espresso.tools.utils import (
     compute_num_frames_from_feat_or_waveform,
     get_torchaudio_fbank_or_mfcc,
@@ -53,7 +52,6 @@ class AudioFeatDataset(torch.utils.data.Dataset):
         ] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
         seed=1,
         feature_transforms_config: Optional[Dict[str, Any]] = None,
-        specaugment_config: Optional[str] = None,
     ):
         super().__init__()
         assert len(utt_ids) == len(rxfiles)
@@ -102,7 +100,6 @@ class AudioFeatDataset(torch.utils.data.Dataset):
             config=feature_transforms_config
         )
         self.seed = seed
-        self.specaugment_config = specaugment_config
         self.epoch = 1
 
     def check_index(self, i):
@@ -142,11 +139,11 @@ class AudioFeatDataset(torch.utils.data.Dataset):
                 n_bins=self.feat_dim,
                 feature_type=self.feature_type,
             )
-            if self.feature_transforms is not None:
-                feat = self.feature_transforms(feat)
-        if self.specaugment_config is not None and self.specaugment_config != "":
+
+        if self.feature_transforms is not None:
             with data_utils.numpy_seed(self.seed, self.epoch, i):
-                feat = specaug(feat, **eval(self.specaugment_config))
+                feat = self.feature_transforms(feat)
+
         return feat
 
     def __getitem__(self, i):
@@ -181,7 +178,6 @@ class AudioFeatCachedDataset(AudioFeatDataset):
         ] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
         seed=1,
         feature_transforms_config: Optional[Dict[str, Any]] = None,
-        specaugment_config: Optional[str] = None,
         ordered_prefetch=False,
         cache_size=4096,
     ):
@@ -193,7 +189,6 @@ class AudioFeatCachedDataset(AudioFeatDataset):
             feature_type=feature_type,
             seed=seed,
             feature_transforms_config=feature_transforms_config,
-            specaugment_config=specaugment_config,
         )
         self.cache = None
         self.cache_index = {}
@@ -287,7 +282,6 @@ class AudioFeatInMemoryDataset(AudioFeatDataset):
         ] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
         seed=1,
         feature_transforms_config: Optional[Dict[str, Any]] = None,
-        specaugment_config: Optional[str] = None,
     ):
         super().__init__(
             utt_ids,
@@ -297,7 +291,6 @@ class AudioFeatInMemoryDataset(AudioFeatDataset):
             feature_type=feature_type,
             seed=seed,
             feature_transforms_config=feature_transforms_config,
-            specaugment_config=specaugment_config,
         )
         self.read_data()
 
@@ -320,8 +313,13 @@ class AudioFeatInMemoryDataset(AudioFeatDataset):
     def __getitem__(self, i):
         self.check_index(i)
         ptx = self.data_offsets[i]
-        a = self.buffer[ptx : ptx + self.sizes[i]].copy()
-        return torch.from_numpy(a).float()
+        feat = self.buffer[ptx : ptx + self.sizes[i]].copy()
+
+        if self.feature_transforms is not None:
+            with data_utils.numpy_seed(self.seed, self.epoch, i):
+                feat = self.feature_transforms(feat)
+
+        return torch.from_numpy(feat).float()
 
 
 class AsrTextDataset(torch.utils.data.Dataset):
