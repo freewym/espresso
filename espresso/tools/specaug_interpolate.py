@@ -71,7 +71,7 @@ def time_warp(spec, W=5):
         time warpped tensor (torch.Tensor): output tensor of shape `(dim, T)`
     """
     t = spec.size(1)
-    if t - W <= W + 1:
+    if W <= 0 or t - W <= W + 1:
         return spec
     center = np.random.randint(W + 1, t - W)
     warped = np.random.randint(center - W, center + W + 1)

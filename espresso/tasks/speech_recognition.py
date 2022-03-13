@@ -117,6 +117,7 @@ def get_asr_dataset_from_json(
     num_buckets=0,
     shuffle=True,
     pad_to_multiple=1,
+    is_training_set=False,
     batch_based_on_both_src_tgt=False,
     seed=1,
     global_cmvn_stats_path=None,
@@ -177,19 +178,26 @@ def get_asr_dataset_from_json(
             extra_kwargs = {}
         else:
             extra_kwargs = {"feat_dim": 80, "feature_type": "fbank"}
-            if global_cmvn_stats_path is not None:
-                feature_transforms_config = {
-                    "transforms": ["global_cmvn"],
-                    "global_cmvn": {"stats_npz_path": global_cmvn_stats_path},
-                }
-                extra_kwargs["feature_transforms_config"] = feature_transforms_config
+
+        feature_transforms_config = {"transforms": []}
+        if global_cmvn_stats_path is not None:
+            feature_transforms_config["transforms"].append("global_cmvn")
+            feature_transforms_config["global_cmvn"] = {
+                "stats_npz_path": global_cmvn_stats_path
+            }
+        if is_training_set:
+            feature_transforms_config["transforms"].append("specaugment")
+            feature_transforms_config["specaugment"] = (
+                eval(specaugment_config) if specaugment_config is not None else None
+            )
+        extra_kwargs["feature_transforms_config"] = feature_transforms_config
+
         src_datasets.append(
             AudioFeatDataset(
                 utt_ids,
                 audios,
                 utt2num_frames=utt2num_frames,
                 seed=seed,
-                specaugment_config=specaugment_config if split == "train" else None,
                 **extra_kwargs,
             )
         )
@@ -384,6 +392,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             num_buckets=self.cfg.num_batch_buckets,
             shuffle=(split != self.cfg.gen_subset),
             pad_to_multiple=self.cfg.required_seq_len_multiple,
+            is_training_set=(split == self.cfg.train_subset),
             batch_based_on_both_src_tgt=(self.cfg.criterion_name == "transducer_loss"),
             seed=self.cfg.seed,
             global_cmvn_stats_path=self.cfg.global_cmvn_stats_path,
@@ -391,7 +400,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         )
 
         # update the counts of <eos> and <unk> in tgt_dict with training data
-        if split == "train":
+        if split == self.cfg.train_subset:
             tgt_dataset = self.datasets[split].tgt
             self.tgt_dict.count[self.tgt_dict.eos()] = len(tgt_dataset)
             unk_count = 0
