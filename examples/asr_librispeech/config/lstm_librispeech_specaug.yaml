@@ -21,7 +21,7 @@ task:
   max_source_positions: 3600
   max_target_positions: 200
   global_cmvn_stats_path:
-  specaugment_config: "{'W': 80, 'F': 27, 'T': 100, 'num_freq_masks': 2, 'num_time_masks': 2, 'p': 1.0}"
+  specaugment_config: "{'time_warp_W': 0, 'freq_mask_F': 27, 'time_mask_T': 100, 'freq_mask_N': 2, 'time_mask_N': 2, 'time_mask_p': 1.0}"
 
 dataset:
   num_workers: 8
