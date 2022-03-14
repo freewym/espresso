@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import espresso.criterions  # noqa
+import espresso.data.feature_transforms  # noqa
 import espresso.models  # noqa
 import espresso.modules  # noqa
 import espresso.optim  # noqa
