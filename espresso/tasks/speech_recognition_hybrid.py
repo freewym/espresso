@@ -260,8 +260,8 @@ def get_asr_dataset_from_json(
                 "stats_npz_path": global_cmvn_stats_path
             }
         if is_training_set:
-            feature_transforms_config["transforms"].append("specaugment")
-            feature_transforms_config["specaugment"] = (
+            feature_transforms_config["transforms"].append("adaptive_specaugment")
+            feature_transforms_config["adaptive_specaugment"] = (
                 eval(specaugment_config) if specaugment_config is not None else None
             )
         extra_kwargs["feature_transforms_config"] = feature_transforms_config
