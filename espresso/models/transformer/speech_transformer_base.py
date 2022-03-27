@@ -19,7 +19,6 @@ from espresso.tools.scheduled_sampling_rate_scheduler import (
     ScheduledSamplingRateScheduler,
 )
 from fairseq.dataclass.utils import gen_parser_from_dataclass
-from fairseq.distributed import fsdp_wrap
 from fairseq.models import register_model
 from fairseq.models.transformer import TransformerModelBase
 
@@ -156,9 +155,6 @@ class SpeechTransformerModelBase(TransformerModelBase):
             decoder_embed_tokens,
             scheduled_sampling_rate_scheduler=scheduled_sampling_rate_scheduler,
         )
-        # fsdp_wrap is a no-op when --ddp-backend != fully_sharded
-        encoder = fsdp_wrap(encoder, min_num_params=cfg.min_params_to_wrap)
-        decoder = fsdp_wrap(decoder, min_num_params=cfg.min_params_to_wrap)
         return cls(cfg, encoder, decoder)
 
     def set_num_updates(self, num_updates):
