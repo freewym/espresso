@@ -782,6 +782,10 @@ class MultiheadAttention(nn.Module):
 
         if self.positional_embedding is not None:
             # compute `attn_weights` as described in https://arxiv.org/abs/1901.02860 Section 3.3
+            assert (
+                not self.encoder_decoder_attention
+            ), "positional embedding is only applicable to self attention"
+            assert bsz == kv_bsz, f"{bsz} != {kv_bsz}"
             assert src_len >= tgt_len, f"{src_len} vs {tgt_len}"
             if key_padding_mask is not None:
                 pe = self.positional_embedding(
