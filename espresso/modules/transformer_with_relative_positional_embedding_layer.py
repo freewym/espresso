@@ -38,6 +38,7 @@ class TransformerWithRelativePositionalEmbeddingEncoderLayerBase(
             self_attention=True,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            xformers_att_config=cfg.encoder.xformers_att_config,
             positional_embedding=self.positional_embedding[0],
         )
 
@@ -96,6 +97,7 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
             self_attention=not cfg.cross_self_attention,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            xformers_att_config=cfg.decoder.xformers_att_config,
             positional_embedding=self.positional_embedding[0],
         )
 
@@ -110,6 +112,7 @@ class TransformerWithRelativePositionalEmbeddingDecoderLayerBase(
             relaxed_attention_weight=cfg.decoder.relaxed_attention_weight,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            xformers_att_config=cfg.encoder.xformers_att_config,
         )
 
 
