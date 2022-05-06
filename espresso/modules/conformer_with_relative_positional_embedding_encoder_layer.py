@@ -74,6 +74,7 @@ class ConformerWithRelativePositionalEmbeddingEncoderLayerBase(nn.Module):
             self_attention=True,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+            xformers_att_config=cfg.encoder.xformers_att_config,
             positional_embedding=positional_embedding,
         )
 
