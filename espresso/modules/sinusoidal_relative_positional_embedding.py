@@ -38,6 +38,10 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
     def prepare_for_onnx_export_(self):
         self.onnx_trace = True
 
+    @property
+    def learnable(self) -> bool:
+        return False
+
     @staticmethod
     def get_embedding(
         seq_len: int, embedding_dim: int, padding_idx: Optional[int] = None

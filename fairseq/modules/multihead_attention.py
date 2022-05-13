@@ -147,8 +147,9 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         self.beam_size = 1
 
         self.positional_embedding = positional_embedding
-        if self.positional_embedding is not None and not isinstance(
-            self.positional_embedding, nn.Embedding
+        if (
+            self.positional_embedding is not None
+            and not self.positional_embedding.learnable
         ):
             self.pos_bias_u = nn.Parameter(torch.Tensor(embed_dim))
             self.pos_bias_v = nn.Parameter(torch.Tensor(embed_dim))
@@ -271,7 +272,7 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         new_v_bias = []
         new_out_proj_weight = []
         if self.positional_embedding is not None:
-            if isinstance(self.positional_embedding, nn.Embedding):
+            if self.positional_embedding.learnable:
                 new_positional_embedding_weight = []
             else:
                 new_pos_bias_u = []
@@ -305,7 +306,7 @@ class MultiheadAttention(FairseqIncrementalDecoder):
             new_out_proj_weight.append(self.out_proj.weight[:, start_idx:end_idx])
 
             if self.positional_embedding is not None:
-                if isinstance(self.positional_embedding, nn.Embedding):
+                if self.positional_embedding.learnable:
                     new_positional_embedding_weight.append(
                         self.positional_embedding.weight[:, start_idx:end_idx]
                     )
@@ -323,7 +324,7 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         new_v_weight.requires_grad = True
         new_out_proj_weight.requires_grad = True
         if self.positional_embedding is not None:
-            if isinstance(self.positional_embedding, nn.Embedding):
+            if self.positional_embedding.learnable:
                 new_positional_embedding_weight = torch.cat(
                     new_positional_embedding_weight, dim=-1
                 ).detach()
@@ -357,7 +358,7 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         self.out_proj.weight = torch.nn.Parameter(new_out_proj_weight)
 
         if self.positional_embedding is not None:
-            if isinstance(self.positional_embedding, nn.Embedding):
+            if self.positional_embedding.learnable:
                 self.positional_embedding.weight = torch.nn.Parameter(
                     new_positional_embedding_weight
                 )
@@ -373,7 +374,7 @@ class MultiheadAttention(FairseqIncrementalDecoder):
         self.k_proj.out_features = self.embed_dim
         self.v_proj.out_features = self.embed_dim
         if self.positional_embedding is not None:
-            if isinstance(self.positional_embedding, nn.Embedding):
+            if self.positional_embedding.learnable:
                 self.positional_embedding.embedding_dim = self.embed_dim
             else:
                 self.pos_proj.out_features = self.embed_dim
@@ -668,16 +669,16 @@ class MultiheadAttention(FairseqIncrementalDecoder):
             q = self.q_proj(query)
             k = self.k_proj(key)
             v = self.v_proj(value)
-        if self.positional_embedding is not None and not isinstance(
-            self.positional_embedding, nn.Embedding
-        ):
-            q_with_bias_v = (q + self.pos_bias_v) * self.scaling
-            q_with_bias_v = (
-                q_with_bias_v.contiguous()
-                .view(tgt_len, bsz * self.num_heads, self.head_dim)
-                .transpose(0, 1)
-            )
-            q = q + self.pos_bias_u
+
+        if self.positional_embedding is not None:
+            if not self.positional_embedding.learnable:
+                q_with_bias_v = (q + self.pos_bias_v) * self.scaling
+                q_with_bias_v = (
+                    q_with_bias_v.contiguous()
+                    .view(tgt_len, bsz * self.num_heads, self.head_dim)
+                    .transpose(0, 1)
+                )
+                q = q + self.pos_bias_u
         q *= self.scaling
 
         if self.bias_k is not None:
@@ -796,16 +797,14 @@ class MultiheadAttention(FairseqIncrementalDecoder):
                 pe = self.positional_embedding(
                     k.new_ones([bsz, src_len], dtype=torch.bool)
                 )
-            if not isinstance(self.positional_embedding, nn.Embedding):
+            if not self.positional_embedding.learnable:
                 pe = self.pos_proj(pe)
             pe = pe.view(bsz, -1, self.num_heads, self.head_dim).transpose(
                 1, 2
             )  # bsz x num_heads x (2*src_len-1) x head_dim
             pe = pe.reshape(bsz * self.num_heads, -1, self.head_dim)
             positional_logits = torch.bmm(
-                q_with_bias_v
-                if not isinstance(self.positional_embedding, nn.Embedding)
-                else q,
+                q_with_bias_v if not self.positional_embedding.learnable else q,
                 pe.transpose(1, 2),
             )
             assert list(positional_logits.size()) == [

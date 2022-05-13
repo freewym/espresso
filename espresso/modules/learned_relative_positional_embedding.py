@@ -40,6 +40,10 @@ class LearnedRelativePositionalEmbedding(nn.Embedding):
         if self.padding_idx is not None:
             nn.init.constant_(self.weight[self.padding_idx], 0.0)
 
+    @property
+    def learnable(self) -> bool:
+        return True
+
     def forward(
         self,
         input: Tensor,
