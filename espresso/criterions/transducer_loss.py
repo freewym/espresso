@@ -14,10 +14,13 @@ from omegaconf import II
 from fairseq import metrics, utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.data import data_utils
-from fairseq.dataclass import FairseqDataclass
+from fairseq.dataclass import ChoiceEnum, FairseqDataclass
 from fairseq.tasks import FairseqTask
 
 logger = logging.getLogger(__name__)
+
+
+RNNT_LOSS_BACKEND_CHOICES = ChoiceEnum(["native", "torchaudio"])
 
 
 @dataclass
@@ -28,6 +31,10 @@ class TransducerLossCriterionConfig(FairseqDataclass):
         metadata={
             "help": "print a training sample (reference + prediction) every this number of updates"
         },
+    )
+    loss_backend: RNNT_LOSS_BACKEND_CHOICES = field(
+        default="torchaudio",
+        metadata={"help": "choice of loss backend (native or torchaudio)"},
     )
 
 
@@ -45,23 +52,30 @@ class TransducerLossCriterion(FairseqCriterion):
 
         self.sentence_avg = cfg.sentence_avg
         self.print_interval = cfg.print_training_sample_interval
+        if str(cfg.loss_backend) == "native":
+            raise NotImplementedError
+        else:
+            assert str(cfg.loss_backend) == "torchaudio"
+            try:
+                from torchaudio.functional import rnnt_loss
+            except ImportError:
+                raise ImportError(
+                    "Please install a newer torchaudio (version >= 0.10.0)"
+                )
+            self.rnnt_loss = rnnt_loss
+
         self.dictionary = task.target_dictionary
         self.prev_num_updates = -1
 
     def forward(self, model, sample, reduce=True):
-        try:
-            from torchaudio.functional import rnnt_loss
-        except ImportError:
-            raise ImportError("Please install a newer torchaudio (version >= 0.10.0)")
-
         net_output, encoder_out_lengths = model(
             **sample["net_input"]
         )  # B x T x U x V, B
 
         if "target_lengths" in sample:
-            target_lengths = sample[
-                "target_lengths"
-            ].int()  # Note: ensure EOS is excluded
+            target_lengths = (
+                sample["target_lengths"].int() - 1
+            )  # Note: ensure EOS is excluded
         else:
             target_lengths = (
                 (
@@ -72,28 +86,8 @@ class TransducerLossCriterion(FairseqCriterion):
                 .int()
             )
 
-        loss = rnnt_loss(
-            net_output,
-            sample["target"][:, :-1].int().contiguous(),  # exclude the last EOS column
-            encoder_out_lengths.int(),
-            target_lengths,
-            blank=self.blank_idx,
-            clamp=-1.0,
-            reduction=("sum" if reduce else "none"),
-        )
-
-        ntokens = (
-            sample["ntokens"] if "ntokens" in sample else target_lengths.sum().item()
-        )
-
-        sample_size = sample["target"].size(0) if self.sentence_avg else ntokens
-        logging_output = {
-            "loss": utils.item(loss.data),  # * sample['ntokens'],
-            "ntokens": ntokens,
-            "nsentences": sample["nsentences"],
-            "sample_size": sample_size,
-        }
-
+        # evaluates randomly sampled result first in case of net_output being
+        # modified in-place in rnnt_loss for memory efficiency.
         if (
             hasattr(model, "num_updates")
             and model.training
@@ -118,10 +112,37 @@ class TransducerLossCriterion(FairseqCriterion):
                 else:
                     u += 1
             pred_one = self.dictionary.wordpiece_decode(
-                self.dictionary.string(torch.as_tensor(pred_one))
+                self.dictionary.string(
+                    torch.as_tensor(pred_one),
+                    extra_symbols_to_ignore=getattr(
+                        self.task, "extra_symbols_to_ignore", None
+                    ),
+                )
             )
             logger.info("sample REF: " + ref_one)
             logger.info("sample PRD: " + pred_one)
+
+        loss = self.rnnt_loss(
+            net_output,
+            sample["target"][:, :-1].int().contiguous(),  # exclude the last EOS column
+            encoder_out_lengths.int(),
+            target_lengths,
+            blank=self.blank_idx,
+            clamp=-1.0,
+            reduction=("sum" if reduce else "none"),
+        )
+
+        ntokens = (
+            sample["ntokens"] if "ntokens" in sample else target_lengths.sum().item()
+        )
+
+        sample_size = sample["target"].size(0) if self.sentence_avg else ntokens
+        logging_output = {
+            "loss": utils.item(loss.data),  # * sample['ntokens'],
+            "ntokens": ntokens,
+            "nsentences": sample["nsentences"],
+            "sample_size": sample_size,
+        }
 
         return loss, sample_size, logging_output
 
@@ -139,13 +160,19 @@ class TransducerLossCriterion(FairseqCriterion):
         )
 
         metrics.log_scalar(
-            "loss", loss_sum / sample_size / math.log(2), sample_size, round=3
+            "loss",
+            loss_sum / sample_size / math.log(2) if sample_size > 0 else 0.0,
+            sample_size,
+            round=3,
         )
         metrics.log_scalar("ntokens", ntokens)
         metrics.log_scalar("nsentences", nsentences)
         if sample_size != ntokens:
             metrics.log_scalar(
-                "nll_loss", loss_sum / ntokens / math.log(2), ntokens, round=3
+                "nll_loss",
+                loss_sum / ntokens / math.log(2) if ntokens > 0 else 0.0,
+                ntokens,
+                round=3,
             )
 
     @staticmethod
