@@ -118,6 +118,8 @@ class SpeechTransformerTransducerConfig(FairseqDataclass):
             "--offload-activations are passed."
         },
     )
+    # DEPRECATED field, but some old checkpoints might have it
+    relu_dropout: float = 0.0
 
     export: bool = field(
         default=False,
