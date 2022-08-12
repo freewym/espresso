@@ -201,7 +201,12 @@ class LabelSmoothedCrossEntropyV2Criterion(LabelSmoothedCrossEntropyCriterion):
             length = utils.strip_pad(target.data[i], self.padding_idx).size(0)
             ref_one = sample["text"][i]
             pred_one = self.dictionary.wordpiece_decode(
-                self.dictionary.string(pred.data[i][:length])
+                self.dictionary.string(
+                    pred.data[i][:length],
+                    extra_symbols_to_ignore=getattr(
+                        self.task, "extra_symbols_to_ignore", None
+                    ),
+                )
             )
             logger.info("sample REF: " + ref_one)
             logger.info("sample PRD: " + pred_one)
