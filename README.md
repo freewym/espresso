@@ -11,6 +11,7 @@ We provide state-of-the-art training recipes for the following speech datasets:
 
 ### What's New:
 
+* September 2022: CTC model training and decoding are supported.
 * February 2022: Conformer encoder is implemented. Simply add one line option in the config file to enable it. See examples: [here](https://github.com/freewym/espresso/tree/main/examples/asr_librispeech/config/conformer_librispeech.yaml) and [here](https://github.com/freewym/espresso/tree/main/examples/asr_librispeech/config/conformer_transducer_librispeech.yaml).
 * December 2021: A suite of Transducer model training and decoding code is added. An illustrative LibriSpeech recipe is [here](https://github.com/freewym/espresso/tree/main/examples/asr_librispeech/run_transformer_transducer.sh). The training requires [torchaudio](https://pytorch.org/audio/stable/index.html) >= 0.10.0 installed.
 * April 2021: On-the-fly feature extraction from raw waveforms with [torchaudio](https://pytorch.org/audio/stable/index.html) is supported. A LibriSpeech recipe is released [here](https://github.com/freewym/espresso/tree/main/examples/asr_librispeech/run_torchaudio.sh) with no dependency on Kaldi and using YAML files (via [Hydra](https://hydra.cc/)) for configuring experiments.

@@ -209,7 +209,7 @@ def _main(cfg, output_file):
         "eos_factor": cfg.generation.eos_factor,
     }
     cfg.generation.score_reference = False  # not applicable for ASR
-    is_attention_model = cfg.task.criterion_name not in ["transducer_loss", "ctc"]
+    is_attention_model = cfg.task.criterion_name not in ["transducer_loss", "ctc_loss"]
     save_attention_plot = (
         cfg.generation.print_alignment is not None and is_attention_model
     )
@@ -391,7 +391,7 @@ def print_options_meaning_changes(cfg, logger):
     are explained here.
     """
     logger.info("--max-tokens is the maximum number of input frames in a batch")
-    is_attention_model = cfg.task.criterion_name not in ["transducer_loss", "ctc"]
+    is_attention_model = cfg.task.criterion_name not in ["transducer_loss", "ctc_loss"]
     if cfg.generation.print_alignment and is_attention_model:
         logger.info("--print-alignment is set to True to plot attentions")
 

@@ -25,9 +25,10 @@ task:
   specaugment_config:
 
 dataset:
-  num_workers: 8
+  num_workers: 6
   max_tokens: 800000
   batch_size: 16
+  required_batch_size_multiple: 1
   data_buffer_size: 100
   train_subset: train
   valid_subset: valid

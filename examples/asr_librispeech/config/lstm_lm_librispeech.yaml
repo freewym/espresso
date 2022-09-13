@@ -21,9 +21,10 @@ task:
   tokens_per_sample: 1024
 
 dataset:
-  num_workers: 8
+  num_workers: 6
   max_tokens: 32000
   batch_size: 1024
+  required_batch_size_multiple: 8
   data_buffer_size: 100
   train_subset: train
   valid_subset: valid

@@ -107,12 +107,10 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
         tokens_list, scores_list, _ = self._generate(sample, **kwargs)
         bsz = len(tokens_list)
         tokens = collate_tokens(
-            [tokens_list[i][j, :] for i in range(bsz) for j in range(self.beam_size)],
+            [tokens_list[i][0, :] for i in range(bsz)],
             pad_idx=self.pad,
-        ).view(
-            bsz, self.beam_size, -1
-        )  # B x beam_size x U
-        scores = torch.stack(scores_list, dim=0)  # B x beam_size
+        )  # B x U
+        scores = torch.as_tensor([scores[0] for scores in scores_list])  # B
 
         return tokens, scores, None
 
