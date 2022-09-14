@@ -69,6 +69,13 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
     feat_in_channels: int = field(
         default=1, metadata={"help": "feature input channels"}
     )
+    autoregressive: bool = field(
+        default=True,
+        metadata={
+            "help": "required for autoregressive decoders (like seq2seq models); "
+            "adds 'prev_output_tokens' to input and appends eos to target"
+        },
+    )
     max_num_expansions_per_step: int = field(
         default=2,
         metadata={
@@ -117,6 +124,7 @@ def get_asr_dataset_from_json(
     num_buckets=0,
     shuffle=True,
     pad_to_multiple=1,
+    autoregressive=True,
     is_training_set=False,
     batch_based_on_both_src_tgt=False,
     seed=1,
@@ -202,7 +210,9 @@ def get_asr_dataset_from_json(
         if len(texts) > 0:
             assert len(utt_ids) == len(texts)
             assert tgt_dict is not None
-            tgt_datasets.append(AsrTextDataset(utt_ids, texts, tgt_dict))
+            tgt_datasets.append(
+                AsrTextDataset(utt_ids, texts, tgt_dict, append_eos=autoregressive)
+            )
 
         logger.info("{} {} examples".format(data_json_path, len(src_datasets[-1])))
 
@@ -240,6 +250,7 @@ def get_asr_dataset_from_json(
         left_pad_target=False,
         num_buckets=num_buckets,
         shuffle=shuffle,
+        input_feeding=autoregressive,
         pad_to_multiple=pad_to_multiple,
         batch_based_on_both_src_tgt=batch_based_on_both_src_tgt,
     )
@@ -392,6 +403,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             num_buckets=self.cfg.num_batch_buckets,
             shuffle=(split != self.cfg.gen_subset),
             pad_to_multiple=self.cfg.required_seq_len_multiple,
+            autoregressive=self.cfg.autoregressive,
             is_training_set=(split == self.cfg.train_subset),
             batch_based_on_both_src_tgt=(self.cfg.criterion_name == "transducer_loss"),
             seed=self.cfg.seed,
