@@ -253,14 +253,16 @@ def get_asr_dataset_from_json(
         else:
             extra_kwargs = {"feat_dim": 40, "feature_type": "mfcc"}
 
-        feature_transforms_config = {"transforms": []}
+        feature_transforms_config = {"feature_transforms": []}
         if global_cmvn_stats_path is not None:
-            feature_transforms_config["transforms"].append("global_cmvn")
+            feature_transforms_config["feature_transforms"].append("global_cmvn")
             feature_transforms_config["global_cmvn"] = {
                 "stats_npz_path": global_cmvn_stats_path
             }
         if specaugment_config is not None and is_training_set:
-            feature_transforms_config["transforms"].append("adaptive_specaugment")
+            feature_transforms_config["feature_transforms"].append(
+                "adaptive_specaugment"
+            )
             feature_transforms_config["adaptive_specaugment"] = eval(specaugment_config)
         extra_kwargs["feature_transforms_config"] = feature_transforms_config
 

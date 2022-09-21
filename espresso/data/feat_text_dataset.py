@@ -22,6 +22,7 @@ from espresso.tools.utils import (
 from fairseq.data import data_utils
 from fairseq.data.audio.audio_utils import get_waveform
 from fairseq.data.audio.feature_transforms import CompositeAudioFeatureTransform
+from fairseq.data.audio.waveform_transforms import CompositeAudioWaveformTransform
 
 try:
     import kaldi_io
@@ -51,6 +52,7 @@ class AudioFeatDataset(torch.utils.data.Dataset):
             str
         ] = None,  # currently support fbank or mfcc; only relevant when reading from raw waveforms
         seed=1,
+        waveform_transforms_config: Optional[Dict[str, Any]] = None,
         feature_transforms_config: Optional[Dict[str, Any]] = None,
     ):
         super().__init__()
@@ -96,6 +98,9 @@ class AudioFeatDataset(torch.utils.data.Dataset):
 
         assert len(self.sizes) == self.size
         self.sizes = np.array(self.sizes, dtype=np.int32)
+        self.waveform_transforms = CompositeAudioWaveformTransform.from_config_dict(
+            config=waveform_transforms_config
+        )
         self.feature_transforms = CompositeAudioFeatureTransform.from_config_dict(
             config=feature_transforms_config
         )
@@ -131,7 +136,10 @@ class AudioFeatDataset(torch.utils.data.Dataset):
             else:
                 source = self.rxfiles[i]
             waveform, sample_rate = get_waveform(
-                source, normalization=False, always_2d=True
+                source,
+                normalization=False,
+                always_2d=True,
+                waveform_transforms=self.waveform_transforms,
             )
             feat = get_torchaudio_fbank_or_mfcc(
                 waveform,
