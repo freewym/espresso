@@ -207,7 +207,7 @@ if [ ${stage} -le 6 ]; then
     log_file=$lmdir/log/evaluation_${test_set_array[$i]}.log
     python3 ../../fairseq_cli/eval_lm.py $lmdatadir --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
-      --max-tokens 40960 --batch-size 1536 --sample-break-mode eos \
+      --max-tokens 40960 --batch-size 1536 --required-batch-size-multiple 8 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
   done
 fi
@@ -228,20 +228,20 @@ if [ ${stage} -le 7 ]; then
   if $use_transformer; then
     update_freq=$(((8+ngpus-1)/ngpus))
     config_name=transformer_librispeech
-    opts="$opts lr_scheduler.warmup_steps=$((20000/ngpus/update_freq))"
-    opts="$opts lr_scheduler.hold_steps=$((720000/ngpus/update_freq))"
-    opts="$opts lr_scheduler.decay_steps=$((880000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.warmup_steps=$((17600/ngpus/update_freq))"
+    opts="$opts lr_scheduler.hold_steps=$((640000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.decay_steps=$((800000/ngpus/update_freq))"
   else
     update_freq=$(((2+ngpus-1)/ngpus))
     config_name=lstm_librispeech
-    ! $apply_specaug && opts="$opts lr_scheduler.warmup_updates=$((2000/ngpus/update_freq))"
+    ! $apply_specaug && opts="$opts lr_scheduler.warmup_updates=$((1800/ngpus/update_freq))"
   fi
   if $apply_specaug; then
     config_name=${config_name}_specaug
     if ! $use_transformer; then
-      opts="$opts lr_scheduler.warmup_steps=$((2000/ngpus/update_freq))"
-      opts="$opts lr_scheduler.hold_steps=$((600000/ngpus/update_freq))"
-      opts="$opts lr_scheduler.decay_steps=$((1040000/ngpus/update_freq))"
+      opts="$opts lr_scheduler.warmup_steps=$((1800/ngpus/update_freq))"
+      opts="$opts lr_scheduler.hold_steps=$((540000/ngpus/update_freq))"
+      opts="$opts lr_scheduler.decay_steps=$((940000/ngpus/update_freq))"
     fi
   fi
 
@@ -278,7 +278,7 @@ if [ ${stage} -le 8 ]; then
   for dataset in $test_set; do
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py $data_dir \
-      --task speech_recognition_espresso --max-tokens 15000 --batch-size 24 \
+      --task speech_recognition_espresso --max-tokens 15000 --batch-size 24 --required-batch-size-multiple 1 \
       --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-model ${sentencepiece_model}.model \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 60 --max-len-a 0.08 --max-len-b 0 --lenpen 1.0 \

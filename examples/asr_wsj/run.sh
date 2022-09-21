@@ -197,9 +197,9 @@ if [ ${stage} -le 4 ] && ! $use_wordlm; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $lmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $lmdict \
     --log-interval $((4000/ngpus/update_freq)) --log-format simple \
-    --num-workers 0 --max-tokens 25600 --batch-size 128 \
+    --num-workers 6 --max-tokens 25600 --batch-size 128 \
     --valid-subset $valid_subset --batch-size-valid 256 --update-freq $update_freq \
-    --distributed-world-size $ngpus \
+    --distributed-world-size $ngpus --required-batch-size-multiple 8 \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 5e-06 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
     --save-dir $lmdir --restore-file checkpoint_last.pt --save-interval-updates $((4000/ngpus/update_freq)) \
@@ -213,7 +213,7 @@ if [ ${stage} -le 5 ] && ! $use_wordlm; then
     log_file=$lmdir/log/evaluation_$gen_subset.log
     python3 ../../fairseq_cli/eval_lm.py $lmdatadir --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset $gen_subset \
-      --max-tokens 192000 --batch-size 256 --sample-break-mode eos \
+      --max-tokens 192000 --batch-size 256 --required-batch-size-multiple 8 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
   done
 fi
@@ -228,9 +228,9 @@ if [ ${stage} -le 6 ] && $use_wordlm; then
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py $wordlmdatadir --seed 1 \
     --task language_modeling_for_asr --dict $wordlmdict \
     --log-interval $((4000/ngpus/update_freq)) --log-format simple \
-    --num-workers 0 --max-tokens 6400 --batch-size 256 --empty-cache-freq 30 \
+    --num-workers 6 --max-tokens 6400 --batch-size 256 --empty-cache-freq 30 \
     --valid-subset $valid_subset --batch-size-valid 512 --update-freq $update_freq \
-    --distributed-world-size $ngpus \
+    --distributed-world-size $ngpus --required-batch-size-multiple 8 \
     --max-epoch 25 --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --lr-scheduler reduce_lr_on_plateau --lr-shrink 0.5 \
     --save-dir $wordlmdir --restore-file checkpoint_last.pt --save-interval-updates $((4000/ngpus/update_freq)) \
@@ -245,7 +245,7 @@ if [ ${stage} -le 7 ] && $use_wordlm; then
     log_file=$wordlmdir/log/evaluation_$gen_subset.log
     python3 ../../fairseq_cli/eval_lm.py $wordlmdatadir --cpu \
       --task language_modeling_for_asr --dict $wordlmdict --gen-subset $gen_subset \
-      --max-tokens 12800 --batch-size 512 --sample-break-mode eos \
+      --max-tokens 12800 --batch-size 512 --required-batch-size-multiple 8 --sample-break-mode eos \
       --path $wordlmdir/$lm_checkpoint 2>&1 | tee $log_file
   done
 fi
@@ -291,9 +291,9 @@ if [ ${stage} -le 9 ]; then
   fi
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py data --task speech_recognition_espresso --seed 1 \
     --log-interval $((800/ngpus/update_freq)) --log-format simple --print-training-sample-interval $((2000/ngpus/update_freq)) \
-    --num-workers 0 --data-buffer-size 0 --max-tokens 24000 --batch-size 32 --curriculum 2 --empty-cache-freq 2 \
+    --num-workers 6 --data-buffer-size 0 --max-tokens 24000 --batch-size 32 --curriculum 2 --empty-cache-freq 2 \
     --valid-subset $valid_subset --batch-size-valid 64 --ddp-backend legacy_ddp --update-freq $update_freq \
-    --distributed-world-size $ngpus \
+    --distributed-world-size $ngpus --required-batch-size-multiple 8 \
     --optimizer adam --lr 0.001 --weight-decay 0.0 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((800/ngpus/update_freq)) \
     --keep-interval-updates 5 --keep-last-epochs 5 --validate-interval 1 --best-checkpoint-metric wer \
@@ -322,7 +322,7 @@ if [ ${stage} -le 10 ]; then
   for dataset in $valid_set $test_set; do
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py data \
-      --task speech_recognition_espresso --max-tokens 20000 --batch-size 32 \
+      --task speech_recognition_espresso --max-tokens 20000 --batch-size 32 --required-batch-size-multiple 8 \
       --num-shards 1 --shard-id 0 --dict $dict --bpe characters_asr --non-lang-syms $nlsyms \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 50 --max-len-a 0.2 --max-len-b 0 --lenpen 1.0 \

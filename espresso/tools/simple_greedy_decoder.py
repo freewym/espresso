@@ -74,7 +74,8 @@ class SimpleGreedyDecoder(nn.Module):
 
     @torch.no_grad()
     def decode(self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs):
-        """Generate a batch of translations. Match the api of other fairseq generators.
+        """Generate a batch of 1-best hypotheses. Match the API of other fairseq generators.
+        Normally called for validation during training.
 
         Args:
             models (List[~fairseq.models.FairseqModel]): ensemble of models

@@ -1,7 +1,7 @@
 # @package _group_
 
 common:
-  fp16: false
+  amp: true
   log_format: simple
   log_interval: 1000
   seed: 1
@@ -20,8 +20,9 @@ task:
   dict: ???
   max_source_positions: 3600
   max_target_positions: 200
+  autoregressive: false
   global_cmvn_stats_path:
-  specaugment_config: "{'time_warp_W': 0, 'freq_mask_F': 27, 'freq_mask_N': 2, 'time_mask_pm': 0.04, 'time_mask_ps': 0.04}"
+  specaugment_config:
 
 dataset:
   num_workers: 6
@@ -39,31 +40,31 @@ distributed_training:
   ddp_backend: legacy_ddp
 
 criterion:
-  _name: label_smoothed_cross_entropy_v2
+  _name: ctc_loss
+  zero_infinity: true
   print_training_sample_interval: 500
-  label_smoothing: 0.1
-  smoothing_type: uniform
 
 optimization:
   max_epoch: 100
   clip_norm: 2.0
+  sentence_avg: true
   update_freq: [1]
-  lr: [0.001]
+  lr: [5.0]
 
 optimizer:
   _name: adam
-  adam_betas: (0.9,0.999)
+  adam_betas: (0.9,0.98)
   adam_eps: 1e-08
   weight_decay: 0.0
 
 lr_scheduler:
-  _name: tri_stage
-  warmup_steps: 2200
-  hold_steps: 80000
-  decay_steps: 100000
+  _name: noam
+  warmup_steps: 25000
+  model_size: ${model.encoder.embed_dim}
+  final_lr: 1e-6
 
 model:
-  _name: speech_transformer_base
+  _name: speech_transformer_encoder_model
   encoder:
     conv_channels: "[64, 64, 128, 128]"
     conv_kernel_sizes: "[(3, 3), (3, 3), (3, 3), (3, 3)]"
@@ -73,22 +74,13 @@ model:
     layers: 12
     attention_heads: 8
     normalize_before: true
-    learned_pos: true
-    relative_positional_embeddings: true
-  decoder:
-    embed_dim: 512
-    ffn_embed_dim: 2048
-    layers: 6
-    attention_heads: 8
-    normalize_before: true
     learned_pos: false
-    relative_positional_embeddings: false
-    input_dim: 512
-    output_dim: 512
+    relative_positional_embeddings: true
   attention_dropout: 0.1
   activation_dropout: 0.1
   dropout: 0.1
   activation_fn: relu
+  layernorm_embedding: true
 
 bpe:
   _name: sentencepiece

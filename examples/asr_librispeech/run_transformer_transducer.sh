@@ -202,7 +202,7 @@ if [ ${stage} -le 6 ]; then
     log_file=$lmdir/log/evaluation_${test_set_array[$i]}.log
     python3 ../../fairseq_cli/eval_lm.py $lmdatadir --cpu \
       --task language_modeling_for_asr --dict $lmdict --gen-subset ${gen_set_array[$i]} \
-      --max-tokens 40960 --batch-size 1536 --sample-break-mode eos \
+      --max-tokens 40960 --batch-size 1536 --required-batch-size-multiple 8 --sample-break-mode eos \
       --path $lmdir/$lm_checkpoint 2>&1 | tee $log_file
   done
 fi
@@ -231,9 +231,9 @@ if [ ${stage} -le 7 ]; then
     bpe.sentencepiece_model=$(realpath ${sentencepiece_model}.model) \
     checkpoint.save_dir=$(realpath $dir) \
     distributed_training.distributed_world_size=$ngpus \
-    common.log_interval=$((8000/ngpus/update_freq)) \
-    checkpoint.save_interval_updates=$((12000/ngpus/update_freq)) \
-    criterion.print_training_sample_interval=$((8000/ngpus/update_freq)) \
+    common.log_interval=$((16000/ngpus/update_freq)) \
+    checkpoint.save_interval_updates=$((24000/ngpus/update_freq)) \
+    criterion.print_training_sample_interval=$((16000/ngpus/update_freq)) \
     optimization.update_freq="[$update_freq]" \
     lr_scheduler.warmup_steps=$((80000/ngpus/update_freq)) \
     $opts --config-dir ./config --config-name $config_name 2>&1 | tee $log_file
@@ -256,7 +256,7 @@ if [ ${stage} -le 8 ]; then
   for dataset in $test_set; do
     decode_dir=$dir/decode_$dataset${decode_affix:+_${decode_affix}}
     CUDA_VISIBLE_DEVICES=$(echo $free_gpu | sed 's/,/ /g' | awk '{print $1}') speech_recognize.py $data_dir \
-      --task speech_recognition_espresso --max-tokens 1200000 --batch-size 24 \
+      --task speech_recognition_espresso --max-tokens 1200000 --batch-size 24 --required-batch-size-multiple 1 \
       --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-model ${sentencepiece_model}.model \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 5 --temperature 1.3 --criterion-name transducer_loss \

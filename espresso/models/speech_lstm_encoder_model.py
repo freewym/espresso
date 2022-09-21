@@ -154,7 +154,7 @@ class SpeechLSTMEncoderModel(FairseqEncoderModel):
 
     def get_normalized_probs(self, net_output, log_probs, sample=None):
         """Get normalized probabilities (or log probs) from a net's output."""
-        encoder_out = net_output.encoder_out
+        encoder_out = net_output["encoder_out"][0]
         if torch.is_tensor(encoder_out):
             logits = encoder_out.float()
             if log_probs:
@@ -273,9 +273,11 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
             src_tokens, src_lengths, enforce_sorted=enforce_sorted, **unused
         )
         x, encoder_padding_mask, x_lengths = (
-            out.encoder_out,
-            out.encoder_padding_mask,
-            out.src_lengths,
+            out["encoder_out"][0],
+            out["encoder_padding_mask"][0]
+            if len(out["encoder_padding_mask"]) > 0
+            else None,
+            out["src_lengths"][0],
         )
 
         # determine which output frame to select for loss evaluation/test, assuming
@@ -297,7 +299,7 @@ class SpeechChunkLSTMEncoder(SpeechLSTMEncoder):
         return {
             "encoder_out": [x],  # T x B x C
             "encoder_padding_mask": [encoder_padding_mask]
-            if encoder_padding_mask.any()
+            if encoder_padding_mask is not None and encoder_padding_mask.any()
             else [],  # T x B
             "encoder_embedding": [],
             "encoder_states": [],

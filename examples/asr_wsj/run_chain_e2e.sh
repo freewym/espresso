@@ -190,9 +190,9 @@ if [ ${stage} -le 6 ]; then
   update_freq=1
   CUDA_VISIBLE_DEVICES=$free_gpu python3 ../../fairseq_cli/train.py data/chain_e2e --task speech_recognition_hybrid --seed 1 \
     --log-interval $((200/ngpus/update_freq)) --log-format simple \
-    --num-workers 0 --data-buffer-size 0 --max-tokens 120000 --batch-size 128 --curriculum 1 --empty-cache-freq 50 \
+    --num-workers 6 --data-buffer-size 0 --max-tokens 120000 --batch-size 128 --curriculum 1 --empty-cache-freq 50 \
     --valid-subset $valid_subset --batch-size-valid 128 --ddp-backend legacy_ddp --update-freq $update_freq \
-    --distributed-world-size $ngpus \
+    --distributed-world-size $ngpus --required-batch-size-multiple 8 \
     --max-epoch 30 --optimizer adam --lr 0.001 --weight-decay 0.0 --start-reduce-lr-epoch 11 \
     --lr-scheduler reduce_lr_on_plateau_v2 --lr-shrink 0.5 \
     --save-dir $dir --restore-file checkpoint_last.pt --save-interval-updates $((400/ngpus/update_freq)) \
@@ -216,7 +216,7 @@ if [ ${stage} -le 7 ]; then
         graph_dir=$tree_dir/graph_${lmtype}
         $decode_cmd $queue_opt JOB=1:$nj $dir/decode_${lmtype}_${data_affix}/log/decode.JOB.log \
           dump_posteriors.py data/chain_e2e --cpu --task speech_recognition_hybrid \
-            --max-tokens 120000 --batch-size 128 --num-shards 1 --shard-id 0 --num-targets $num_targets \
+            --max-tokens 120000 --batch-size 128 --required-batch-size-multiple 8 --num-shards 1 --shard-id 0 --num-targets $num_targets \
             --gen-subset $dataset.JOB \
             --max-source-positions 9999 --path $path \| \
           latgen-faster-mapped --max-active=7000 --min-active=20 --beam=15 --lattice-beam=8 --acoustic-scale=1.0 \

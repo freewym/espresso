@@ -24,9 +24,10 @@ task:
   specaugment_config: "{'time_warp_W': 0, 'freq_mask_F': 27, 'freq_mask_N': 2, 'time_mask_pm': 0.04, 'time_mask_ps': 0.04}"
 
 dataset:
-  num_workers: 8
+  num_workers: 6
   max_tokens: 26000
   batch_size: 24
+  required_batch_size_multiple: 1
   data_buffer_size: 100
   train_subset: train
   valid_subset: valid
@@ -57,9 +58,9 @@ optimizer:
 
 lr_scheduler:
   _name: tri_stage
-  warmup_steps: 1000
-  hold_steps: 300000
-  decay_steps: 520000
+  warmup_steps: 900
+  hold_steps: 270000
+  decay_steps: 470000
 
 model:
   _name: speech_lstm
