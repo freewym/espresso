@@ -58,9 +58,9 @@ optimizer:
 
 lr_scheduler:
   _name: tri_stage
-  warmup_steps: 2500
-  hold_steps: 90000
-  decay_steps: 110000
+  warmup_steps: 2200
+  hold_steps: 80000
+  decay_steps: 100000
 
 model:
   _name: speech_transformer_base

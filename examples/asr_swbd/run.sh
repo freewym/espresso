@@ -275,7 +275,7 @@ if [ $stage -le 7 ]; then
   update_freq=$(((2+ngpus-1)/ngpus))
   if $use_transformer; then
     opts="$opts --arch speech_transformer_swbd --max-epoch 100 --lr-scheduler tri_stage"
-    opts="$opts --warmup-steps $((25000/ngpus/update_freq)) --hold-steps $((180000/ngpus/update_freq)) --decay-steps $((320000/ngpus/update_freq))"
+    opts="$opts --warmup-steps $((22000/ngpus/update_freq)) --hold-steps $((160000/ngpus/update_freq)) --decay-steps $((290000/ngpus/update_freq))"
     if $apply_specaug; then
       specaug_config="{'time_warp_W': 0, 'freq_mask_F': 18, 'time_mask_T': 70, 'freq_mask_N': 2, 'time_mask_N': 2, 'time_mask_p': 0.2}"
     fi

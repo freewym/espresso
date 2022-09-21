@@ -20,6 +20,7 @@ task:
   dict: ???
   max_source_positions: 3600
   max_target_positions: 200
+  autoregressive: true
   global_cmvn_stats_path:
   specaugment_config:
 
@@ -58,9 +59,9 @@ optimizer:
 
 lr_scheduler:
   _name: tri_stage
-  warmup_steps: 2500
-  hold_steps: 90000
-  decay_steps: 110000
+  warmup_steps: 2200
+  hold_steps: 80000
+  decay_steps: 100000
 
 model:
   _name: speech_transformer_base

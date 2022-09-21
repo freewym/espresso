@@ -47,6 +47,7 @@ criterion:
 optimization:
   max_epoch: 100
   clip_norm: 2.0
+  sentence_avg: true
   update_freq: [1]
   lr: [5.0]
 

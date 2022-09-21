@@ -59,7 +59,7 @@ optimizer:
 lr_scheduler:
   _name: reduce_lr_on_plateau_v2
   lr_shrink: 0.5
-  warmup_updates: 1000
+  warmup_updates: 900
   warmup_init_lr: 1e-05
   start_reduce_lr_epoch: 10
 

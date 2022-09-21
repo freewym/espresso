@@ -228,20 +228,20 @@ if [ ${stage} -le 7 ]; then
   if $use_transformer; then
     update_freq=$(((8+ngpus-1)/ngpus))
     config_name=transformer_librispeech
-    opts="$opts lr_scheduler.warmup_steps=$((20000/ngpus/update_freq))"
-    opts="$opts lr_scheduler.hold_steps=$((720000/ngpus/update_freq))"
-    opts="$opts lr_scheduler.decay_steps=$((880000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.warmup_steps=$((17600/ngpus/update_freq))"
+    opts="$opts lr_scheduler.hold_steps=$((640000/ngpus/update_freq))"
+    opts="$opts lr_scheduler.decay_steps=$((800000/ngpus/update_freq))"
   else
     update_freq=$(((2+ngpus-1)/ngpus))
     config_name=lstm_librispeech
-    ! $apply_specaug && opts="$opts lr_scheduler.warmup_updates=$((2000/ngpus/update_freq))"
+    ! $apply_specaug && opts="$opts lr_scheduler.warmup_updates=$((1800/ngpus/update_freq))"
   fi
   if $apply_specaug; then
     config_name=${config_name}_specaug
     if ! $use_transformer; then
-      opts="$opts lr_scheduler.warmup_steps=$((2000/ngpus/update_freq))"
-      opts="$opts lr_scheduler.hold_steps=$((600000/ngpus/update_freq))"
-      opts="$opts lr_scheduler.decay_steps=$((1040000/ngpus/update_freq))"
+      opts="$opts lr_scheduler.warmup_steps=$((1800/ngpus/update_freq))"
+      opts="$opts lr_scheduler.hold_steps=$((540000/ngpus/update_freq))"
+      opts="$opts lr_scheduler.decay_steps=$((940000/ngpus/update_freq))"
     fi
   fi
 

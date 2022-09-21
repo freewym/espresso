@@ -20,6 +20,7 @@ task:
   dict: ???
   max_source_positions: 3600
   max_target_positions: 200
+  autoregressive: true
   max_num_expansions_per_step: 2
   global_cmvn_stats_path:
   specaugment_config:
@@ -57,7 +58,7 @@ optimizer:
 
 lr_scheduler:
   _name: noam
-  warmup_steps: 13000
+  warmup_steps: 12000
   model_size: ${model.encoder.embed_dim}
   final_lr: 1e-6
 

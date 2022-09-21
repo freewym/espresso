@@ -233,7 +233,7 @@ if [ ${stage} -le 8 ]; then
   if $use_transformer; then
     update_freq=$(((8+ngpus-1)/ngpus))
     opts="$opts --arch speech_transformer_librispeech --max-tokens 22000 --max-epoch 100 --lr-scheduler tri_stage --encoder-relative-positional-embeddings"
-    opts="$opts --warmup-steps $((25000/ngpus/update_freq)) --hold-steps $((900000/ngpus/update_freq)) --decay-steps $((1550000/ngpus/update_freq))"
+    opts="$opts --warmup-steps $((22000/ngpus/update_freq)) --hold-steps $((810000/ngpus/update_freq)) --decay-steps $((1400000/ngpus/update_freq))"
     if $apply_specaug; then
       specaug_config="{'time_warp_W': 0, 'freq_mask_F': 27, 'freq_mask_N': 2, 'time_mask_pm': 0.04, 'time_mask_ps': 0.04}"
     fi
@@ -242,7 +242,7 @@ if [ ${stage} -le 8 ]; then
     opts="$opts --arch speech_conv_lstm_librispeech"
     if $apply_specaug; then
       opts="$opts --max-epoch 95 --lr-scheduler tri_stage"
-      opts="$opts --warmup-steps $((2000/ngpus/update_freq)) --hold-steps $((600000/ngpus/update_freq)) --decay-steps $((1040000/ngpus/update_freq))"
+      opts="$opts --warmup-steps $((1800/ngpus/update_freq)) --hold-steps $((540000/ngpus/update_freq)) --decay-steps $((940000/ngpus/update_freq))"
       opts="$opts --encoder-rnn-layers 5"
       specaug_config="{'time_warp_W': 0, 'freq_mask_F': 27, 'freq_mask_N': 2, 'time_mask_pm': 0.04, 'time_mask_ps': 0.04}"
     else
