@@ -235,7 +235,7 @@ if [ ${stage} -le 7 ]; then
     checkpoint.save_interval_updates=$((24000/ngpus/update_freq)) \
     criterion.print_training_sample_interval=$((16000/ngpus/update_freq)) \
     optimization.update_freq="[$update_freq]" \
-    lr_scheduler.warmup_steps=$((192000/ngpus/update_freq)) \
+    lr_scheduler.warmup_steps=$((80000/ngpus/update_freq)) \
     $opts --config-dir ./config --config-name $config_name 2>&1 | tee $log_file
 fi
 
