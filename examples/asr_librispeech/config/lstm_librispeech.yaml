@@ -24,9 +24,10 @@ task:
   specaugment_config:
 
 dataset:
-  num_workers: 8
+  num_workers: 6
   max_tokens: 26000
   batch_size: 24
+  required_batch_size_multiple: 1
   data_buffer_size: 100
   train_subset: train
   valid_subset: valid
@@ -58,7 +59,7 @@ optimizer:
 lr_scheduler:
   _name: reduce_lr_on_plateau_v2
   lr_shrink: 0.5
-  warmup_updates: 1000
+  warmup_updates: 900
   warmup_init_lr: 1e-05
   start_reduce_lr_epoch: 10
 

@@ -87,7 +87,12 @@ class SinusoidalRelativePositionalEmbedding(nn.Module):
             relative posotional embedding for key of shape `(batch_size, 2*seq_len-1, embed_dim)`,
                 where `seq_len` is the length of key
         """
-        bspair = torch.onnx.operators.shape_as_tensor(input)
+        if torch.jit.is_scripting():
+            bspair = torch.onnx.operators.shape_as_tensor(input)
+        elif torch.onnx.is_in_onnx_export():
+            bspair = torch.onnx.operators.shape_as_tensor(input)
+        else:
+            bspair = input.size()
         bsz, seq_len = bspair[0], bspair[1]
         max_positions = self.weight.size(0)
         if self.padding_idx is not None:

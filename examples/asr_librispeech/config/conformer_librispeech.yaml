@@ -20,13 +20,15 @@ task:
   dict: ???
   max_source_positions: 3600
   max_target_positions: 200
+  autoregressive: true
   global_cmvn_stats_path:
   specaugment_config:
 
 dataset:
-  num_workers: 8
+  num_workers: 6
   max_tokens: 26000
   batch_size: 24
+  required_batch_size_multiple: 1
   data_buffer_size: 100
   train_subset: train
   valid_subset: valid
@@ -57,9 +59,9 @@ optimizer:
 
 lr_scheduler:
   _name: tri_stage
-  warmup_steps: 5000
-  hold_steps: 90000
-  decay_steps: 110000
+  warmup_steps: 4500
+  hold_steps: 80000
+  decay_steps: 100000
 
 model:
   _name: speech_transformer_base

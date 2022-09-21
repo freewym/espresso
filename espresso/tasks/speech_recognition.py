@@ -69,6 +69,13 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
     feat_in_channels: int = field(
         default=1, metadata={"help": "feature input channels"}
     )
+    autoregressive: bool = field(
+        default=True,
+        metadata={
+            "help": "required for autoregressive decoders (like seq2seq models); "
+            "adds 'prev_output_tokens' to input and appends eos to target"
+        },
+    )
     max_num_expansions_per_step: int = field(
         default=2,
         metadata={
@@ -117,6 +124,7 @@ def get_asr_dataset_from_json(
     num_buckets=0,
     shuffle=True,
     pad_to_multiple=1,
+    autoregressive=True,
     is_training_set=False,
     batch_based_on_both_src_tgt=False,
     seed=1,
@@ -202,7 +210,9 @@ def get_asr_dataset_from_json(
         if len(texts) > 0:
             assert len(utt_ids) == len(texts)
             assert tgt_dict is not None
-            tgt_datasets.append(AsrTextDataset(utt_ids, texts, tgt_dict))
+            tgt_datasets.append(
+                AsrTextDataset(utt_ids, texts, tgt_dict, append_eos=autoregressive)
+            )
 
         logger.info("{} {} examples".format(data_json_path, len(src_datasets[-1])))
 
@@ -240,6 +250,7 @@ def get_asr_dataset_from_json(
         left_pad_target=False,
         num_buckets=num_buckets,
         shuffle=shuffle,
+        input_feeding=autoregressive,
         pad_to_multiple=pad_to_multiple,
         batch_based_on_both_src_tgt=batch_based_on_both_src_tgt,
     )
@@ -297,7 +308,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         self.feat_dim = feat_dim
         self.feat_in_channels = cfg.feat_in_channels
         self.extra_symbols_to_ignore = {tgt_dict.pad()}  # for validation with WER
-        if cfg.criterion_name in ["transducer_loss", "ctc"]:
+        if cfg.criterion_name in ["transducer_loss", "ctc_loss"]:
             self.blank_symbol = tgt_dict.bos_word  # reserve the bos symbol for blank
             self.extra_symbols_to_ignore.add(tgt_dict.index(self.blank_symbol))
         torch.backends.cudnn.deterministic = True
@@ -315,10 +326,12 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         # load dictionaries
         dict_path = os.path.join(cfg.data, "dict.txt") if cfg.dict is None else cfg.dict
-        enable_bos = True if cfg.criterion_name in ["transducer_loss", "ctc"] else False
+        enable_blank = (
+            True if cfg.criterion_name in ["transducer_loss", "ctc_loss"] else False
+        )
         tgt_dict = cls.load_dictionary(
             dict_path,
-            enable_bos=enable_bos,
+            enable_bos=enable_blank,
             non_lang_syms=cfg.non_lang_syms,
         )
         logger.info("dictionary: {} types".format(len(tgt_dict)))
@@ -390,6 +403,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             num_buckets=self.cfg.num_batch_buckets,
             shuffle=(split != self.cfg.gen_subset),
             pad_to_multiple=self.cfg.required_seq_len_multiple,
+            autoregressive=self.cfg.autoregressive,
             is_training_set=(split == self.cfg.train_subset),
             batch_based_on_both_src_tgt=(self.cfg.criterion_name == "transducer_loss"),
             seed=self.cfg.seed,
@@ -427,8 +441,13 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 self.target_dictionary,
                 max_num_expansions_per_step=self.cfg.max_num_expansions_per_step,
             )
-        elif self.cfg.criterion_name == "ctc":  # a ctc model
-            raise NotImplementedError
+        elif self.cfg.criterion_name == "ctc_loss":  # a ctc model
+            from espresso.tools.ctc_decoder import CTCDecoder
+
+            self.decoder_for_validation = CTCDecoder(
+                [model],
+                self.target_dictionary,
+            )
         else:  # assume it is an attention-based encoder-decoder model
             from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
 
@@ -486,8 +505,22 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 prefix_alpha=getattr(args, "transducer_prefix_alpha", None),
                 **extra_gen_cls_kwargs,
             )
-        elif self.cfg.criterion_name == "ctc":
-            raise NotImplementedError
+        elif self.cfg.criterion_name == "ctc_loss":
+            from espresso.tools.ctc_decoder import CTCDecoder
+
+            extra_gen_cls_kwargs = extra_gen_cls_kwargs or {}
+            if getattr(args, "print_alignment", False):
+                extra_gen_cls_kwargs["print_alignment"] = True
+
+            if seq_gen_cls is None:
+                seq_gen_cls = CTCDecoder
+
+            return seq_gen_cls(
+                models,
+                self.target_dictionary,
+                beam_size=getattr(args, "beam", 1),
+                **extra_gen_cls_kwargs,
+            )
 
         return super().build_generator(
             models,

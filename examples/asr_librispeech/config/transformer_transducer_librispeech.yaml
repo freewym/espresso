@@ -1,7 +1,7 @@
 # @package _group_
 
 common:
-  fp16: false
+  amp: true
   log_format: simple
   log_interval: 1000
   seed: 1
@@ -20,18 +20,20 @@ task:
   dict: ???
   max_source_positions: 3600
   max_target_positions: 200
+  autoregressive: true
   max_num_expansions_per_step: 2
   global_cmvn_stats_path:
   specaugment_config:
 
 dataset:
-  num_workers: 8
+  num_workers: 6
   max_tokens: 800000
-  batch_size: 16
+  batch_size: 32
+  required_batch_size_multiple: 1
   data_buffer_size: 100
   train_subset: train
   valid_subset: valid
-  batch_size_valid: 16
+  batch_size_valid: 32
   curriculum: 1
 
 distributed_training:
