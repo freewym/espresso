@@ -7,7 +7,13 @@ from typing import Union
 
 import torch
 import torch.nn.functional as F
-from packaging import version
+
+try:
+    from packaging import version
+
+    has_packaging = True
+except ImportError:
+    has_packaging = False
 from torch import nn
 
 import espresso.tools.utils as speech_utils
@@ -18,6 +24,8 @@ class ConvBNReLU(nn.Module):
 
     def __init__(self, out_channels, kernel_sizes, strides, in_channels=1):
         super().__init__()
+        if not has_packaging:
+            raise ImportError("Please install packaging with: pip install packaging")
         self.out_channels = out_channels
         self.kernel_sizes = kernel_sizes
         self.strides = strides
