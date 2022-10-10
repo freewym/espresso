@@ -12,6 +12,7 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 try:
     import kaldi_io
@@ -88,6 +89,74 @@ def sequence_mask(sequence_length, max_len=None):
     seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
     seq_length_expand = sequence_length.unsqueeze(1).expand_as(seq_range_expand)
     return seq_range_expand < seq_length_expand
+
+
+def chunk_streaming_mask(
+    sequence_length: torch.Tensor,
+    chunk_size: int,
+    left_window: int = 0,
+    right_window: int = 0,
+    always_partial_in_last: bool = False,
+):
+    """Returns a mask for chunk streaming Transformer models.
+
+    Args:
+        sequence_length (LongTensor): sequence_length of shape `(batch)`
+        chunk_size (int): chunk size
+        left_window (int): how many left chunks can be seen (default: 0)
+        right_window (int): how many right chunks can be seen (default: 0)
+        always_partial_in_last (bool): if True always makes the last chunk partial;
+            otherwise makes either the first or last chunk have partial size randomly,
+            which is to avoid learning to emit EOS just based on partial chunk size
+            (default: False)
+
+    Returns:
+        mask: (BoolTensor): a mask tensor of shape `(tgt_len, src_len)`, where
+            `tgt_len` is the length of output and `src_len` is the length of input.
+            `attn_mask[tgt_i, src_j] = True` means that when calculating the embedding
+            for `tgt_i`, we need the embedding of `src_j`.
+    """
+
+    max_len = sequence_length.data.max()
+    chunk_start_idx = torch.arange(
+        0,
+        max_len,
+        chunk_size,
+        dtype=sequence_length.dtype,
+        device=sequence_length.device,
+    )  # e.g. [0,18,36,54]
+    if not always_partial_in_last and np.random.rand() > 0.5:
+        # either first or last chunk is partial. If only the last one is not complete, EOS is not effective
+        chunk_start_idx = max_len - chunk_start_idx
+        chunk_start_idx = chunk_start_idx.flip([0])
+        chunk_start_idx = chunk_start_idx[:-1]
+        chunk_start_idx = F.pad(chunk_start_idx, (1, 0))
+
+    start_pad = torch.nn.functional.pad(chunk_start_idx, (1, 0))  # [0,0,18,36,54]
+    end_pad = torch.nn.functional.pad(
+        chunk_start_idx, (0, 1), value=max_len
+    )  # [0,18,36,54,max_len]
+    seq_range = torch.arange(
+        0, max_len, dtype=sequence_length.dtype, device=sequence_length.device
+    )
+    idx = (
+        (seq_range.unsqueeze(-1) >= start_pad) & (seq_range.unsqueeze(-1) < end_pad)
+    ).nonzero()[
+        :, 1
+    ]  # max_len
+    seq_range_expand = seq_range.unsqueeze(0).expand(max_len, -1)  # max_len x max_len
+
+    idx_left = idx - left_window
+    idx_left[idx_left < 0] = 0
+    boundary_left = start_pad[idx_left]  # max_len
+    mask_left = seq_range_expand >= boundary_left.unsqueeze(-1)
+
+    idx_right = idx + right_window
+    idx_right[idx_right > len(chunk_start_idx)] = len(chunk_start_idx)
+    boundary_right = end_pad[idx_right]  # max_len
+    mask_right = seq_range_expand < boundary_right.unsqueeze(-1)
+
+    return mask_left & mask_right
 
 
 def convert_padding_direction(
