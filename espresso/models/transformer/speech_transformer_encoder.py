@@ -17,6 +17,7 @@ from espresso.modules import (
     RelativePositionalEmbedding,
     TransformerWithRelativePositionalEmbeddingEncoderLayerBase,
 )
+from fairseq.data import data_utils
 from fairseq.distributed import fsdp_wrap
 from fairseq.models.transformer import Linear, TransformerEncoderBase
 from fairseq.modules import (
@@ -59,7 +60,6 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         return_fc=False,
         pre_encoder=None,
         input_size=83,
-        transformer_context=None,
     ):
         self.cfg = cfg
         super(TransformerEncoderBase, self).__init__(None)  # no src dictionary
@@ -159,7 +159,19 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         else:
             self.layer_norm = None
 
-        self.transformer_context = transformer_context
+        self.transformer_context = speech_utils.eval_str_nested_list_or_tuple(
+            cfg.encoder.transformer_context,
+            type=int,
+        )
+        if self.transformer_context is not None:
+            assert len(self.transformer_context) == 2
+            for i in range(2):
+                assert self.transformer_context[i] is None or (
+                    isinstance(self.transformer_context[i], int)
+                    and self.transformer_context[i] >= 0
+                )
+
+        self.num_updates = 0
 
     def build_encoder_layer(
         self, cfg, positional_embedding: Optional[RelativePositionalEmbedding] = None
@@ -183,6 +195,10 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         layer = fsdp_wrap(layer, min_num_params=min_params_to_wrap)
         return layer
 
+    def set_num_updates(self, num_updates):
+        self.num_updates = num_updates
+        super().set_num_updates(num_updates)
+
     def output_lengths(self, in_lengths):
         return (
             in_lengths
@@ -204,6 +220,16 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             `attn_mask[tgt_i, src_j] = 1` means that when calculating the
             embedding for `tgt_i`, we exclude (mask out) `src_j`.
         """
+        if self.cfg.encoder.chunk_size > 0:
+            with data_utils.numpy_seed(self.num_updates):
+                return ~speech_utils.chunk_streaming_mask(
+                    in_lengths,
+                    self.cfg.encoder.chunk_size,
+                    left_window=self.cfg.encoder.chunk_left_window,
+                    right_window=self.cfg.encoder.chunk_right_window,
+                    always_partial_in_last=(not self.training),
+                )
+
         if self.transformer_context is None or (
             self.transformer_context[0] is None and self.transformer_context[1] is None
         ):
@@ -383,7 +409,6 @@ class SpeechTransformerEncoder(SpeechTransformerEncoderBase):
         return_fc=False,
         pre_encoder=None,
         input_size=83,
-        transformer_context=None,
     ):
         self.args = args
         super().__init__(
@@ -391,7 +416,6 @@ class SpeechTransformerEncoder(SpeechTransformerEncoderBase):
             return_fc=return_fc,
             pre_encoder=pre_encoder,
             input_size=input_size,
-            transformer_context=transformer_context,
         )
 
     def build_encoder_layer(

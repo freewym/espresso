@@ -102,23 +102,10 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
         else:
             transformer_encoder_input_size = task.feat_dim
 
-        encoder_transformer_context = speech_utils.eval_str_nested_list_or_tuple(
-            cfg.encoder.transformer_context,
-            type=int,
-        )
-        if encoder_transformer_context is not None:
-            assert len(encoder_transformer_context) == 2
-            for i in range(2):
-                assert encoder_transformer_context[i] is None or (
-                    isinstance(encoder_transformer_context[i], int)
-                    and encoder_transformer_context[i] >= 0
-                )
-
         encoder = cls.build_encoder(
             cfg,
             pre_encoder=conv_layers,
             input_size=transformer_encoder_input_size,
-            transformer_context=encoder_transformer_context,
             vocab_size=(
                 len(task.target_dictionary)
                 if task.target_dictionary is not None
@@ -139,14 +126,12 @@ class SpeechTransformerEncoderModel(FairseqEncoderModel):
         cfg,
         pre_encoder=None,
         input_size=83,
-        transformer_context=None,
         vocab_size=None,
     ):
         return SpeechTransformerEncoderForPrediction(
             cfg,
             pre_encoder=pre_encoder,
             input_size=input_size,
-            transformer_context=transformer_context,
             vocab_size=vocab_size,
         )
 
@@ -174,7 +159,6 @@ class SpeechTransformerEncoderForPrediction(SpeechTransformerEncoderBase):
         return_fc=False,
         pre_encoder=None,
         input_size=83,
-        transformer_context=None,
         vocab_size=None,
     ):
         super().__init__(
@@ -182,7 +166,6 @@ class SpeechTransformerEncoderForPrediction(SpeechTransformerEncoderBase):
             return_fc=return_fc,
             pre_encoder=pre_encoder,
             input_size=input_size,
-            transformer_context=transformer_context,
         )
 
         self.fc_out = (

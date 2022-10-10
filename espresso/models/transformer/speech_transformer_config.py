@@ -62,6 +62,22 @@ class SpeechEncoderConfig(SpeechEncDecBaseConfig):
     layer_type: LAYER_TYPE_CHOICES = field(
         default="transformer", metadata={"help": "layer type in encoder"}
     )
+    chunk_size: int = field(
+        default=0,
+        metadata={"help": "chunk size of Transformer in chunk streaming mode if > 0"},
+    )
+    chunk_left_window: int = field(
+        default=0,
+        metadata={
+            "help": "number of chunks to the left of the current chunk in chunk streaming mode"
+        },
+    )
+    chunk_right_window: int = field(
+        default=0,
+        metadata={
+            "help": "number of chunks to the right of the current chunk in chunk streaming mode"
+        },
+    )
     # config specific to Conformer
     depthwise_conv_kernel_size: int = field(
         default=31,

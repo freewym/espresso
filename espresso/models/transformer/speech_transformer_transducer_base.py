@@ -165,23 +165,10 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
         else:
             transformer_encoder_input_size = task.feat_dim
 
-        encoder_transformer_context = speech_utils.eval_str_nested_list_or_tuple(
-            cfg.encoder.transformer_context,
-            type=int,
-        )
-        if encoder_transformer_context is not None:
-            assert len(encoder_transformer_context) == 2
-            for i in range(2):
-                assert encoder_transformer_context[i] is None or (
-                    isinstance(encoder_transformer_context[i], int)
-                    and encoder_transformer_context[i] >= 0
-                )
-
         encoder = cls.build_encoder(
             cfg,
             pre_encoder=conv_layers,
             input_size=transformer_encoder_input_size,
-            transformer_context=encoder_transformer_context,
         )
         decoder = cls.build_decoder(cfg, tgt_dict, decoder_embed_tokens)
         # fsdp_wrap is a no-op when --ddp-backend != fully_sharded
@@ -206,14 +193,11 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
         return emb
 
     @classmethod
-    def build_encoder(
-        cls, cfg, pre_encoder=None, input_size=83, transformer_context=None
-    ):
+    def build_encoder(cls, cfg, pre_encoder=None, input_size=83):
         return SpeechTransformerEncoderBase(
             cfg,
             pre_encoder=pre_encoder,
             input_size=input_size,
-            transformer_context=transformer_context,
         )
 
     @classmethod
