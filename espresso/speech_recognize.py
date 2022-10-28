@@ -334,7 +334,7 @@ def _main(cfg, output_file):
     if save_attention_plot:
         logger.info("Saved attention plots in " + save_dir)
 
-    if has_target:
+    if has_target and hasattr(task.datasets[cfg.dataset.gen_subset], "tgt"):
         scorer.add_ordered_utt_list(task.datasets[cfg.dataset.gen_subset].tgt.utt_ids)
 
     fn = "decoded_char_results.txt"
