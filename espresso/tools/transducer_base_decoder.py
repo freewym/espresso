@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import torch
 import torch.nn as nn
@@ -33,8 +33,8 @@ class TransducerBaseDecoder(nn.Module):
         Args:
             models (List[~fairseq.models.FairseqModel]): ensemble of models
             dictionary (~fairseq.data.Dictionary): dictionary
-            max_len (int, optional): the maximum length of the generated output
-                (not including end-of-sentence) (default: 0, no limit)
+            max_len (int, optional): the maximum length of the encoder output
+                that can emit tokens (default: 0, no limit)
             max_num_expansions_per_step (int, optional): the maximum number of
                 non-blank expansions in a single time step (default: 2)
             temperature (float, optional): temperature, where values
@@ -95,7 +95,9 @@ class TransducerBaseDecoder(nn.Module):
         return self
 
     @torch.no_grad()
-    def decode(self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs):
+    def decode(
+        self, models, sample: Dict[str, Dict[str, Tensor]], **kwargs
+    ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
         """Generate a batch of 1-best hypotheses. Match the API of other fairseq generators.
         Normally called for validation during training.
 
@@ -139,6 +141,24 @@ class TransducerBaseDecoder(nn.Module):
     @torch.no_grad()
     def _generate(
         self, sample: Dict[str, Dict[str, Tensor]], bos_token: Optional[int] = None
-    ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
-        # should return a tuple of tokens, scores and alignments
+    ) -> Tuple[
+        Union[Tensor, List[Tensor]],
+        Union[Tensor, List[Tensor]],
+        Optional[Union[Tensor, List[Tensor]]],
+    ]:
+        """Implement the algorithm here.
+        Should return a tuple of tokens, scores and alignments.
+
+        Args:
+            feature (Tensor): feature of shape
+                `(batch, feature_length, feature_dim)`
+            feature_lens (Tensor, optional): feature lengths of shape `(batch)`
+
+        Returns:
+            tokens (LongTensor or List[LongTensor]): token sequences of shape
+                `(batch, max_dec_out_length)`
+            scores (FloatTensor or List[FloatTensor]): scores of shape `(batch)`
+            alignments (LongTensor or List[LongTensor], optional): alignments of
+                shape `(batch, max_enc_out_length, max_num_tokens_per_step)`
+        """
         raise NotImplementedError

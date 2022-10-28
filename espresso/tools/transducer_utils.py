@@ -15,7 +15,7 @@ from torch import Tensor
 
 @dataclass
 class Hypotheses:
-    """Hypotheses class for beam search algorithms. data from multiple hypotheses are
+    """Hypotheses class for beam search algorithms. Data from multiple hypotheses are
     stacked along the batch dimension of each attribute tensor.
 
     scores (Tensor): scores of hypotheses (including weighted LM scores if LM is present).
@@ -385,7 +385,7 @@ class Hypotheses:
 
     def get_last_dec_out(self) -> Tuple[Optional[Tensor], Optional[Tensor]]:
         """Returns the last `dec_out`/`lm_dec_out`, which is the output after feeding the
-        last non-blank tokens in `self.sequences` into the decoder/LM.
+        last non-blank tokens from `self.sequences` into the decoder/LM.
         Note: this function will NOT modify this instance.
 
         Returns:
@@ -654,9 +654,10 @@ def select_k_expansions(
     """Returns K hypotheses candidates for expansions from a set of hypotheses.
     K candidates are selected according to the extended hypotheses probabilities
     and a prune-by-value method. Where K is equal to beam_size + beta.
-    Note: This function should be followed with :func:`~Hypotheses.update_dec_out_()` in the calling code
-    to also update `k_expanded_hyps_nonblank.cached_state`, `k_expanded_hyps.dec_out`,
-    `k_expanded_hyps_nonblank.lm_cached_state`, and `k_expanded_hyps.lm_dec_out` after non-blank expansions.
+    Note: This function should be followed by updating `k_expanded_hyps_nonblank.cached_state`,
+    `k_expanded_hyps.dec_out` (with :func:`~Hypotheses.update_dec_out_()`), `k_expanded_hyps_nonblank.lm_cached_state`,
+    and `k_expanded_hyps.lm_dec_out` (also with :func:`~Hypotheses.update_dec_out_()`) in the calling code
+    after non-blank expansions.
 
     This implementation is modified from
     https://github.com/espnet/espnet/blob/master/espnet/nets/pytorch_backend/transducer/utils.py
@@ -684,9 +685,9 @@ def select_k_expansions(
     """
     assert hyps.size() > 0
     lprobs = lprobs + hyps.scores.unsqueeze(-1)  # B x V
-    K = min(beam_size + beta, lprobs.size(1) - 1)  # -1 so we never select pad
-    scores, indices = torch.topk(lprobs, k=K)  # B x K
-    k_expanded_hyps = hyps.repeat_interleave(K)  # (B * K) hypotheses
+    k = min(beam_size + beta, lprobs.size(1) - 1)  # -1 so we never select pad
+    scores, indices = torch.topk(lprobs, k=k)  # B x K
+    k_expanded_hyps = hyps.repeat_interleave(k)  # (B * K) hypotheses
     k_expanded_hyps.scores = scores.view(-1)  # (B * K)
     if lm_lprobs_padded is not None:
         assert lm_lprobs_padded.size() == lprobs.size()
@@ -704,7 +705,7 @@ def select_k_expansions(
         if not retained_mask.all():  # prune by value
             k_expanded_hyps = k_expanded_hyps.masked_select(retained_mask.view(-1))
 
-    k_expanded_hyps.keep_top_k_(K, normalize_by_length=normalize_by_length)
+    k_expanded_hyps.keep_top_k_(k, normalize_by_length=normalize_by_length)
 
     return k_expanded_hyps
 

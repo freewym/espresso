@@ -3,7 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
 from torch import Tensor
@@ -32,8 +32,8 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
         Args:
             models (List[~fairseq.models.FairseqModel]): ensemble of models
             dictionary (~fairseq.data.Dictionary): dictionary
-            max_len (int, optional): the maximum length of the generated output
-                (not including end-of-sentence) (default: 0, no limit)
+            max_len (int, optional): the maximum length of the encoder output
+                that can emit tokens (default: 0, no limit)
             max_num_expansions_per_step (int, optional): the maximum number of
                 non-blank expansions in a single time step (default: 2)
             temperature (float, optional): temperature, where values
@@ -76,7 +76,7 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
     @torch.no_grad()
     def _generate(
         self, sample: Dict[str, Dict[str, Tensor]], bos_token: Optional[int] = None
-    ):
+    ) -> Tuple[Tensor, Tensor, Optional[Tensor]]:
         net_input = sample["net_input"]
         src_tokens = net_input["src_tokens"]
         bsz, src_len = src_tokens.size()[:2]

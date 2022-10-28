@@ -75,7 +75,11 @@ def main(args):
     wer_counter = Counter()
     with open(args.hyp_text, "r", encoding="utf-8") as f:
         for line in f:
-            utt_id, text = line.strip().split(None, 1)
+            res = line.strip().split(None, 1)
+            if len(res) == 2:
+                utt_id, text = res
+            else:
+                utt_id, text = res[0], ""
             assert utt_id in refs, utt_id
             ref, hyp = refs[utt_id], text
 
