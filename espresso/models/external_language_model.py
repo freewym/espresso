@@ -9,8 +9,9 @@ import torch
 
 from espresso.data import AsrDictionary
 from espresso.tools.lexical_prefix_tree import lexical_prefix_tree
-from espresso.tools.utils import clone_cached_state, tokenize
+from espresso.tools.utils import tokenize
 from fairseq.models import FairseqIncrementalDecoder, FairseqLanguageModel
+from fairseq.utils import apply_to_sample
 
 
 class RawOutExternalLanguageModelBase(FairseqLanguageModel):
@@ -125,8 +126,9 @@ class _LookAheadWordLanguageModelDecoder(FairseqIncrementalDecoder):
             ).unsqueeze(
                 -1
             )  # B x 1
-            old_cached_state = clone_cached_state(
-                self.lm_decoder.get_cached_state(incremental_state)
+            old_cached_state = apply_to_sample(
+                torch.clone,
+                self.lm_decoder.get_cached_state(incremental_state),
             )
             # recompute cumsum_probs from inter-word transition probabilities
             # only for those whose prev_output_token is <space>
@@ -432,8 +434,9 @@ class _MultiLevelLanguageModel(FairseqIncrementalDecoder):
             ).unsqueeze(
                 -1
             )  # B x 1
-            old_wordlm_cached_state = clone_cached_state(
-                self.wordlm_decoder.get_cached_state(incremental_state)
+            old_wordlm_cached_state = apply_to_sample(
+                torch.clone,
+                self.wordlm_decoder.get_cached_state(incremental_state),
             )
 
             # recompute wordlm_logprobs from inter-word transition probabilities

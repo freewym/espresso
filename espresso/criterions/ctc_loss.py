@@ -12,10 +12,11 @@ import torch
 import torch.nn.functional as F
 from omegaconf import II
 
-from fairseq import metrics, utils
+from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.data import data_utils
 from fairseq.dataclass import FairseqDataclass
+from fairseq.logging import metrics
 from fairseq.tasks import FairseqTask
 
 logger = logging.getLogger(__name__)

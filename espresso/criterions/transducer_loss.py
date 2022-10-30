@@ -11,10 +11,11 @@ import numpy as np
 import torch
 from omegaconf import II
 
-from fairseq import metrics, utils
+from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from fairseq.data import data_utils
 from fairseq.dataclass import ChoiceEnum, FairseqDataclass
+from fairseq.logging import metrics
 from fairseq.tasks import FairseqTask
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class TransducerLossCriterionConfig(FairseqDataclass):
         default="torchaudio",
         metadata={"help": "choice of loss backend (native or torchaudio)"},
     )
+    include_eos: bool = II("task.include_eos_in_transducer_loss")
 
 
 @register_criterion("transducer_loss", dataclass=TransducerLossCriterionConfig)
@@ -64,6 +66,7 @@ class TransducerLossCriterion(FairseqCriterion):
                 )
             self.rnnt_loss = rnnt_loss
 
+        self.include_eos = cfg.include_eos
         self.dictionary = task.target_dictionary
         self.prev_num_updates = -1
 
@@ -73,13 +76,15 @@ class TransducerLossCriterion(FairseqCriterion):
         )  # B x T x U x V, B
 
         if "target_lengths" in sample:
-            target_lengths = (
-                sample["target_lengths"].int() - 1
-            )  # Note: ensure EOS is excluded
+            target_lengths = sample["target_lengths"].int()
+            if not self.include_eos:
+                target_lengths -= 1  # excludes EOS
         else:
             target_lengths = (
                 (
                     (sample["target"] != self.pad_idx)
+                    if self.include_eos
+                    else (sample["target"] != self.pad_idx)
                     & (sample["target"] != self.eos_idx)
                 )
                 .sum(-1)
@@ -124,7 +129,9 @@ class TransducerLossCriterion(FairseqCriterion):
 
         loss = self.rnnt_loss(
             net_output,
-            sample["target"][:, :-1].int().contiguous(),  # exclude the last EOS column
+            (sample["target"] if self.include_eos else sample["target"][:, :-1])
+            .int()
+            .contiguous(),
             encoder_out_lengths.int(),
             target_lengths,
             blank=self.blank_idx,

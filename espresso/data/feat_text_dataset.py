@@ -57,7 +57,7 @@ class AudioFeatDataset(torch.utils.data.Dataset):
     ):
         super().__init__()
         assert len(utt_ids) == len(rxfiles)
-        self.dtype = np.float
+        self.dtype = float
         self.utt_ids = utt_ids
         self.rxfiles = rxfiles
         self.size = len(utt_ids)  # number of utterances
@@ -338,7 +338,6 @@ class AsrTextDataset(torch.utils.data.Dataset):
         self, utt_ids: List[str], texts: List[str], dictionary=None, append_eos=True
     ):
         super().__init__()
-        self.dtype = np.float
         self.dictionary = dictionary
         self.append_eos = append_eos
         self.read_text(utt_ids, texts, dictionary)

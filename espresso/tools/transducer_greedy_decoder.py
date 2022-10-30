@@ -9,7 +9,7 @@ import torch
 from torch import Tensor
 
 from espresso.tools.transducer_base_decoder import TransducerBaseDecoder
-from espresso.tools.utils import clone_cached_state
+from fairseq.utils import apply_to_sample
 
 
 class TransducerGreedyDecoder(TransducerBaseDecoder):
@@ -21,6 +21,9 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
         max_num_expansions_per_step=2,
         temperature=1.0,
         eos=None,
+        bos=None,
+        blank=None,
+        model_predicts_eos=False,
         symbols_to_strip_from_output=None,
         lm_model=None,
         lm_weight=1.0,
@@ -39,6 +42,15 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
             temperature (float, optional): temperature, where values
                 >1.0 produce more uniform samples and values <1.0 produce
                 sharper samples (default: 1.0)
+            eos (int, optional): index of eos. Will be dictionary.eos() if None
+                (default: None)
+            bos (int, optional): index of bos. Will be dictionary.eos() if None
+                (default: None)
+            blank (int, optional): index of blank. Will be dictionary.bos() if
+                None (default: None)
+            model_predicts_eos(bool, optional): enable it if the transducer model was
+                trained to predict EOS. Probability mass of emitting EOS will be transferred
+                to BLANK to alleviate early stop issue during decoding (default: False)
             lm_model (fairseq.models.FairseqLanguageModel, optional): LM model for LM fusion (default: None)
             lm_weight (float, optional): LM weight for LM fusion (default: 1.0)
             print_alignment (bool, optional): if True returns alignments (default: False)
@@ -50,6 +62,9 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
             max_num_expansions_per_step=max_num_expansions_per_step,
             temperature=temperature,
             eos=eos,
+            bos=bos,
+            blank=blank,
+            model_predicts_eos=model_predicts_eos,
             symbols_to_strip_from_output=symbols_to_strip_from_output,
             lm_model=lm_model,
             lm_weight=lm_weight,
@@ -99,7 +114,7 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
             dtype=torch.long,
         )  # +1 for the last blank at each time step
         prev_nonblank_tokens = tokens.new_full(
-            (bsz, 1), self.eos if bos_token is None else bos_token
+            (bsz, 1), self.bos if bos_token is None else bos_token
         )  # B x 1
         # scores is used to store log-prob of emitting each token
         scores = enc_out.new_full(
@@ -133,8 +148,9 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
                 not blank_mask.all()
                 and expansion_idx < self.max_num_expansions_per_step + 1
             ):
-                old_cached_state = clone_cached_state(
-                    self.model.decoder.get_cached_state(incremental_state)
+                old_cached_state = apply_to_sample(
+                    torch.clone,
+                    self.model.decoder.get_cached_state(incremental_state),
                 )
                 dec_out = self.model.decoder.extract_features(
                     prev_nonblank_tokens, incremental_state=incremental_state
@@ -153,8 +169,9 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
                 )  # B x V
 
                 if self.lm_model is not None:
-                    old_lm_cached_state = clone_cached_state(
-                        self.lm_model.decoder.get_cached_state(lm_incremental_state)
+                    old_lm_cached_state = apply_to_sample(
+                        torch.clone,
+                        self.lm_model.decoder.get_cached_state(lm_incremental_state),
                     )
                     lm_prev_nonblank_tokens = (
                         torch.where(
@@ -191,6 +208,13 @@ class TransducerGreedyDecoder(TransducerBaseDecoder):
                         1
                     )  # B x (V - 1)
                     lprobs[:, self.vocab_nonblank_mask] = lprobs_with_lm_no_blank
+
+                if self.model_predicts_eos:
+                    # merge blank prob and EOS prob and set EOS prob to 0 to mitigate large del errors
+                    lprobs[:, self.blank] = torch.logaddexp(
+                        lprobs[:, self.blank], lprobs[:, self.eos]
+                    )
+                    lprobs[:, self.eos] = float("-inf")
 
                 if expansion_idx < self.max_num_expansions_per_step:
                     (

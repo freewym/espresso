@@ -3,6 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import collections
 import os
 import re
 from collections import Counter
@@ -55,6 +56,42 @@ def tokenize(sent, space="<space>", non_lang_syms=None):
 
     tokens = [space if token == " " else token for token in tokens]
     return " ".join(tokens)
+
+
+def apply_to_sample_pair(f, sample_a, sample_b):
+    """Recursively applies function f to each element pair in sample pair.
+
+    Args:
+        f: function to apply with
+        sample_a/b: can be any nest dictionary/list/tuple of tensors
+
+    Returns:
+        sample: output sample preserving the same structure as input sample
+            pair with its elements being applied with f
+    """
+
+    def _apply(a, b):
+        if torch.is_tensor(a):
+            return f(a, b)
+        if isinstance(a, collections.OrderedDict):
+            # OrderedDict has attributes that needs to be preserved
+            odict = collections.OrderedDict(
+                (key, _apply(value, b[key])) for key, value in a.items()
+            )
+            odict.__dict__ = a.__dict__
+            return odict
+        if isinstance(a, dict):
+            return {key: _apply(value, b[key]) for key, value in a.items()}
+        if isinstance(a, list):
+            return [_apply(x, y) for x, y in zip(a, b)]
+        if isinstance(a, tuple):
+            return tuple(_apply(x, y) for x, y in zip(a, b))
+        if a is None:
+            assert b is None
+            return None
+        return a
+
+    return _apply(sample_a, sample_b)
 
 
 def collate_frames(
@@ -132,10 +169,8 @@ def chunk_streaming_mask(
         chunk_start_idx = chunk_start_idx[:-1]
         chunk_start_idx = F.pad(chunk_start_idx, (1, 0))
 
-    start_pad = torch.nn.functional.pad(chunk_start_idx, (1, 0))  # [0,0,18,36,54]
-    end_pad = torch.nn.functional.pad(
-        chunk_start_idx, (0, 1), value=max_len
-    )  # [0,18,36,54,max_len]
+    start_pad = F.pad(chunk_start_idx, (1, 0))  # [0,0,18,36,54]
+    end_pad = F.pad(chunk_start_idx, (0, 1), value=max_len)  # [0,18,36,54,max_len]
     seq_range = torch.arange(
         0, max_len, dtype=sequence_length.dtype, device=sequence_length.device
     )
@@ -386,20 +421,6 @@ def aligned_print(ref, hyp, steps):
     out_str += "\n"
 
     return out_str
-
-
-def clone_cached_state(
-    cached_state: Tuple[Optional[Union[List[torch.Tensor], torch.Tensor]]]
-):
-    if cached_state is None:
-        return None
-
-    def clone_state(state):
-        if isinstance(state, list):
-            return [clone_state(state_i) for state_i in state]
-        return state.clone() if state is not None else None
-
-    return tuple(map(clone_state, cached_state))
 
 
 def get_torchaudio_fbank_or_mfcc(

@@ -103,8 +103,8 @@ class Hypotheses:
 
     def sort_by_score_(
         self,
-        descending: Optional[bool] = False,
-        normalize_by_length: Optional[bool] = False,
+        descending: bool = False,
+        normalize_by_length: bool = False,
     ) -> Hypotheses:
         """Sorts the hypotheses in ascending/descending order of their scores which are
         optionally normalized by sequence length.
@@ -129,7 +129,7 @@ class Hypotheses:
 
         return self.index_select_(sort_order)
 
-    def sort_by_length_(self, descending: Optional[bool] = False) -> Hypotheses:
+    def sort_by_length_(self, descending: bool = False) -> Hypotheses:
         """Sorts the hypotheses in ascending/descending order of the predicted sequence lengths.
         Note: this function will modify this instance.
 
@@ -163,9 +163,9 @@ class Hypotheses:
     def keep_top_k_(
         self,
         k: int,
-        largest: Optional[bool] = True,
-        sorted: Optional[bool] = True,
-        normalize_by_length: Optional[bool] = False,
+        largest: bool = True,
+        sorted: bool = True,
+        normalize_by_length: bool = False,
     ) -> Hypotheses:
         """Keeps the k-best hypotheses of this instance based on their scores
         and discards the rest. This function is usually faster than
@@ -281,7 +281,7 @@ class Hypotheses:
         time_step: int,
         expansion_idx: int,
         blank_idx: int,
-        pad_idx: Optional[int] = 0,
+        pad_idx: int = 0,
     ) -> Hypotheses:
         """Appends non-blank tokens in `tokens` to `self.sequences`, allocates additional memory for
         `self.dec_out` and `self.lm_dec_out` if needed (which will later be updated by :func:`~Hypotheses.update_dec_out_()`),
@@ -489,9 +489,7 @@ class Hypotheses:
             lm_dec_out=lm_dec_out,
         )
 
-    def combine(
-        self, another_hyps: Hypotheses, pad_idx: Optional[int] = 0
-    ) -> Hypotheses:
+    def combine(self, another_hyps: Hypotheses, pad_idx: int = 0) -> Hypotheses:
         """Returns a new instance of :class:`~Hypotheses` where it combines hypotheses from this instance and `another_hyps`.
         It does tensor concatenations along the batch dimension, after padding along the time dimension if needed.
         Note: this function will NOT modify this instance.
@@ -645,11 +643,11 @@ def select_k_expansions(
     time_step: int,
     expansion_idx: int,
     blank_idx: int,
-    pad_idx: Optional[int] = 0,
+    pad_idx: int = 0,
     lm_lprobs_padded: Optional[Tensor] = None,
     gamma: Optional[float] = None,
-    beta: Optional[int] = 0,
-    normalize_by_length: Optional[bool] = False,
+    beta: int = 0,
+    normalize_by_length: bool = False,
 ) -> Hypotheses:
     """Returns K hypotheses candidates for expansions from a set of hypotheses.
     K candidates are selected according to the extended hypotheses probabilities
@@ -685,7 +683,9 @@ def select_k_expansions(
     """
     assert hyps.size() > 0
     lprobs = lprobs + hyps.scores.unsqueeze(-1)  # B x V
-    k = min(beam_size + beta, lprobs.size(1) - 1)  # -1 so we never select pad
+    k = min(
+        beam_size + beta, lprobs.size(1) - (1 if pad_idx != blank_idx else 0)
+    )  # -1 for pad
     scores, indices = torch.topk(lprobs, k=k)  # B x K
     k_expanded_hyps = hyps.repeat_interleave(k)  # (B * K) hypotheses
     k_expanded_hyps.scores = scores.view(-1)  # (B * K)
@@ -720,7 +720,7 @@ def is_prefix(a: List[Union[int, str]], b: List[Union[int, str]]):
     return True
 
 
-def is_prefix_tensorized(hyps: Hypotheses, are_sorted: Optional[bool] = False):
+def is_prefix_tensorized(hyps: Hypotheses, are_sorted: bool = False):
     """Returns a mask tensor where the (i, j)-th element indicates if the i-th row of `hyps.sequences`
     is a prefix of the j-th row.
 
