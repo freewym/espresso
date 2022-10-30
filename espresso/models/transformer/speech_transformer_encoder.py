@@ -9,6 +9,7 @@ from typing import Optional
 
 import torch
 import torch.nn as nn
+from torch import Tensor
 
 import espresso.tools.utils as speech_utils
 from espresso.models.transformer import SpeechTransformerConfig
@@ -214,7 +215,7 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             in_lengths (LongTensor): lengths of each input sequence of shape `(batch)`
 
         Returns:
-            attn_mask (ByteTensor|BoolTensor, optional): self-attention mask of shape
+            attn_mask (BoolTensor, optional): self-attention mask of shape
             `(tgt_len, src_len)`, where `tgt_len` is the length of output and `src_len`
             is the length of input, though here both are equal to `seq_len`.
             `attn_mask[tgt_i, src_j] = 1` means that when calculating the
@@ -314,7 +315,12 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
                 src_tokens,
                 ~speech_utils.sequence_mask(src_lengths, src_tokens.size(1)),
             )
-        has_pads = src_tokens.device.type == "xla" or encoder_padding_mask.any()
+        has_pads = (
+            torch.tensor(src_tokens.device.type == "xla") or encoder_padding_mask.any()
+        )
+        # Torchscript doesn't handle bool Tensor correctly, so we need to work around.
+        if torch.jit.is_scripting():
+            has_pads = torch.tensor(1) if has_pads else torch.tensor(0)
 
         if self.fc0 is not None:
             x = self.dropout_module(x)
@@ -330,8 +336,9 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             x = self.quant_noise(x)
 
         # account for padding while computing the representation
-        if has_pads:
-            x = x * (1 - encoder_padding_mask.unsqueeze(-1).type_as(x))
+        x = x * (
+            1 - encoder_padding_mask.unsqueeze(-1).type_as(x) * has_pads.type_as(x)
+        )
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
@@ -343,6 +350,9 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
             encoder_states.append(x)
 
         attn_mask = self.get_attn_mask(src_lengths)
+        if attn_mask is not None:
+            # casting is important as attn_mask will be added to attn_weights
+            attn_mask = attn_mask.type_as(x)
 
         # encoder layers
         for layer in self.layers:

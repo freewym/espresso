@@ -32,6 +32,10 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
         normalize_scores=True,
         temperature=1.0,
         eos=None,
+        bos=None,
+        blank=None,
+        pad=None,
+        model_predicts_eos=False,
         symbols_to_strip_from_output=None,
         lm_model=None,
         lm_weight=1.0,
@@ -68,6 +72,17 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
             temperature (float, optional): temperature, where values
                 >1.0 produce more uniform samples and values <1.0 produce
                 sharper samples (default: 1.0)
+            eos (int, optional): index of eos. Will be dictionary.eos() if None
+                (default: None)
+            bos (int, optional): index of bos. Will be dictionary.eos() if None
+                (default: None)
+            blank (int, optional): index of blank. Will be dictionary.bos() if
+                None (default: None)
+            pad (int, optional): index of pad. Will be dictionary.pad() if None
+                (default: None)
+            model_predicts_eos(bool, optional): enable it if the transducer model was
+                trained to predict EOS. Probability mass of emitting EOS will be transferred
+                to BLANK to alleviate early stop issue during decoding (default: False)
             lm_model (fairseq.models.FairseqLanguageModel, optional): LM model for LM fusion (default: None)
             lm_weight (float, optional): LM weight for LM fusion (default: 1.0)
             print_alignment (bool, optional): if True returns alignments (default: False)
@@ -79,15 +94,20 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
             max_num_expansions_per_step=max_num_expansions_per_step,
             temperature=temperature,
             eos=eos,
+            bos=bos,
+            blank=blank,
+            model_predicts_eos=model_predicts_eos,
             symbols_to_strip_from_output=symbols_to_strip_from_output,
             lm_model=lm_model,
             lm_weight=lm_weight,
             print_alignment=print_alignment,
             **kwargs,
         )
-        self.pad = dictionary.pad()
+        self.pad = dictionary.pad() if pad is None else pad
         # the max beam size is the dictionary size - 1, since we never select pad
-        self.beam_size = min(beam_size, self.vocab_size - 1)
+        self.beam_size = min(
+            beam_size, self.vocab_size - (1 if self.pad != self.blank else 0)
+        )
         self.expansion_beta = expansion_beta
         assert expansion_beta >= 0, "--expansion-beta must be non-negative"
         self.expansion_gamma = expansion_gamma
@@ -183,7 +203,7 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
 
         # prev_tokens stores the previous tokens to be fed into the decoder
         prev_tokens = enc_out.new_full(
-            (1,), self.eos if bos_token is None else bos_token, dtype=torch.long
+            (1,), self.bos if bos_token is None else bos_token, dtype=torch.long
         )  # B(=1)
 
         if self.print_alignment:
@@ -310,6 +330,13 @@ class TransducerBeamSearchDecoder(TransducerBaseDecoder):
                     )  # B x V
                 else:
                     lm_lprobs_padded = None
+
+                if self.model_predicts_eos:
+                    # merge blank prob and EOS prob and set EOS prob to 0 to mitigate large del errors
+                    lprobs[:, self.blank] = torch.logaddexp(
+                        lprobs[:, self.blank], lprobs[:, self.eos]
+                    )
+                    lprobs[:, self.eos] = float("-inf")
 
                 # compute k expansions for all the current hypotheses
                 k_expanded_hyps = select_k_expansions(

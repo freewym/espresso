@@ -21,6 +21,7 @@ def collate(
     left_pad_source=True,
     left_pad_target=False,
     input_feeding=True,
+    maybe_bos_idx=None,
     pad_to_length=None,
     pad_to_multiple=1,
     src_bucketed=False,
@@ -89,11 +90,16 @@ def collate(
             prev_output_tokens = merge(
                 "target",
                 left_pad=left_pad_target,
-                move_eos_to_beginning=True,
+                move_eos_to_beginning=(maybe_bos_idx is None),
                 pad_to_length=pad_to_length["target"]
                 if pad_to_length is not None
                 else None,
             )
+            if maybe_bos_idx is not None:
+                all_bos_vec = prev_output_tokens.new_full((1, 1), maybe_bos_idx).expand(
+                    len(samples), 1
+                )
+                prev_output_tokens = torch.cat([all_bos_vec, prev_output_tokens], dim=1)
     else:
         ntokens = src_lengths.sum().item()
 
@@ -148,6 +154,10 @@ class AsrDataset(FairseqDataset):
             (default: True).
         input_feeding (bool, optional): create a shifted version of the targets
             to be passed into the model for teacher forcing (default: True).
+        prepend_bos_as_input_feeding (bool, optional): target prepended with BOS symbol
+            (instead of moving EOS to the beginning of that) as input feeding. This is
+            currently only for a transducer model training setting where EOS is retained
+            in target when evaluating the loss (default: False).
         constraints (Tensor, optional): 2d tensor with a concatenated, zero-
             delimited list of constraints for each sentence.
         num_buckets (int, optional): if set to a value greater than 0, then
@@ -176,6 +186,7 @@ class AsrDataset(FairseqDataset):
         left_pad_target=False,
         shuffle=True,
         input_feeding=True,
+        prepend_bos_as_input_feeding=False,
         constraints=None,
         num_buckets=0,
         src_lang_id=None,
@@ -193,6 +204,7 @@ class AsrDataset(FairseqDataset):
         self.left_pad_target = left_pad_target
         self.shuffle = shuffle
         self.input_feeding = input_feeding
+        self.prepend_bos_as_input_feeding = prepend_bos_as_input_feeding
         self.constraints = constraints
         self.src_lang_id = src_lang_id
         self.tgt_lang_id = tgt_lang_id
@@ -334,6 +346,9 @@ class AsrDataset(FairseqDataset):
             left_pad_source=self.left_pad_source,
             left_pad_target=self.left_pad_target,
             input_feeding=self.input_feeding,
+            maybe_bos_idx=self.dictionary.bos()
+            if self.prepend_bos_as_input_feeding
+            else None,
             pad_to_length=pad_to_length,
             pad_to_multiple=self.pad_to_multiple,
             src_bucketed=(self.buckets is not None),

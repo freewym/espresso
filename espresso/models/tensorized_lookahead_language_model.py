@@ -10,8 +10,9 @@ import torch
 from espresso.data import AsrDictionary
 from espresso.models.external_language_model import RawOutExternalLanguageModelBase
 from espresso.tools.tensorized_prefix_tree import TensorizedPrefixTree
-from espresso.tools.utils import clone_cached_state, tokenize
+from espresso.tools.utils import tokenize
 from fairseq.models import FairseqIncrementalDecoder, FairseqLanguageModel
+from fairseq.utils import apply_to_sample
 
 
 class TensorizedLookaheadLanguageModel(RawOutExternalLanguageModelBase):
@@ -131,8 +132,9 @@ class _TensorizedLookaheadLanguageModelDecoder(FairseqIncrementalDecoder):
             w: torch.Tensor = self.tree.word_idx[nodes].unsqueeze(1)  # Z[Batch, Len=1]
             w[w < 0] = self.word_unk_idx
 
-            old_cached_state = clone_cached_state(
-                self.lm_decoder.get_cached_state(incremental_state)
+            old_cached_state = apply_to_sample(
+                torch.clone,
+                self.lm_decoder.get_cached_state(incremental_state),
             )
             # recompute cumsum_probs from inter-word transition probabilities
             # only for those whose prev_output_token is <space>

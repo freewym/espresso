@@ -12,6 +12,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
+import espresso.tools.utils as speech_utils
 from espresso.models.transformer import SpeechTransformerConfig
 from espresso.modules import (
     RelativePositionalEmbedding,
@@ -430,34 +431,23 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
                 F.pad(src_p, (0, 1)) for src_p in src_prev_key_padding_mask
             ]
 
-        def masked_copy_state(state: Optional[Tensor], src_state: Optional[Tensor]):
-            if state is None:
-                assert src_state is None
-                return None
-            else:
-                assert (
-                    state.size(0) == mask.size(0)
-                    and src_state is not None
-                    and state.size() == src_state.size()
-                )
-                state[mask, ...] = src_state[mask, ...]
-                return state
-
-        prev_key = [
-            masked_copy_state(p, src_p) for (p, src_p) in zip(prev_key, src_prev_key)
-        ]
-        prev_value = [
-            masked_copy_state(p, src_p)
-            for (p, src_p) in zip(prev_value, src_prev_value)
-        ]
+        kv_mask = mask.unsqueeze(1).unsqueeze(2).unsqueeze(3)
+        prev_key = speech_utils.apply_to_sample_pair(
+            lambda x, y, z=kv_mask: torch.where(z, x, y), src_prev_key, prev_key
+        )
+        prev_value = speech_utils.apply_to_sample_pair(
+            lambda x, y, z=kv_mask: torch.where(z, x, y), src_prev_value, prev_value
+        )
         if prev_key_padding_mask is None:
             prev_key_padding_mask = src_prev_key_padding_mask
         else:
             assert src_prev_key_padding_mask is not None
-            prev_key_padding_mask = [
-                masked_copy_state(p, src_p)
-                for (p, src_p) in zip(prev_key_padding_mask, src_prev_key_padding_mask)
-            ]
+            pad_mask = mask.unsqueeze(1)
+            prev_key_padding_mask = speech_utils.apply_to_sample_pair(
+                lambda x, y, z=pad_mask: torch.where(z, x, y),
+                src_prev_key_padding_mask,
+                prev_key_padding_mask,
+            )
 
         cached_state = torch.jit.annotate(
             Dict[str, Optional[Tensor]],

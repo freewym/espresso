@@ -1017,28 +1017,16 @@ class SpeechLSTMDecoder(FairseqIncrementalDecoder):
             src_cached_state[2],
         )
 
-        def masked_copy_state(state: Optional[Tensor], src_state: Optional[Tensor]):
-            if state is None:
-                assert src_state is None
-                return None
-            else:
-                assert (
-                    state.size(0) == mask.size(0)
-                    and src_state is not None
-                    and state.size() == src_state.size()
-                )
-                state[mask, ...] = src_state[mask, ...]
-                return state
-
-        prev_hiddens = [
-            masked_copy_state(p, src_p)
-            for (p, src_p) in zip(prev_hiddens, src_prev_hiddens)
-        ]
-        prev_cells = [
-            masked_copy_state(p, src_p)
-            for (p, src_p) in zip(prev_cells, src_prev_cells)
-        ]
-        input_feed = masked_copy_state(input_feed, src_input_feed)
+        mask = mask.unsqueeze(1)
+        prev_hiddens = speech_utils.apply_to_sample_pair(
+            lambda x, y, z=mask: torch.where(z, x, y), src_prev_hiddens, prev_hiddens
+        )
+        prev_cells = speech_utils.apply_to_sample_pair(
+            lambda x, y, z=mask: torch.where(z, x, y), src_prev_cells, prev_cells
+        )
+        input_feed = speech_utils.apply_to_sample_pair(
+            lambda x, y, z=mask: torch.where(z, x, y), src_input_feed, input_feed
+        )
 
         cached_state_new = torch.jit.annotate(
             Dict[str, Optional[Tensor]],

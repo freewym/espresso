@@ -22,6 +22,9 @@ class TransducerBaseDecoder(nn.Module):
         max_num_expansions_per_step=2,
         temperature=1.0,
         eos=None,
+        bos=None,
+        blank=None,
+        model_predicts_eos=False,
         symbols_to_strip_from_output=None,
         lm_model=None,
         lm_weight=1.0,
@@ -40,6 +43,15 @@ class TransducerBaseDecoder(nn.Module):
             temperature (float, optional): temperature, where values
                 >1.0 produce more uniform samples and values <1.0 produce
                 sharper samples (default: 1.0)
+            eos (int, optional): index of eos. Will be dictionary.eos() if None
+                (default: None)
+            bos (int, optional): index of bos. Will be dictionary.eos() if None
+                (default: None)
+            blank (int, optional): index of blank. Will be dictionary.bos() if
+                None (default: None)
+            model_predicts_eos(bool, optional): enable it if the transducer model was
+                trained to predict EOS. Probability mass of emitting EOS will be transferred
+                to BLANK to alleviate early stop issue during decoding (default: False)
             lm_model (fairseq.models.FairseqLanguageModel, optional): LM model for LM fusion (default: None)
             lm_weight (float, optional): LM weight for LM fusion (default: 1.0)
             print_alignment (bool, optional): if True returns alignments (default: False)
@@ -47,11 +59,15 @@ class TransducerBaseDecoder(nn.Module):
         super().__init__()
         self.model = models[0]  # currently only support single models
         self.eos = dictionary.eos() if eos is None else eos
-        self.blank = dictionary.bos()  # we make the optional BOS symbol as blank
+        self.bos = dictionary.eos() if bos is None else bos
+        self.blank = (
+            dictionary.bos() if blank is None else blank
+        )  # we make the optional BOS symbol as blank
+        self.model_predicts_eos = model_predicts_eos
         self.symbols_to_strip_from_output = (
-            symbols_to_strip_from_output.union({self.eos, self.blank})
+            symbols_to_strip_from_output.union({self.eos, self.bos, self.blank})
             if symbols_to_strip_from_output is not None
-            else {self.eos, self.blank}
+            else {self.eos, self.bos, self.blank}
         )
         self.vocab_size = len(dictionary)
         self.beam_size = 1  # child classes can overwrite it

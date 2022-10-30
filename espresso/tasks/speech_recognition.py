@@ -76,6 +76,14 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
             "adds 'prev_output_tokens' to input and appends eos to target"
         },
     )
+    include_eos_in_transducer_loss: bool = field(
+        default=False,
+        metadata={
+            "help": "If True, we retain EOS in target when evaluating the transducer loss."
+            "It will also use target prepended with BOS (=BLANK) symbol (instead of "
+            "moving EOS to the beginning of that) as input feeding"
+        },
+    )
     max_num_expansions_per_step: int = field(
         default=2,
         metadata={
@@ -125,6 +133,7 @@ def get_asr_dataset_from_json(
     shuffle=True,
     pad_to_multiple=1,
     autoregressive=True,
+    prepend_bos_as_input_feeding=False,
     is_training_set=False,
     batch_based_on_both_src_tgt=False,
     seed=1,
@@ -253,6 +262,7 @@ def get_asr_dataset_from_json(
         num_buckets=num_buckets,
         shuffle=shuffle,
         input_feeding=autoregressive,
+        prepend_bos_as_input_feeding=prepend_bos_as_input_feeding,
         pad_to_multiple=pad_to_multiple,
         batch_based_on_both_src_tgt=batch_based_on_both_src_tgt,
     )
@@ -311,8 +321,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         self.feat_in_channels = cfg.feat_in_channels
         self.extra_symbols_to_ignore = {tgt_dict.pad()}  # for validation with WER
         if cfg.criterion_name in ["transducer_loss", "ctc_loss"]:
-            self.blank_symbol = tgt_dict.bos_word  # reserve the bos symbol for blank
-            self.extra_symbols_to_ignore.add(tgt_dict.index(self.blank_symbol))
+            self.blank_symbol = tgt_dict[
+                tgt_dict.bos()
+            ]  # reserve the bos symbol for blank
+            self.extra_symbols_to_ignore.add(tgt_dict.bos())
         torch.backends.cudnn.deterministic = True
         # Compansate for the removel of :func:`torch.rand()` from
         # :func:`fairseq.distributed_utils.distributed_init()` by fairseq,
@@ -406,6 +418,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             shuffle=(split != self.cfg.gen_subset),
             pad_to_multiple=self.cfg.required_seq_len_multiple,
             autoregressive=self.cfg.autoregressive,
+            prepend_bos_as_input_feeding=(
+                self.cfg.criterion_name == "transducer_loss"
+                and self.cfg.include_eos_in_transducer_loss
+            ),
             is_training_set=(split == self.cfg.train_subset),
             batch_based_on_both_src_tgt=(self.cfg.criterion_name == "transducer_loss"),
             seed=self.cfg.seed,
@@ -442,6 +458,13 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 [model],
                 self.target_dictionary,
                 max_num_expansions_per_step=self.cfg.max_num_expansions_per_step,
+                bos=(
+                    self.target_dictionary.bos()
+                    if self.cfg.include_eos_in_transducer_loss
+                    else self.target_dictionary.eos()
+                ),
+                blank=self.target_dictionary.index(self.blank_symbol),
+                model_predicts_eos=self.cfg.include_eos_in_transducer_loss,
             )
         elif self.cfg.criterion_name == "ctc_loss":  # a ctc model
             from espresso.tools.ctc_decoder import CTCDecoder
@@ -450,7 +473,10 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 [model],
                 self.target_dictionary,
             )
-        else:  # assume it is an attention-based encoder-decoder model
+        elif (
+            self.cfg.criterion_name is None
+            or "cross_entropy" in self.cfg.criterion_name
+        ):  # assume it is an attention-based encoder-decoder model
             from espresso.tools.simple_greedy_decoder import SimpleGreedyDecoder
 
             self.decoder_for_validation = SimpleGreedyDecoder(
@@ -458,6 +484,8 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 self.target_dictionary,
                 for_validation=True,
             )
+        else:
+            self.decoder_for_validation = None
 
         return model
 
@@ -505,6 +533,13 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 expansion_beta=getattr(args, "transducer_expansion_beta", 0),
                 expansion_gamma=getattr(args, "transducer_expansion_gamma", None),
                 prefix_alpha=getattr(args, "transducer_prefix_alpha", None),
+                bos=(
+                    self.target_dictionary.bos()
+                    if self.cfg.include_eos_in_transducer_loss
+                    else self.target_dictionary.eos()
+                ),
+                blank=self.target_dictionary.index(self.blank_symbol),
+                model_predicts_eos=self.cfg.include_eos_in_transducer_loss,
                 **extra_gen_cls_kwargs,
             )
         elif self.cfg.criterion_name == "ctc_loss":
@@ -534,12 +569,13 @@ class SpeechRecognitionEspressoTask(FairseqTask):
 
     def valid_step(self, sample, model, criterion):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
-        (
-            logging_output["word_error"],
-            logging_output["word_count"],
-            logging_output["char_error"],
-            logging_output["char_count"],
-        ) = self._inference_with_wer(self.decoder_for_validation, sample, model)
+        if self.decoder_for_validation is not None:
+            (
+                logging_output["word_error"],
+                logging_output["word_count"],
+                logging_output["char_error"],
+                logging_output["char_count"],
+            ) = self._inference_with_wer(self.decoder_for_validation, sample, model)
         return loss, sample_size, logging_output
 
     def begin_epoch(self, epoch, model):
