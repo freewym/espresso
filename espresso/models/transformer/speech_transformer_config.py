@@ -52,6 +52,12 @@ class SpeechEncoderConfig(SpeechEncDecBaseConfig):
         default="[(1, 1), (2, 2), (1, 1), (2, 2)]",
         metadata={"help": "list of encoder convolution's out strides"},
     )
+    conv_apply_batchnorm: bool = field(
+        default=True,
+        metadata={
+            "help": "whether to apply BatchNorm after each convolution layer in pre-encoder"
+        },
+    )
     transformer_context: Optional[str] = field(
         default=None,
         metadata={

@@ -235,6 +235,7 @@ class SpeechLSTMModel(FairseqEncoderDecoderModel):
                 kernel_sizes,
                 strides,
                 in_channels=task.feat_in_channels,
+                apply_batchnorm=True,
             )
             if out_channels is not None
             else None

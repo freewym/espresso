@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from omegaconf import DictConfig
 from torch import Tensor
 
 import espresso.tools.utils as speech_utils
@@ -79,14 +80,12 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
             self.fc_out = nn.Linear(
                 self.decoder.embed_tokens.embedding_dim,
                 self.decoder.embed_tokens.num_embeddings,
-                bias=False,
             )
             self.fc_out.weight = self.decoder.embed_tokens.weight
         else:
             self.fc_out = nn.Linear(
-                cfg.joint_dim, self.decoder.embed_tokens.num_embeddings, bias=False
+                cfg.joint_dim, self.decoder.embed_tokens.num_embeddings
             )
-            nn.init.normal_(self.fc_out.weight, mean=0, std=cfg.joint_dim**-0.5)
             self.fc_out = nn.utils.weight_norm(self.fc_out, name="weight")
 
         self.cfg = cfg
@@ -144,6 +143,7 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
                 kernel_sizes,
                 strides,
                 in_channels=task.feat_in_channels,
+                apply_batchnorm=cfg.encoder.conv_apply_batchnorm,
             )
             if out_channels is not None
             else None
@@ -310,3 +310,8 @@ class SpeechTransformerTransducerModelBase(BaseFairseqModel):
     ):
         """Get normalized probabilities (or log probs) from a net's output."""
         return self.get_normalized_probs_scriptable(net_output, log_probs, sample)
+
+    def prepare_for_inference_(self, cfg: DictConfig):
+        """Prepare model for inference."""
+        self.fc_out = nn.utils.remove_weight_norm(self.fc_out)
+        super().prepare_for_inference_(cfg)
