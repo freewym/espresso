@@ -20,9 +20,19 @@ import espresso.tools.utils as speech_utils
 
 
 class ConvBNReLU(nn.Module):
-    """Sequence of convolution-BatchNorm-ReLU layers."""
+    """Sequence of convolution-[BatchNorm]-ReLU layers.
 
-    def __init__(self, out_channels, kernel_sizes, strides, in_channels=1):
+    Args:
+        out_channels (int): the number of output channels of conv layer
+        kernel_sizes (int or tuple): kernel sizes
+        strides (int or tuple): strides
+        in_channels (int, optional): the number of input channels (default: 1)
+        apply_batchnorm (bool, optional): if True apply BatchNorm after each convolution layer (default: True)
+    """
+
+    def __init__(
+        self, out_channels, kernel_sizes, strides, in_channels=1, apply_batchnorm=True
+    ):
         super().__init__()
         if not has_packaging:
             raise ImportError("Please install packaging with: pip install packaging")
@@ -35,7 +45,7 @@ class ConvBNReLU(nn.Module):
         assert num_layers == len(kernel_sizes) and num_layers == len(strides)
 
         self.convolutions = nn.ModuleList()
-        self.batchnorms = nn.ModuleList()
+        self.batchnorms = nn.ModuleList() if apply_batchnorm else None
         for i in range(num_layers):
             self.convolutions.append(
                 Convolution2d(
@@ -45,7 +55,8 @@ class ConvBNReLU(nn.Module):
                     self.strides[i],
                 )
             )
-            self.batchnorms.append(nn.BatchNorm2d(out_channels[i]))
+            if apply_batchnorm:
+                self.batchnorms.append(nn.BatchNorm2d(out_channels[i]))
 
     def output_lengths(self, in_lengths: Union[torch.Tensor, int]):
         out_lengths = in_lengths
@@ -65,18 +76,22 @@ class ConvBNReLU(nn.Module):
         return out_lengths
 
     def forward(self, src, src_lengths):
-        # B X T X C -> B X (input channel num) x T X (C / input channel num)
+        # B x T x C -> B x (input channel num) x T x (C / input channel num)
         x = src.view(
             src.size(0),
             src.size(1),
             self.in_channels,
             src.size(2) // self.in_channels,
         ).transpose(1, 2)
-        for conv, bn in zip(self.convolutions, self.batchnorms):
-            x = F.relu(bn(conv(x)))
-        # B X (output channel num) x T X C' -> B X T X (output channel num) X C'
+        if self.batchnorms is not None:
+            for conv, bn in zip(self.convolutions, self.batchnorms):
+                x = F.relu(bn(conv(x)))
+        else:
+            for conv in self.convolutions:
+                x = F.relu(conv(x))
+        # B x (output channel num) x T x C' -> B x T x (output channel num) x C'
         x = x.transpose(1, 2)
-        # B X T X (output channel num) X C' -> B X T X C
+        # B x T x (output channel num) x C' -> B x T x C
         x = x.contiguous().view(x.size(0), x.size(1), x.size(2) * x.size(3))
 
         x_lengths = self.output_lengths(src_lengths)

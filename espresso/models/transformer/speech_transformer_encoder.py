@@ -105,7 +105,9 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
         )
 
         if cfg.layernorm_embedding:
-            self.layernorm_embedding = LayerNorm(embed_dim, export=cfg.export)
+            self.layernorm_embedding = LayerNorm(
+                embed_dim, elementwise_affine=False, export=cfg.export
+            )  # sets elementwise_affine to False to stabilize training
         else:
             self.layernorm_embedding = None
 
