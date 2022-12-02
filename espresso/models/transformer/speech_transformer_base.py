@@ -149,7 +149,8 @@ class SpeechTransformerModelBase(TransformerModelBase):
         super().set_num_updates(num_updates)
 
     @classmethod
-    def build_encoder(cls, cfg, pre_encoder=None, input_size=83):
+    def build_encoder(cls, cfg, pre_encoder=None, input_size=83, transformer_context=None):
+        # transformer_context is unused
         return SpeechTransformerEncoderBase(
             cfg, pre_encoder=pre_encoder, input_size=input_size
         )
