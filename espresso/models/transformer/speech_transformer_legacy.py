@@ -78,14 +78,11 @@ class SpeechTransformerModel(SpeechTransformerModelBase):
         )
 
     @classmethod
-    def build_encoder(
-        cls, args, conv_layers_before=None, input_size=83, transformer_context=None
-    ):
+    def build_encoder(cls, args, pre_encoder=None, input_size=83):
         return super().build_encoder(
             SpeechTransformerConfig.from_namespace(args),
-            conv_layers_before=conv_layers_before,
+            pre_encoder=pre_encoder,
             input_size=input_size,
-            transformer_context=transformer_context,
         )
 
     @classmethod
