@@ -151,12 +151,18 @@ class MultiheadAttention(FairseqIncrementalDecoder):
             self.positional_embedding is not None
             and not self.positional_embedding.learnable
         ):
+            assert self.positional_embedding.embedding_dim == embed_dim
             self.pos_bias_u = nn.Parameter(torch.Tensor(embed_dim))
             self.pos_bias_v = nn.Parameter(torch.Tensor(embed_dim))
             self.pos_proj = quant_noise(
                 nn.Linear(embed_dim, embed_dim, bias=False), q_noise, qn_block_size
             )
         else:
+            if self.positional_embedding is not None:
+                assert (
+                    positional_embedding.embedding_dim == embed_dim
+                    or positional_embedding.embedding_dim == self.head_dim
+                )
             self.pos_bias_u = self.pos_bias_v = self.pos_proj = None
 
         self.reset_parameters()
@@ -799,6 +805,9 @@ class MultiheadAttention(FairseqIncrementalDecoder):
                 )
             if not self.positional_embedding.learnable:
                 pe = self.pos_proj(pe)
+            if pe.size(-1) == self.head_dim:
+                # share positional embeddings across attention heads
+                pe = pe.unsqueeze(2).expand(-1, -1, self.num_heads, -1)
             pe = pe.view(bsz, -1, self.num_heads, self.head_dim).transpose(
                 1, 2
             )  # bsz x num_heads x (2*src_len-1) x head_dim

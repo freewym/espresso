@@ -117,15 +117,31 @@ class SpeechTransformerDecoderBase(TransformerDecoderBase):
 
         if cfg.decoder.relative_positional_embeddings:
             if cfg.decoder.learned_pos:
-                rel_pos_embed_list = [
-                    RelativePositionalEmbedding(
-                        cfg.decoder.embed_dim,
-                        padding_idx=None,
-                        max_size=cfg.max_target_positions,
-                        learned=True,
-                    )
-                    for _ in range(cfg.decoder.layers)
-                ]
+                if (
+                    cfg.decoder.share_learned_relative_positional_embeddings_across_layers
+                ):
+                    rel_pos_embed_list = [
+                        RelativePositionalEmbedding(
+                            cfg.decoder.embed_dim // cfg.decoder.attention_heads
+                            if cfg.decoder.share_learned_relative_positional_embeddings_across_heads
+                            else cfg.decoder.embed_dim,
+                            padding_idx=None,
+                            max_size=cfg.max_target_positions,
+                            learned=True,
+                        )
+                    ] * cfg.encoder.layers
+                else:
+                    rel_pos_embed_list = [
+                        RelativePositionalEmbedding(
+                            cfg.decoder.embed_dim // cfg.decoder.attention_heads
+                            if cfg.decoder.share_learned_relative_positional_embeddings_across_heads
+                            else cfg.decoder.embed_dim,
+                            padding_idx=None,
+                            max_size=cfg.max_target_positions,
+                            learned=True,
+                        )
+                        for _ in range(cfg.decoder.layers)
+                    ]
             else:
                 rel_pos_embed = RelativePositionalEmbedding(
                     cfg.decoder.embed_dim,

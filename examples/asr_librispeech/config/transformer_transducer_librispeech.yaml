@@ -45,10 +45,11 @@ criterion:
   print_training_sample_interval: 1000
 
 optimization:
-  max_epoch: 100
+  max_epoch: 160
+  max_update: 232480
   clip_norm: 2.0
   update_freq: [2]
-  lr: [5.0]
+  lr: [0.003125]
 
 optimizer:
   _name: adam
@@ -57,10 +58,9 @@ optimizer:
   weight_decay: 0.0
 
 lr_scheduler:
-  _name: noam
-  warmup_steps: 5000
-  model_size: ${model.encoder.embed_dim}
-  final_lr: 1e-6
+  _name: polynomial_decay_v2
+  warmup_updates: 5000
+  end_learning_rate: 1e-6
 
 model:
   _name: speech_transformer_transducer_base
@@ -75,6 +75,8 @@ model:
     normalize_before: true
     learned_pos: false
     relative_positional_embeddings: true
+    share_learned_relative_positional_embeddings_across_layers: false
+    share_learned_relative_positional_embeddings_across_heads: false
   decoder:
     embed_dim: 512
     hidden_size: 512

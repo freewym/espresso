@@ -120,15 +120,31 @@ class SpeechTransformerEncoderBase(TransformerEncoderBase):
 
         if cfg.encoder.relative_positional_embeddings:
             if cfg.encoder.learned_pos:
-                rel_pos_embed_list = [
-                    RelativePositionalEmbedding(
-                        cfg.encoder.embed_dim,
-                        padding_idx=None,
-                        max_size=self.output_lengths(cfg.max_source_positions),
-                        learned=True,
-                    )
-                    for _ in range(cfg.encoder.layers)
-                ]
+                if (
+                    cfg.encoder.share_learned_relative_positional_embeddings_across_layers
+                ):
+                    rel_pos_embed_list = [
+                        RelativePositionalEmbedding(
+                            cfg.encoder.embed_dim // cfg.encoder.attention_heads
+                            if cfg.encoder.share_learned_relative_positional_embeddings_across_heads
+                            else cfg.encoder.embed_dim,
+                            padding_idx=None,
+                            max_size=self.output_lengths(cfg.max_source_positions),
+                            learned=True,
+                        )
+                    ] * cfg.encoder.layers
+                else:
+                    rel_pos_embed_list = [
+                        RelativePositionalEmbedding(
+                            cfg.encoder.embed_dim // cfg.encoder.attention_heads
+                            if cfg.encoder.share_learned_relative_positional_embeddings_across_heads
+                            else cfg.encoder.embed_dim,
+                            padding_idx=None,
+                            max_size=self.output_lengths(cfg.max_source_positions),
+                            learned=True,
+                        )
+                        for _ in range(cfg.encoder.layers)
+                    ]
             else:
                 rel_pos_embed = RelativePositionalEmbedding(
                     cfg.encoder.embed_dim,

@@ -75,6 +75,8 @@ model:
     normalize_before: true
     learned_pos: true
     relative_positional_embeddings: true
+    share_learned_relative_positional_embeddings_across_layers: false
+    share_learned_relative_positional_embeddings_across_heads: false
   decoder:
     embed_dim: 512
     ffn_embed_dim: 2048
@@ -83,6 +85,8 @@ model:
     normalize_before: true
     learned_pos: false
     relative_positional_embeddings: false
+    share_learned_relative_positional_embeddings_across_layers: false
+    share_learned_relative_positional_embeddings_across_heads: false
     input_dim: 512
     output_dim: 512
   attention_dropout: 0.1

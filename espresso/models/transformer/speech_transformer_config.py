@@ -35,6 +35,20 @@ class SpeechEncDecBaseConfig(EncDecBaseConfig):
             "help": "if set, uses relative positional embeddings (inside self attention)"
         },
     )
+    share_learned_relative_positional_embeddings_across_layers: bool = field(
+        default=False,
+        metadata={
+            "help": "if set, share learned relative positional embeddings "
+            "(inside self attention) across all layers"
+        },
+    )
+    share_learned_relative_positional_embeddings_across_heads: bool = field(
+        default=False,
+        metadata={
+            "help": "if set, share learned relative positional embeddings "
+            "(inside self attention) across all attention heads"
+        },
+    )
 
 
 @dataclass

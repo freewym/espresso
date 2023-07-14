@@ -76,6 +76,8 @@ model:
     normalize_before: true
     learned_pos: false
     relative_positional_embeddings: true
+    share_learned_relative_positional_embeddings_across_layers: false
+    share_learned_relative_positional_embeddings_across_heads: false
   attention_dropout: 0.1
   activation_dropout: 0.1
   dropout: 0.1
