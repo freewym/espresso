@@ -1051,7 +1051,7 @@ class GenerationConfig(FairseqDataclass):
     )
     # for decoding transducer models
     transducer_max_num_expansions_per_step: Optional[int] = field(
-        default=2,
+        default=20,
         metadata={
             "help": "the maximum number of non-blank expansions in a single time step"
         },

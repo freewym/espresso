@@ -261,6 +261,7 @@ if [ ${stage} -le 8 ]; then
       --num-shards 1 --shard-id 0 --dict $dict --bpe sentencepiece --sentencepiece-model ${sentencepiece_model}.model \
       --gen-subset $dataset --max-source-positions 9999 --max-target-positions 999 \
       --path $path --beam 5 --temperature 1.3 --criterion-name transducer_loss \
+      --transducer-max-num-expansions-per-step 20 \
       --transducer-expansion-beta 2 --transducer-expansion-gamma 2.3 --transducer-prefix-alpha 1 \
       --results-path $decode_dir $opts
 

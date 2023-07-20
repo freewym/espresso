@@ -7,6 +7,7 @@ import itertools
 import json
 import logging
 import os
+import tempfile
 from argparse import Namespace
 from collections import OrderedDict
 from dataclasses import dataclass, field
@@ -84,11 +85,11 @@ class SpeechRecognitionEspressoConfig(FairseqDataclass):
             "moving EOS to the beginning of that) as input feeding"
         },
     )
-    max_num_expansions_per_step: int = field(
-        default=2,
+    transducer_max_num_expansions_per_step: int = field(
+        default=II("generation.transducer_max_num_expansions_per_step"),
         metadata={
             "help": "the maximum number of non-blank expansions in a single "
-            "time step of decoding; only relavant when training with transducer loss"
+            "time step of decoding in validation; only relavant when training with transducer loss"
         },
     )
     specaugment_config: Optional[str] = field(
@@ -340,6 +341,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
         """
         # load dictionaries
         dict_path = os.path.join(cfg.data, "dict.txt") if cfg.dict is None else cfg.dict
+        dict_path = cls._maybe_add_pseudo_counts_to_dict(dict_path)
         enable_blank = (
             True if cfg.criterion_name in ["transducer_loss", "ctc_loss"] else False
         )
@@ -376,12 +378,38 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             feat_dim = src_dataset.feat_dim
 
         if cfg.word_dict is not None:
-            word_dict = cls.load_dictionary(cfg.word_dict, enable_bos=False)
+            word_dict_path = cfg.word_dict
+            word_dict_path = cls._maybe_add_pseudo_counts_to_dict(word_dict_path)
+            word_dict = cls.load_dictionary(word_dict_path, enable_bos=False)
             logger.info("word dictionary: {} types".format(len(word_dict)))
             return cls(cfg, tgt_dict, feat_dim, word_dict=word_dict)
 
         else:
             return cls(cfg, tgt_dict, feat_dim)
+
+    @classmethod
+    def _maybe_add_pseudo_counts_to_dict(cls, dict_path):
+        with open(dict_path, "r", encoding="utf-8") as f:
+            split_list = f.readline().rstrip().rsplit(" ", 1)
+            if len(split_list) == 2:
+                try:
+                    int(split_list[1])
+                    return dict_path
+                except ValueError:
+                    pass
+        logger.info(f"No counts detected in {dict_path}. Adding pseudo counts...")
+        with open(dict_path, "r", encoding="utf-8") as fin, tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", delete=False
+        ) as fout:
+            for i, line in enumerate(fin):
+                line = line.rstrip()
+                if len(line) == 0:
+                    logger.warning(
+                        f"Empty at line {i+1} in the dictionary {dict_path}, skipping it"
+                    )
+                    continue
+                print(line + " 1", file=fout)
+            return fout.name
 
     def load_dataset(
         self,
@@ -457,7 +485,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
             self.decoder_for_validation = TransducerGreedyDecoder(
                 [model],
                 self.target_dictionary,
-                max_num_expansions_per_step=self.cfg.max_num_expansions_per_step,
+                max_num_expansions_per_step=self.cfg.transducer_max_num_expansions_per_step,
                 bos=(
                     self.target_dictionary.bos()
                     if self.cfg.include_eos_in_transducer_loss
@@ -528,7 +556,7 @@ class SpeechRecognitionEspressoTask(FairseqTask):
                 beam_size=getattr(args, "beam", 1),
                 normalize_scores=(not getattr(args, "unnormalized", False)),
                 max_num_expansions_per_step=getattr(
-                    args, "transducer_max_num_expansions_per_step", 2
+                    args, "transducer_max_num_expansions_per_step", 20
                 ),
                 expansion_beta=getattr(args, "transducer_expansion_beta", 0),
                 expansion_gamma=getattr(args, "transducer_expansion_gamma", None),

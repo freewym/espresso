@@ -64,6 +64,7 @@ def _main(cfg, output_file):
         datefmt="%Y-%m-%d %H:%M:%S",
         level=os.environ.get("LOGLEVEL", "INFO").upper(),
         stream=output_file,
+        force=True,
     )
     logger = logging.getLogger("espresso.speech_recognize")
     if output_file is not sys.stdout:  # also print to stdout
@@ -359,8 +360,8 @@ def _main(cfg, output_file):
         with open(
             os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8"
         ) as f:
-            res = "WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%".format(
-                *(scorer.wer())
+            res = "WER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%, #words={:d}".format(
+                *(scorer.wer()), scorer.tot_word_count()
             )
             logger.info(header + res)
             f.write(res + "\n")
@@ -370,8 +371,8 @@ def _main(cfg, output_file):
         with open(
             os.path.join(cfg.common_eval.results_path, fn), "w", encoding="utf-8"
         ) as f:
-            res = "CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%".format(
-                *(scorer.cer())
+            res = "CER={:.2f}%, Sub={:.2f}%, Ins={:.2f}%, Del={:.2f}%, #chars={:d}".format(
+                *(scorer.cer()), scorer.tot_char_count()
             )
             logger.info(" " * len(header) + res)
             f.write(res + "\n")
